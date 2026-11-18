@@ -1,46 +1,86 @@
 # Changelog
 
+Hermes is a fork of File Explorer; the versions at the bottom of this file
+(up to 0.11.2) are upstream's releases, kept for attribution. Hermes releases
+will be listed above that history.
+
 ## Unreleased
 
-- Network entries from fstab decode escaped whitespace and backslashes before
-  matching mounted folders, avoiding duplicate rows and broken reconnect paths.
+**New**
+- One-time migration from File Explorer at startup: settings, data, cache and
+  state are imported into the `hermes` namespaces with a per-file ledger,
+  retained sources, and an early lock/probe that refuses to migrate while a
+  legacy instance is still running. Existing Hermes files always win; the
+  legacy cloud subtree is excluded. Recovery steps are documented in
+  `docs/migration.md`.
+- The generated folder launcher and an app-generated default folder handler are
+  adopted in place at startup when their provenance is recognizable; user defaults
+  are never reset and a default that names another application is left alone.
+- Hermes branding and pixel-art winged helmet; separate build outputs and shared
+  installation assets, with independent Debian/Ubuntu, Fedora, Arch and AppImage recipes.
+- Rclone remotes, including WebDAV, now have a separate Cloud sidebar section
+  with independent collapse state and configuration controls. Native connections stay in Network.
+- Nerd Font action icons, compact Views / Sort by / Group by context submenus,
+  and a navigation sort button with eight fields and explicit direction.
+- One external-terminal executable setting with validation, Apply/reset feedback,
+  accent hover colours, and executable-derived Open in menu labels.
+- Empty Trash from Quick Access shares the existing confirmation dialog. Trash
+  artwork respects icon overrides and switches between full and empty states,
+  including zero-byte files; directory watching keeps the sidebar state current.
+- Local Samba/SMB, NFS and WebDAV share detection, including host configuration
+  exposed by Distrobox, with protocol badges on the base folder icon.
+- Consistent lower-right share, symlink and Git repository badges; custom themes
+  can replace each badge SVG. See [the customization guide](docs/custom-icons.md).
+- Built-in SVG grid thumbnails and preview rendering, plus host application
+  discovery and launching for Open with in Distrobox.
+- Mouse caret placement and drag/word selection in text fields; thicker
+  text-colored carets with smooth motion, gentle pulse and accent selections.
+- Independent sidebar and preview-panel brightness controls.
+- Configurable application icon and improved Distrobox launcher identity,
+  artwork preservation and installation-path handling.
+
+**Changed**
+- Removed all portal-based desktop roles and the `--pick` picker window: the
+  termfilechooser file chooser, FileManager1 "Show in folder", and the
+  documents-portal drag target are no longer provided. Only Plasma-native
+  freedesktop roles are used; legacy portal/FileManager1 files on disk are left
+  untouched, and dragging files out uses standard XDND/Wayland DND targets.
+- Identity rename throughout: display name `Hermes`, binary `hermes`,
+  application ID `io.github.juangiler.hermes`, XDG namespace `hermes`, runtime
+  socket `hermes.sock`, cloud units `hermes-cloud-*.service`. `HERMES_*`
+  environment variables take precedence over their `FE_*` legacy aliases.
+- Cloud handover is deferred while File Explorer's own service units exist:
+  connect, disconnect and connect-at-login report that the remote stays under
+  File Explorer instead of touching it, and login state is preserved.
+- Updates stay disabled until a Hermes release channel exists: a manual check
+  reports why, and upstream File Explorer binaries are never offered as Hermes
+  updates.
+- README and maintenance instructions identify Hermes as a File Explorer fork
+  and no longer advertise the upstream maintainer's repositories as Hermes releases.
 - Canceling a running operation (× on its card, or Del in the transfer queue)
   now leaves its bar where it stopped, in red, and says "Canceled", keeping the
   last item it was working on. This applies to copies, moves, deletes,
   extraction and compression.
+- Embedded terminals share Explorer's font and size, enable liga/calt/dlig, and
+  preserve ligatures across colour-only syntax-highlighting changes.
+- Shared path/search/pill enclosure backgrounds, improved light-theme icon and
+  new-tab button contrast, and pointer cursors over clickable path segments.
+- Compressing to zip or tar.gz now says what went wrong (a file that vanished, an
+  unreadable folder, a failed write) instead of leaving an empty archive behind,
+  and entry names keep their accents and spaces.
+
+**Fixed**
+- Sidebar network and WebDAV rows without a custom icon now follow the system
+  icon theme (`folder-remote`), like the Cloud WebDAV row.
+- Network entries from fstab decode escaped whitespace and backslashes before
+  matching mounted folders, avoiding duplicate rows and broken reconnect paths.
 - Vulkan now composes each frame offscreen before presenting it, so redraw passes and
   sidebar boundaries reach the window together. The sidebar separator spans the
   integrated header and sidebar; tab icons adapt to their tab background.
 - Trash icons now follow the selected file icon theme, including bundled and custom sets.
   Long file names in deletion confirmation dialogs end with an ellipsis inside their rows.
-- Nerd Font action icons, compact Views / Sort by / Group by context submenus,
-  and a navigation sort button with eight fields and explicit direction.
-- One external-terminal executable setting with validation, Apply/reset feedback,
-  accent hover colours, and executable-derived Open in menu labels.
-- Embedded terminals share Explorer's font and size, enable liga/calt/dlig, and
-  preserve ligatures across colour-only syntax-highlighting changes.
-- Empty Trash from Quick Access shares the existing confirmation dialog. Trash
-  artwork respects icon overrides and switches between full and empty states,
-  including zero-byte files; directory watching keeps the sidebar state current.
-
-- Local Samba/SMB, NFS and WebDAV share detection, including host configuration
-  exposed by Distrobox, with protocol badges on the base folder icon.
-- Consistent lower-right share, symlink and Git repository badges; custom themes
-  can replace each badge SVG. See [the customization guide](docs/custom-icons.md).
 - A shared folder keeps its share badge when its parent is reached through a
   symbolic link (for example /mnt -> /var/mnt).
-- Built-in SVG grid thumbnails and preview rendering, plus host application
-  discovery and launching for Open with in Distrobox.
-- Mouse caret placement and drag/word selection in text fields; thicker
-  text-colored carets with smooth motion, gentle pulse and accent selections.
-- Shared path/search/pill enclosure backgrounds, improved light-theme icon and
-  new-tab button contrast, and pointer cursors over clickable path segments.
-- Independent sidebar and preview-panel brightness controls.
-- Configurable application icon and improved Distrobox launcher identity,
-  artwork preservation and installation-path handling.
-- Compressing to zip or tar.gz now says what went wrong (a file that vanished, an
-  unreadable folder, a failed write) instead of leaving an empty archive behind,
-  and entry names keep their accents and spaces.
 
 ## 0.11.2
 
