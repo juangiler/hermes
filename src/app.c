@@ -16217,13 +16217,8 @@ int main(int argc, char **argv) {
 #endif
   if (!getenv("MESA_VK_IGNORE_CONFORMANCE_WARNING"))
     setenv("MESA_VK_IGNORE_CONFORMANCE_WARNING", "1", 1);
-  if (!any_selftest && !A.screenshot && !migration_startup()) {
-    fprintf(stderr, "Hermes: migration/startup unavailable; retained legacy data. Resolve permissions or close the other instance and retry.\n");
-    return 1;
-  }
   settings_load();
   ig_identity_adopt();
-  migration_finish();
   // Single instance: hand the arguments to a running window and quit (before
   // SDL starts: instant).
   if (!any_selftest && !A.screenshot && !force_new_window &&
