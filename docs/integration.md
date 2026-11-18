@@ -29,7 +29,7 @@ the Documents portal (`Add`). Invoked with no flags, the long-lived
 | Service | Current behaviour |
 |---|---|
 | `org.freedesktop.FileManager1.ShowItems` | Decodes the URIs and hands the paths to the core host hook, emits `itemsRequested`, then returns `org.freedesktop.portal.Error.Cancelled` because no picker is attached. |
-| `org.freedesktop.impl.portal.FileChooser.OpenFile` / `SaveFile` on `org.freedesktop.impl.portal.desktop.hermes` | Records the request for the headless tests, then returns `response=2` (Cancelled) immediately; no UI is shown. |
+| `org.freedesktop.impl.portal.FileChooser.OpenFile` / `SaveFile` on `org.freedesktop.impl.portal.desktop.hermes` | Records the request for the headless tests, then returns `response=1` (Cancelled; `2` means the interaction ended in some other way) immediately; no UI is shown. |
 
 Taking the file-chooser role is opt-in and happens only when you ask for it.
 These are flags to `hermes-portal-backend`; each edits the config and exits

@@ -60,7 +60,7 @@ const QString kSaveHandle = QStringLiteral(
     "/org/freedesktop/portal/desktop/request/hermes_selftest/save");
 const QString kAppId = QStringLiteral("org.kde.hermes.selftest");
 const QString kChooserTitle = QStringLiteral("Select a file");
-const uint kCancelledResponse = 2;
+const uint kCancelledResponse = 1;
 
 const QByteArray kConfigDirName("xdg-desktop-portal");
 const QByteArray kConfigFileName("portals.conf");

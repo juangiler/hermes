@@ -6,7 +6,9 @@
 namespace {
 const QString kImplName = QStringLiteral("org.freedesktop.impl.portal.desktop.hermes");
 const QString kDesktopPath = QStringLiteral("/org/freedesktop/portal/desktop");
-const uint kCancelledResponse = 2;
+// org.freedesktop.portal.Request.Response: 1 = user cancelled, 2 = ended
+// in some other way. The no-picker path is a cancellation, not an error.
+const uint kCancelledResponse = 1;
 } // namespace
 
 // Hand-written: see dbus-interfaces/org.freedesktop.impl.portal.FileChooser.xml
