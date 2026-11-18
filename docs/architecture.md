@@ -68,8 +68,10 @@
 - `tools/core-selftest.c` exercises the engine and the public ABI without SDL
   or a display server, including permission-denied scans, unusual filenames
   and cross-device copies. It is built by the `hermes-core-selftest` target.
-  `tools/core-api-probe.cpp` is a separate C++17 consumer that links the static
-  archive itself and is built by the `hermes-cpp-probe` target.
+  `tools/core-abi-selftest.c` is the ABI-level suite: it includes no engine
+  sources and links the `hermes_core` archive itself. `tools/core-api-probe.cpp`
+  is a C++17 consumer that links the same archive, built by the
+  `hermes-cpp-probe` target.
 
 ## Repository layout
 

@@ -50,16 +50,17 @@ project builds the SDL-free `hermes_core` static library and its self-test:
 
 ```sh
 cmake -S . -B build/cmake
-cmake --build build/cmake --target hermes-core-selftest hermes-cpp-probe
+cmake --build build/cmake --target hermes-core-selftest hermes-core-abi-selftest hermes-cpp-probe
 ./build/cmake/hermes-core-selftest
+./build/cmake/hermes-core-abi-selftest
 ./build/cmake/hermes-cpp-probe
 ```
 
 These targets link `libarchive`, `fuse3`, `openssl`, `m`, `dl` and `pthread`;
 they are used by the Qt/Kirigami port and by CI as an early parity check. The
-C++ probe compiles only against the public headers and links the static
-archive, which is what a Qt frontend will do. The cross-device copy case needs
-`/dev/shm`, and the permission-denied case must run as a normal user.
+ABI self-test and C++ probe compile only against the public headers and link
+the static archive, which is what a Qt frontend will do. The cross-device copy
+case needs `/dev/shm`, and the permission-denied case must run as a normal user.
 
 ## Install and package
 
