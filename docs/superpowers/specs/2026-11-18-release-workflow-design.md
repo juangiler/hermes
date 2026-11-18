@@ -1,8 +1,12 @@
 # Automated GitHub Release workflow design
 
 **Date:** 2026-11-18
-**Status:** proposed
-**Owner decisions:** tag push `v<version>` triggers; publish a source archive plus SHA256; publish immediately (not draft).
+**Status:** implemented; the immediate-publication decision below is superseded by
+`2026-11-18-draft-release-publication-design.md`.
+
+**Owner decisions:** tag push `v<version>` triggers; publish a source archive plus SHA256.
+Superseded: the tag workflow now creates a draft, and a separate `workflow_dispatch`
+publishes it after review.
 
 ## Context
 
@@ -21,7 +25,7 @@ argument. No external release credentials or package-repository promises exist.
 ## Goals
 
 - Pushing a `v<version>` tag validates all checked-in release metadata against that tag.
-- A GitHub Release is created and published for that exact tag with:
+- A draft GitHub Release is created for that exact tag with:
   - `hermes-<version>.tar.gz` from `tools/source-archive.sh`
   - `hermes-<version>.tar.gz.sha256`
 - Release notes come from the matching `## <version>` section of `CHANGELOG.md`.
@@ -36,7 +40,8 @@ argument. No external release credentials or package-repository promises exist.
   `linuxdeploy` checksum; neither belongs in this first release pipeline.
 - No version bump, package identity change, or out-of-repo deployment.
 - No OBS, package repository, updater endpoint, or upstream File Explorer release channel.
-- No manual-dispatch trigger in this change; the chosen trigger is tag push only.
+- No manual-dispatch trigger on the tag workflow; the chosen trigger is tag push only.
+  Publication is dispatched separately in the superseding design.
 
 ## Design
 
@@ -63,9 +68,11 @@ Rewrite `.github/workflows/release.yml`:
 4. **Extract release notes:**
    `awk` copies the `## <version>` section of `CHANGELOG.md` to `dist/release-notes.md`,
    failing if the section is empty.
-5. **Publish release:** `gh release create "${GITHUB_REF_NAME}" ... --title "Hermes <version>" --notes-file dist/release-notes.md --verify-tag`
-   with `GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}`. Files are the archive, checksum,
-   and (implicitly) the notes file is not uploaded as an artifact.
+5. **Create draft release:** `gh release create "${GITHUB_REF_NAME}" ... --title "Hermes <version>" --notes-file dist/release-notes.md --verify-tag --draft`
+   with `GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}`. Files are the archive and checksum;
+   the notes file is not uploaded as an artifact. The separate `Publish release`
+   workflow described in `2026-11-18-draft-release-publication-design.md` makes it
+   public after review.
 
 `gh` is preinstalled on GitHub-hosted runners, so no third-party release action is
 needed. `--verify-tag` prevents creating a release for a tag that is not present

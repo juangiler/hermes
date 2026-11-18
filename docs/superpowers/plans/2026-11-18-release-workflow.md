@@ -17,7 +17,9 @@
 - `permissions: contents: read` at workflow level; `contents: write` only on the publishing job.
 - `GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}`; no new secrets, external credentials, or third-party actions.
 - Validate with `sh tools/check-release-version.sh "${GITHUB_REF_NAME}"` before publishing.
-- Publish immediately (not draft) using `--verify-tag`.
+- Create a draft with `--draft` and `--verify-tag`; a separate dispatch-only
+  `Publish release` workflow publishes it after review (see
+  `2026-11-18-draft-release-publication-design.md`).
 - Artifacts: `hermes-<version>.tar.gz` and `hermes-<version>.tar.gz.sha256` only.
 - `APP_VERSION` in `src/app.c` remains the single source of truth; no version bump.
 - Tag push and release publication are not exercised in this session (separate authorization required).
@@ -88,7 +90,8 @@ jobs:
             "dist/hermes-$version.tar.gz.sha256" \
             --title "Hermes $version" \
             --notes-file dist/release-notes.md \
-            --verify-tag
+            --verify-tag \
+            --draft
 ```
 
 Keep the file pure ASCII and 2-space YAML indentation.

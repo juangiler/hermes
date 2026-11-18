@@ -7,9 +7,10 @@ will be listed above that history.
 ## Unreleased
 
 **New**
-- Pushing a `v<version>` tag now publishes a GitHub Release with the Hermes
-  source archive and its SHA256 checksum, using notes from that version's
-  `CHANGELOG.md` section.
+- Pushing a `v<version>` tag now creates a draft release with the Hermes source
+  archive and its SHA256 checksum, using notes from that version's `CHANGELOG.md`
+  section. Dispatching the `Publish release` workflow with the tag publishes the
+  draft after review.
 
 **Changed**
 - Early Hermes carried a File Explorer compatibility layer: a startup importer,

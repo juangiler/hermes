@@ -57,16 +57,22 @@ Rewriting the series would require a force-push and is deliberately avoided.
 ## Release infrastructure
 
 Pushing a `v<version>` tag triggers the `Release` workflow. It validates the
-checked-in release metadata against that tag, then publishes a GitHub Release
-containing `hermes-<version>.tar.gz` and its SHA256 checksum. Release notes are
-taken from that version's section of `CHANGELOG.md`.
+checked-in release metadata against that tag, then creates a **draft** GitHub
+Release containing `hermes-<version>.tar.gz` and its SHA256 checksum. Release
+notes are taken from that version's section of `CHANGELOG.md`.
 
-The workflow uses only the built-in `GITHUB_TOKEN`, with `contents: write`
-granted to the publishing job alone. It does not create or push tags, build or
-publish packages, deploy anywhere, or contact the original maintainer's OBS
+Review the draft in GitHub, adjusting its formatting or notes if needed, then
+dispatch the `Publish release` workflow with the tag (`workflow_dispatch`,
+required `tag` input) to make it public. The publish step checks that the release
+is still a draft and does not overwrite your edits. The `Last Release` badge
+reads published releases only, so it stays red until publication.
+
+Both workflows use only the built-in `GITHUB_TOKEN`, with `contents: write`
+granted to their publishing jobs alone. Neither creates or pushes tags, builds or
+publishes packages, deploys anywhere, or contacts the original maintainer's OBS
 project. There are no inherited release credentials or repository promises.
 
-Creating and pushing the tag, and the resulting release publication, remain
-separately authorized human actions. Configure and review a Hermes-owned release
-channel before enabling automatic application updates. Upstream File Explorer
-binaries must never be installed by Hermes's updater.
+Creating and pushing the tag, reviewing the draft, and dispatching publication
+remain separately authorized human actions. Configure and review a Hermes-owned
+release channel before enabling automatic application updates. Upstream File
+Explorer binaries must never be installed by Hermes's updater.
