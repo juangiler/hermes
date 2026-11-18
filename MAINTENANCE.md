@@ -56,12 +56,17 @@ Rewriting the series would require a force-push and is deliberately avoided.
 
 ## Release infrastructure
 
-Hermes is private/development-stage for now. The manual **Release preparation**
-workflow validates metadata and creates a source artifact. It does **not**
-publish releases, push tags, upload packages, or contact the original maintainer's
-OBS project. There are no inherited release credentials or repository promises.
+Pushing a `v<version>` tag triggers the `Release` workflow. It validates the
+checked-in release metadata against that tag, then publishes a GitHub Release
+containing `hermes-<version>.tar.gz` and its SHA256 checksum. Release notes are
+taken from that version's section of `CHANGELOG.md`.
 
-Configure and review a Hermes-owned release channel before enabling publishing
-or automatic application updates. Upstream File Explorer binaries must never be
-installed by Hermes's updater. Any commit, push, tag, deployment or live install
-requires separate authorization.
+The workflow uses only the built-in `GITHUB_TOKEN`, with `contents: write`
+granted to the publishing job alone. It does not create or push tags, build or
+publish packages, deploy anywhere, or contact the original maintainer's OBS
+project. There are no inherited release credentials or repository promises.
+
+Creating and pushing the tag, and the resulting release publication, remain
+separately authorized human actions. Configure and review a Hermes-owned release
+channel before enabling automatic application updates. Upstream File Explorer
+binaries must never be installed by Hermes's updater.
