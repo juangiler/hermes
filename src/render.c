@@ -761,6 +761,11 @@ static void draw_status_dot(f32 ix, f32 iy, f32 is, u32 dot, bool hover) {
     draw_rrect(dx, dy, dr * 2, dr * 2, dr, C(dot));
 }
 
+// Rows without a chosen artwork use the themed folder icon, like Cloud WebDAV, instead of the built-in blue globe.
+static bool net_row_uses_theme_icon(const char *key) {
+    return !key || !key[0] || !strcmp(key, "network");
+}
+
 static void draw_sidebar_content(void) {
     Pane *p = active_pane();
     Rect sb = A.r_sidebar;
@@ -839,9 +844,12 @@ static void draw_sidebar_content(void) {
         else if (pl->kind == PK_UNMOUNTED) draw_drive_icon_ex(ix, iy, is, true);
         else if (pl->kind == PK_PHONE)
             draw_phone_icon(ix, iy, is, pl->phone >= 0 && pl->phone < A.devs.nph && A.devs.ph[pl->phone].kind == 'c', phone_off);
-        else if (pl->kind == PK_NETWORK || pl->kind == PK_NETSAVED || pl->kind == PK_NETSYSTEM) // the server's chosen icon (disconnected: faded)
-            draw_net_icon(ix, iy, is, pl->server >= 0 && pl->server < A.nservers ? A.servers[pl->server].icon : "",
-                          pl->kind == PK_NETSAVED || pl->kind == PK_NETSYSTEM ? 0.5f : 1.f);
+        else if (pl->kind == PK_NETWORK || pl->kind == PK_NETSAVED || pl->kind == PK_NETSYSTEM) { // chosen artwork, or the themed folder
+            const char *key = pl->server >= 0 && pl->server < A.nservers ? A.servers[pl->server].icon : "";
+            f32 dim = pl->kind == PK_NETSAVED || pl->kind == PK_NETSYSTEM ? 0.5f : 1.f;
+            if (net_row_uses_theme_icon(key)) draw_icon_id(ix, iy, is, icon_find("folder-shared"), dim);
+            else draw_net_icon(ix, iy, is, key, dim);
+        }
         else if (cl) { // current theme, with an optional per-remote/backend SVG
             const char *key = cloud_icon(cl);
             const char *custom = cloud_theme_icon(cl->name, cl->type, key);

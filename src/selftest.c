@@ -1929,7 +1929,12 @@ static int run_selftest_m7(void) {
         icon_themes_reload();
         ST_CHECK(icon_theme_find("TestIcons") < 0 && g_icon_theme == 0);
     }
-    { // the logo follows the accent colour (Blue = the artwork as drawn)
+    { // sidebar network rows without a chosen icon follow the system icon theme (WebDAV included)
+        ST_CHECK(net_row_uses_theme_icon(NULL) && net_row_uses_theme_icon("") && net_row_uses_theme_icon("network"));
+        ST_CHECK(!net_row_uses_theme_icon("custom/Homelab/rack") && !net_row_uses_theme_icon("aws"));
+        ST_CHECK(!strcmp(system_icon_name(icon_find("folder-shared")), "folder-remote"));
+    }
+    { // the helmet palette stays consistent with launcher artwork under accents
         u32 saved = g_accent_custom;
         ST_CHECK(icon_glyph(ICON_LOGO_SMALL, 24) != NULL);
         icons_sync_theme();
