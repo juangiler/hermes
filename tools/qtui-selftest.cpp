@@ -46,6 +46,7 @@ private slots:
   void hostHooksAreSafeAcrossControllerLifetime();
   void selectionUsesPathListAndClearsOnNavigation();
   void selectionClearsOnNavigation();
+  void failedOperationRefreshPreservesSelection();
   void directoryModelRejectsStaleScanResults();
   void operationsCreateRenameAndTrash();
   void operationsHandleUtf8Names();
@@ -477,6 +478,36 @@ void HermesQtUiTest::selectionClearsOnNavigation()
 
   controller.navigate(second.path());
   QVERIFY(page->property("selectedPaths").toList().isEmpty());
+}
+
+void HermesQtUiTest::failedOperationRefreshPreservesSelection()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString selectedPath = dir.filePath(QStringLiteral("file.txt"));
+  QVERIFY(writeFile(selectedPath, "x"));
+
+  ShellController controller;
+  controller.navigate(dir.path());
+  QQmlApplicationEngine engine;
+  engine.rootContext()->setContextProperty(QStringLiteral("hermes"), &controller);
+  engine.load(QUrl(QStringLiteral("qrc:/qtui/qml/main.qml")));
+  QVERIFY(!engine.rootObjects().isEmpty());
+  QQuickWindow *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
+  QVERIFY(window);
+  window->resize(800, 600);
+  window->show();
+  QCoreApplication::processEvents();
+
+  QObject *page = window->findChild<QObject *>(QStringLiteral("directoryPage"));
+  QVERIFY(page);
+  QVERIFY(QMetaObject::invokeMethod(page, "toggleSelection",
+                                    Q_ARG(QVariant, QVariant(selectedPath))));
+  QCOMPARE(page->property("selectedPaths").toList().size(), 1);
+
+  controller.recordOperationCompletion(HERMES_OP_DELETE, 1);
+  controller.refreshDirectory();
+  QCOMPARE(page->property("selectedPaths").toList().size(), 1);
 }
 
 void HermesQtUiTest::directoryModelRejectsStaleScanResults()

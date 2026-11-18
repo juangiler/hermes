@@ -37,7 +37,8 @@ private:
   // queued scan to finish after a newer navigation with the synchronous ABI.
   friend class HermesQtUiTest;
 
-  bool applyScan(const QString &path, quint64 generation);
+  bool applyScan(const QString &path, quint64 generation,
+                 const QString &previousPath = QString());
 
   struct Entry {
     QString name;

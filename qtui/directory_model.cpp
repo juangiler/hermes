@@ -48,7 +48,7 @@ bool DirectoryModel::navigate(const QString &path)
   const QString previous = m_path;
   const quint64 generation = ++m_generation;
   m_path = path;
-  if (applyScan(path, generation))
+  if (applyScan(path, generation, previous))
     return true;
 
   if (m_generation == generation && m_path == path) {
@@ -64,11 +64,12 @@ void DirectoryModel::refresh()
     return;
   const QString path = m_path;
   const quint64 generation = m_generation;
-  if (!applyScan(path, generation))
+  if (!applyScan(path, generation, path))
     emit navigateFailed(path);
 }
 
-bool DirectoryModel::applyScan(const QString &path, quint64 generation)
+bool DirectoryModel::applyScan(const QString &path, quint64 generation,
+                               const QString &previousPath)
 {
   const QByteArray utf8 = path.toUtf8();
   HermesListing listing{};
@@ -97,7 +98,8 @@ bool DirectoryModel::applyScan(const QString &path, quint64 generation)
   m_entries.swap(entries);
   m_path = path;
   endResetModel();
-  emit pathChanged(m_path);
+  if (previousPath != path)
+    emit pathChanged(m_path);
   return true;
 }
 
