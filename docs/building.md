@@ -4,7 +4,8 @@
 
 Hermes is a C11/SDL3 Linux application with a unity build. `build.sh` compiles
 only `src/main.c`; other C files are included into that translation unit.
-There is no CMake dependency for ordinary application builds.
+CMake is only used for the headless core library; ordinary application builds
+do not need it.
 
 ## Dependencies
 
@@ -41,6 +42,22 @@ Use package mode for distribution packages; `-march=native` is release-only.
 `hermes --version` prints the application and SDL versions. Files open their
 parent folder with the file selected; folders open as tabs. Single-instance
 behavior and saved sessions remain configurable.
+
+## Headless core library
+
+`build.sh` remains authoritative for the SDL application. A separate CMake
+project builds the SDL-free `hermes_core` static library and its self-test:
+
+```sh
+cmake -S . -B build/cmake
+cmake --build build/cmake --target hermes-core-selftest
+./build/cmake/hermes-core-selftest
+```
+
+This target needs only `libarchive`, `fuse3` and `openssl` at link time; it is
+used by the Qt/Kirigami port and by CI as an early parity check. The cross-device
+copy case needs `/dev/shm`, and the permission-denied case must run as a normal
+user.
 
 ## Install and package
 

@@ -50,6 +50,21 @@
 - `src/system_icons.c` resolves installed freedesktop icon themes and inheritance; `src/system_icon_raster.c` converts
   SVG/PNG icons into the existing atlas/texture caches in `icons.c`. Missing icons keep bundled fallbacks.
 
+### Headless core library
+
+- `src/hermes_core.c` is the unity source for the SDL-free core: it includes the
+  same engine files as `src/main.c` (scan, ops, search, previews, devices, cloud
+  and so on) but none of the UI, SDL or text-rendering files. CMake builds it as
+  the static `hermes_core` library; `build.sh` continues to build the SDL app.
+- `src/core_api.h` is the small C ABI (`hermes_core_create`, `hermes_core_scan`,
+  `hermes_core_drain`, `hermes_core_destroy`, `hermes_listing_free`) that a
+  non-SDL frontend links against. `src/core_host.h` carries the host callbacks
+  the engine uses for UI-side decisions, with inert defaults for headless use;
+  the SDL app installs its own table at startup.
+- `tools/core-selftest.c` exercises the engine and the public ABI without SDL
+  or a display server, including permission-denied scans, unusual filenames
+  and cross-device copies. It is built by the `hermes-core-selftest` target.
+
 ## Repository layout
 
 - `assets/branding/` owns Hermes's editable pixel-art helmet and generated SVG/PNG

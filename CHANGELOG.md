@@ -18,6 +18,10 @@ will be listed above that history.
   adoption. It has been **fully purged**: legacy data is ignored, overrides are
   `HERMES_*` only, and a stale migration lock can no longer block startup.
   Existing legacy files are left untouched; see `docs/migration.md` for history.
+- `refactor(core)`: the SDL-free engine is now available as a `hermes_core` C
+  library behind a small ABI, with host callbacks and headless self-tests. The
+  SDL application and its behaviour are unchanged; this is groundwork for the
+  Qt/Kirigami port.
 
 ## 0.0.1
 
