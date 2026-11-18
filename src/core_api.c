@@ -120,3 +120,60 @@ void hermes_listing_free(HermesListing *listing) {
     free(listing->items);
     memset(listing, 0, sizeof *listing);
 }
+
+static int hex_nibble(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+int hermes_core_uri_to_path(const char *uri, char *out, size_t out_len) {
+    static const char prefix[] = "file://";
+    if (!uri || !out || !out_len) return -1;
+    if (strncmp(uri, prefix, sizeof prefix - 1)) return -1;
+    const char *p = uri + sizeof prefix - 1;
+    // Portals send file:///path; a non-empty authority is not a local path.
+    if (*p != '/') return -1;
+    size_t o = 0;
+    for (; *p; p++) {
+        unsigned char c = (unsigned char)*p;
+        if (c == '%') {
+            int hi = hex_nibble(p[1]);
+            if (hi < 0) return -1;
+            int lo = hex_nibble(p[2]);
+            if (lo < 0) return -1;
+            c = (unsigned char)(hi * 16 + lo);
+            if (!c) return -1; // an encoded NUL cannot be part of a path
+            p += 2;
+        }
+        if (o + 1 >= out_len) return -1; // leave room for the terminator
+        out[o++] = (char)c;
+    }
+    out[o] = '\0';
+    return 0;
+}
+
+int hermes_core_open_uris(HermesCore *core, const char *const *uris, size_t count, bool focus) {
+    // Only the handle check needs the registry lock; never call the host under
+    // it, since callbacks may re-enter the core.
+    if (!core_live(core) || (count && !uris) || count > INT_MAX) return -1;
+    char **paths = count ? calloc(count, sizeof *paths) : NULL;
+    if (count && !paths) return -1;
+    for (size_t i = 0; i < count; i++) {
+        if (!uris[i]) goto fail;
+        size_t n = strlen(uris[i]);
+        paths[i] = malloc(n + 1); // decoding never grows the URI
+        if (!paths[i]) goto fail;
+        if (hermes_core_uri_to_path(uris[i], paths[i], n + 1) != 0) goto fail;
+    }
+    const HermesCoreHost *host = g_core_host;
+    for (size_t i = 0; i < count; i++) host->open_tab(paths[i], -1, focus);
+    for (size_t i = 0; i < count; i++) free(paths[i]);
+    free(paths);
+    return (int)count;
+fail:
+    for (size_t i = 0; i < count; i++) free(paths[i]);
+    free(paths);
+    return -1;
+}

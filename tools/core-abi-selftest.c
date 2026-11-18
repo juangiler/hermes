@@ -28,6 +28,23 @@ static const HermesCoreHost probe_host = {
     host_noop, host_noop, host_open_tab, host_zero,
 };
 
+#define MAX_RECORDED_PATHS 8
+static char g_opened_paths[MAX_RECORDED_PATHS][256];
+static int g_opened_indexes[MAX_RECORDED_PATHS];
+static bool g_opened_focus[MAX_RECORDED_PATHS];
+static int g_opened_count;
+static void host_record_open_tab(const char *path, int index, bool focus) {
+    assert(g_opened_count < MAX_RECORDED_PATHS);
+    snprintf(g_opened_paths[g_opened_count], sizeof g_opened_paths[0], "%s", path);
+    g_opened_indexes[g_opened_count] = index;
+    g_opened_focus[g_opened_count] = focus;
+    g_opened_count++;
+}
+static const HermesCoreHost recording_host = {
+    host_false, host_false, host_false,
+    host_noop, host_noop, host_record_open_tab, host_zero,
+};
+
 static _Atomic int wakes_single, wakes_a, wakes_b;
 static int user_a, user_b;
 static void wake_single(void *user) { (void)user; atomic_fetch_add(&wakes_single, 1); }
@@ -102,6 +119,45 @@ static void test_two_cores(const char *dir) {
     hermes_core_destroy(a);
 }
 
+static void test_uri_to_path(void) {
+    char out[256];
+    assert(!hermes_core_uri_to_path("file:///tmp/a%20b.txt", out, sizeof out));
+    assert(!strcmp(out, "/tmp/a b.txt"));
+    assert(!hermes_core_uri_to_path("file:///tmp/a%2Fb.txt", out, sizeof out));
+    assert(!strcmp(out, "/tmp/a/b.txt"));
+    assert(hermes_core_uri_to_path("https://example.com", out, sizeof out) == -1);
+    assert(hermes_core_uri_to_path("file://", out, sizeof out) == -1);
+    assert(hermes_core_uri_to_path("file:///tmp/a%2", out, sizeof out) == -1);
+    assert(hermes_core_uri_to_path("file:///tmp/a", out, 5) == -1);
+    assert(hermes_core_uri_to_path(NULL, out, sizeof out) == -1);
+    assert(hermes_core_uri_to_path("file:///tmp/a", NULL, sizeof out) == -1);
+}
+
+static void test_open_uris(void) {
+    hermes_core_set_host(&recording_host);
+    HermesCore *core = hermes_core_create(wake_single, NULL);
+    assert(core);
+
+    const char *uris[] = {"file:///tmp/a%20b.txt", "file:///tmp/c%2Fd.txt"};
+    assert(hermes_core_open_uris(core, uris, 2, true) == 2);
+    assert(g_opened_count == 2);
+    assert(!strcmp(g_opened_paths[0], "/tmp/a b.txt"));
+    assert(!strcmp(g_opened_paths[1], "/tmp/c/d.txt"));
+    assert(g_opened_indexes[0] == -1 && g_opened_indexes[1] == -1);
+    assert(g_opened_focus[0] && g_opened_focus[1]);
+
+    // A bad URI anywhere in the batch rejects it before any host callback.
+    g_opened_count = 0;
+    const char *mixed[] = {"file:///tmp/ok.txt", "https://example.com"};
+    assert(hermes_core_open_uris(core, mixed, 2, true) == -1);
+    assert(g_opened_count == 0);
+
+    hermes_core_destroy(core);
+    assert(hermes_core_open_uris(core, uris, 2, true) == -1);
+    assert(g_opened_count == 0);
+    hermes_core_set_host(&probe_host);
+}
+
 int main(void) {
     char dir[] = "/tmp/hermes-core-abi-XXXXXX";
     assert(mkdtemp(dir));
@@ -109,6 +165,8 @@ int main(void) {
 
     test_host_and_scan(dir);
     test_two_cores(dir);
+    test_uri_to_path();
+    test_open_uris();
 
     char p[PATH_MAX];
     for (int i = 0; i < 8; i++) {

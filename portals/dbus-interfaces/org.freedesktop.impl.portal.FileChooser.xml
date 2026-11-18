@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Authoritative wire contract for portals/file_chooser_backend.cpp.
+     The adaptor is hand-written because qdbusxml2cpp is unavailable in CI. -->
+<node>
+  <interface name="org.freedesktop.impl.portal.FileChooser">
+    <method name="OpenFile">
+      <arg name="handle" type="o" direction="in"/>
+      <arg name="app_id" type="s" direction="in"/>
+      <arg name="parent_window" type="s" direction="in"/>
+      <arg name="title" type="s" direction="in"/>
+      <arg name="options" type="a{sv}" direction="in"/>
+      <arg name="response" type="u" direction="out"/>
+      <arg name="results" type="a{sv}" direction="out"/>
+    </method>
+    <method name="SaveFile">
+      <arg name="handle" type="o" direction="in"/>
+      <arg name="app_id" type="s" direction="in"/>
+      <arg name="parent_window" type="s" direction="in"/>
+      <arg name="title" type="s" direction="in"/>
+      <arg name="options" type="a{sv}" direction="in"/>
+      <arg name="response" type="u" direction="out"/>
+      <arg name="results" type="a{sv}" direction="out"/>
+    </method>
+  </interface>
+</node>

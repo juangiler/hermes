@@ -1,5 +1,6 @@
 // core_api.h - public C ABI for the headless Hermes engine.
 #pragma once
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -30,6 +31,11 @@ HermesCore *hermes_core_create(HermesWakeFn wake, void *user);
 void hermes_core_set_host(const struct HermesCoreHost *host);
 void hermes_core_destroy(HermesCore *core);
 void hermes_core_drain(HermesCore *core);
+// Convert an incoming file:// URI to a local path; 0 on success, -1 otherwise.
+int hermes_core_uri_to_path(const char *uri, char *out, size_t out_len);
+// Validate the URI batch, then hand each path to the host's open_tab with
+// index -1. Returns the number opened, or -1 if the core or any URI is invalid.
+int hermes_core_open_uris(HermesCore *core, const char *const *uris, size_t count, bool focus);
 int hermes_core_scan(HermesCore *core, const char *path, HermesListing *out);
 void hermes_listing_free(HermesListing *listing);
 

@@ -171,6 +171,14 @@ class BuildInstallTest(unittest.TestCase):
         self.assertIn("add_executable(hermes-cpp-probe tools/core-api-probe.cpp)", cmake)
         self.assertIn("add_executable(hermes-core-abi-selftest tools/core-abi-selftest.c)", cmake)
 
+    def test_docs_describe_opt_in_portal_roles_and_headless_tests(self):
+        docs = self.root / "docs"
+        integration = (docs / "integration.md").read_text()
+        building = (docs / "building.md").read_text()
+        self.assertIn("--enable-filechooser", integration)
+        self.assertIn("portals.conf.hermes-backup", integration)
+        self.assertIn("hermes-portal-selftest", building)
+
 
 if __name__ == "__main__":
     unittest.main()

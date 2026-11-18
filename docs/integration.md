@@ -17,13 +17,44 @@ On the first start, Hermes asks once whether it should be the default file manag
 No existing desktop integration is adopted or rewritten; files created by other
 applications are left as they are.
 
-No other desktop roles are claimed. Hermes does **not** implement
-`org.freedesktop.FileManager1` ("Show in folder"), provide a system
-file-chooser portal or `--pick` picker window, or offer a documents-portal
-file-transfer drag target. Files dragged into sandboxed apps use the normal
-clipboard/DND targets. The XDG Settings portal is still read for the system
-accent colour (see [Settings](settings.md)); that is appearance only, not a
-file-management integration.
+### Desktop portals (headless plumbing)
+
+The portal work landed so far is plumbing, not a user-visible picker. The
+`hermes_core` C ABI (`src/core_api.h`) accepts inbound `file://` URIs and batch
+opens, and the `hermes-portals` C++ library has async clients for the XDG
+Settings portal (`ReadOne`), OpenURI (`OpenURI`, outgoing `file://` URIs) and
+the Documents portal (`Add`). Invoked with no flags, the long-lived
+`hermes-portal-backend` registers two headless services:
+
+| Service | Current behaviour |
+|---|---|
+| `org.freedesktop.FileManager1.ShowItems` | Decodes the URIs and hands the paths to the core host hook, emits `itemsRequested`, then returns `org.freedesktop.portal.Error.Cancelled` because no picker is attached. |
+| `org.freedesktop.impl.portal.FileChooser.OpenFile` / `SaveFile` on `org.freedesktop.impl.portal.desktop.hermes` | Records the request for the headless tests, then returns `response=1` (Cancelled; `2` means the interaction ended in some other way) immediately; no UI is shown. |
+
+Taking the file-chooser role is opt-in and happens only when you ask for it.
+These are flags to `hermes-portal-backend`; each edits the config and exits
+instead of starting the long-lived services:
+
+| Command | What it does |
+|---|---|
+| `--enable-filechooser` | Writes only `org.freedesktop.impl.portal.FileChooser=hermes` under `[preferred]` in `$XDG_CONFIG_HOME/xdg-desktop-portal/portals.conf`, keeping unrelated bytes unchanged and backing up the original to `portals.conf.hermes-backup`. |
+| `--disable-filechooser` | Restores that backup byte-for-byte when the config is unchanged since opt-in; if it has since been edited, removes only the Hermes key (restoring a previous value) so unrelated edits survive. Removes the backup in both cases. |
+| `--status` | Prints whether the Hermes file-chooser role is enabled, without changing anything. |
+
+`--enable-filechooser` and `--disable-filechooser` are mutually exclusive and
+rejected with a usage error. `--status` is informational and may be combined
+with either opt-in flag.
+
+Installers and the default configuration never take over a desktop role: Hermes
+writes a portal preference only through these flags, and they touch only your
+XDG config. The XDG Settings portal is still read for the system accent colour
+(see [Settings](settings.md)); that is appearance only, not a file-management
+integration.
+
+The picker UI, a documents-portal drag target and live portal arbitration on
+KDE Plasma 6.x arrive in a later step of the port. Until then headless tests
+prove D-Bus plumbing only — live Plasma behaviour is target-only, not verified.
+Files dragged into other applications keep the normal clipboard/DND targets.
 
 The same by hand:
 ```sh
