@@ -1,7 +1,8 @@
 # Kirigami shell (step 3 of the Qt/Kirigami port)
 
 Date: 2026-11-18
-Status: proposed
+Status: implemented (headless/offscreen verification only; live Plasma 6.6-6.8
+behaviour remains target-only)
 
 ## Intent and why
 
