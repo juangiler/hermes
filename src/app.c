@@ -8,6 +8,15 @@ extern char **environ;
 #define APP_LABEL HERMES_NAME // shown next to the logo inside the app
 #define APP_VERSION "0.0.1" // bumped with each tagged release
 
+static u32 g_wake_event;
+static void sdl_wake(void *user) {
+  (void)user;
+  SDL_Event ev;
+  SDL_zero(ev);
+  ev.type = g_wake_event;
+  SDL_PushEvent(&ev);
+}
+
 typedef struct {
   f32 x, y, w, h;
 } Rect;
@@ -15780,6 +15789,7 @@ static int run_bench(const char *path, const char *query) {
 #endif
   SDL_Init(SDL_INIT_EVENTS);
   g_wake_event = SDL_RegisterEvents(1);
+  pool_set_wake(sdl_wake, NULL);
   pool_init();
   char p[PATH_MAX];
   if (!realpath(path, p)) {
@@ -16275,6 +16285,7 @@ int main(int argc, char **argv) {
     return 1;
   }
   g_wake_event = SDL_RegisterEvents(1);
+  pool_set_wake(sdl_wake, NULL);
   pool_init();
 
   A.csd = titlebar_wanted(); // (borderless from the start: no system title bar

@@ -1,6 +1,7 @@
 // pool.c - worker thread pool + queue of callbacks to run on the main thread
 
 typedef void (*JobFn)(void *arg);
+typedef void (*CoreWakeFn)(void *user);
 
 typedef struct Job {
     JobFn fn;
@@ -17,7 +18,8 @@ typedef struct {
 static JobQueue g_jobs  = {PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, NULL, NULL};
 static JobQueue g_mainq = {PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, NULL, NULL};
 static int g_nworkers;
-static u32 g_wake_event; // SDL user event used to wake the main loop
+static CoreWakeFn g_wake_fn;
+static void *g_wake_user;
 
 static void jq_push(JobQueue *q, JobFn fn, void *arg) {
     Job *j = xmalloc(sizeof *j);
@@ -60,12 +62,13 @@ static void pool_init(void) {
 
 static void pool_submit(JobFn fn, void *arg) { jq_push(&g_jobs, fn, arg); }
 
+static void pool_set_wake(CoreWakeFn fn, void *user) {
+    g_wake_fn = fn;
+    g_wake_user = user;
+}
+
 static void main_wake(void) {
-    if (!g_wake_event) return;
-    SDL_Event ev;
-    SDL_zero(ev);
-    ev.type = g_wake_event;
-    SDL_PushEvent(&ev);
+    if (g_wake_fn) g_wake_fn(g_wake_user);
 }
 
 static void main_post(JobFn fn, void *arg) {
