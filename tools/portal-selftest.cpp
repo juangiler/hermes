@@ -5,14 +5,19 @@
 #include "../portals/file_manager1_service.h"
 #include "../portals/open_uri_client.h"
 #include "../portals/portal_common.h"
+#include "../portals/portal_config.h"
 #include "../portals/settings_client.h"
 
 #include "../src/core_api.h"
 #include "../src/core_host.h"
 
+#include <QtCore/QByteArray>
+#include <QtCore/QDir>
+#include <QtCore/QFile>
 #include <QtCore/QList>
 #include <QtCore/QObject>
 #include <QtCore/QStringList>
+#include <QtCore/QTemporaryDir>
 #include <QtCore/QTimer>
 #include <QtCore/QUrl>
 #include <QtDBus/QDBusAbstractAdaptor>
@@ -56,6 +61,14 @@ const QString kSaveHandle = QStringLiteral(
 const QString kAppId = QStringLiteral("org.kde.hermes.selftest");
 const QString kChooserTitle = QStringLiteral("Select a file");
 const uint kCancelledResponse = 2;
+
+const QByteArray kConfigDirName("xdg-desktop-portal");
+const QByteArray kConfigFileName("portals.conf");
+const QByteArray kBackupSuffix("hermes-backup");
+const QString kEnabledStatus = QStringLiteral("filechooser: enabled");
+const QString kDisabledStatus = QStringLiteral("filechooser: disabled");
+const QByteArray kEnabledConfig(
+    "[preferred]\norg.freedesktop.impl.portal.FileChooser=hermes\n");
 
 QStringList g_openedPaths;
 QList<int> g_openedIndexes;
@@ -346,11 +359,102 @@ private slots:
     void fileManagerShowItemsOpensUrisAndCancels();
     void fileChooserOpenFileReturnsCancelled();
     void fileChooserSaveFileReturnsCancelled();
+    void portalConfigUsesForcedXdgConfigHome();
+    void portalConfigEnableCreatesKeyAndBackup();
+    void portalConfigEnablePreservesUnrelatedLines();
+    void portalConfigEnableReplacesOnlyExistingValue();
+    void portalConfigEnableAppendsSectionWithExistingLineEnding();
+    void portalConfigEnableIsIdempotent();
+    void portalConfigDisableRestoresExactOriginalBytes();
+    void portalConfigDisableRemovesConfigWhenOriginalMissing();
+    void portalConfigDisableWithoutBackupRemovesOnlyHermesKey();
+    void portalConfigStatusTracksEnableAndDisable();
+    void portalConfigNeverWritesUnderRealHome();
+
+private:
+    QString configPath() const;
+    QString backupPath() const;
+    void resetPortalConfig();
+    void writeConfig(const QByteArray &bytes);
+    QByteArray readFile(const QString &path) const;
+
+    QTemporaryDir m_configDir;
+    QString m_forcedConfigHome;
+    QString m_realHomeConfig;
+    QString m_realHomeBackup;
+    QByteArray m_realHomeBytes;
+    QByteArray m_realHomeBackupBytes;
+    bool m_realHomeTracked = false;
+    bool m_realHomeExisted = false;
+    bool m_realHomeBackupExisted = false;
 };
 
 void PortalSelfTest::initTestCase()
 {
     qRegisterMetaType<PortalReply>("PortalReply");
+
+    // Record the real home state before forcing XDG_CONFIG_HOME, so the final
+    // case can prove no opt-in write escaped the temporary directory.
+    const QString home = QString::fromLocal8Bit(qgetenv("HOME"));
+    if (!home.isEmpty()) {
+        m_realHomeConfig = home + QStringLiteral("/.config/")
+            + QString::fromLocal8Bit(kConfigDirName.constData()) + QLatin1Char('/')
+            + QString::fromLocal8Bit(kConfigFileName.constData());
+        m_realHomeBackup = m_realHomeConfig + QLatin1Char('.')
+            + QString::fromLocal8Bit(kBackupSuffix.constData());
+        m_realHomeTracked = true;
+        m_realHomeExisted = QFile::exists(m_realHomeConfig);
+        m_realHomeBackupExisted = QFile::exists(m_realHomeBackup);
+        if (m_realHomeExisted)
+            m_realHomeBytes = readFile(m_realHomeConfig);
+        if (m_realHomeBackupExisted)
+            m_realHomeBackupBytes = readFile(m_realHomeBackup);
+    }
+
+    QVERIFY(m_configDir.isValid());
+    qputenv("XDG_CONFIG_HOME", m_configDir.path().toLocal8Bit());
+    m_forcedConfigHome = QString::fromLocal8Bit(qgetenv("XDG_CONFIG_HOME"));
+    QCOMPARE(m_forcedConfigHome, m_configDir.path());
+}
+
+QString PortalSelfTest::configPath() const
+{
+    return m_forcedConfigHome + QLatin1Char('/')
+        + QString::fromLocal8Bit(kConfigDirName.constData()) + QLatin1Char('/')
+        + QString::fromLocal8Bit(kConfigFileName.constData());
+}
+
+QString PortalSelfTest::backupPath() const
+{
+    return configPath() + QLatin1Char('.')
+        + QString::fromLocal8Bit(kBackupSuffix.constData());
+}
+
+void PortalSelfTest::resetPortalConfig()
+{
+    const QString directory = m_forcedConfigHome + QLatin1Char('/')
+        + QString::fromLocal8Bit(kConfigDirName.constData());
+    QDir dir(directory);
+    if (dir.exists())
+        QVERIFY(dir.removeRecursively());
+}
+
+void PortalSelfTest::writeConfig(const QByteArray &bytes)
+{
+    const QString directory = m_forcedConfigHome + QLatin1Char('/')
+        + QString::fromLocal8Bit(kConfigDirName.constData());
+    QVERIFY(QDir().mkpath(directory));
+    QFile file(configPath());
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    QCOMPARE(static_cast<qint64>(file.write(bytes)), static_cast<qint64>(bytes.size()));
+}
+
+QByteArray PortalSelfTest::readFile(const QString &path) const
+{
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly))
+        return QByteArray();
+    return file.readAll();
 }
 
 void PortalSelfTest::privateBusIsAvailable()
@@ -575,6 +679,167 @@ void PortalSelfTest::fileChooserSaveFileReturnsCancelled()
     QCOMPARE(arguments.size(), 2);
     QCOMPARE(arguments.at(0).toUInt(), kCancelledResponse);
     QVERIFY(arguments.at(1).toMap().isEmpty());
+}
+
+void PortalSelfTest::portalConfigUsesForcedXdgConfigHome()
+{
+    QCOMPARE(QString::fromLocal8Bit(qgetenv("XDG_CONFIG_HOME")), m_configDir.path());
+    QVERIFY(configPath().startsWith(m_configDir.path() + QLatin1Char('/')));
+    QVERIFY(backupPath().startsWith(m_configDir.path() + QLatin1Char('/')));
+}
+
+void PortalSelfTest::portalConfigEnableCreatesKeyAndBackup()
+{
+    resetPortalConfig();
+    QVERIFY(!QFile::exists(configPath()));
+    QVERIFY(!QFile::exists(backupPath()));
+
+    QString error;
+    QVERIFY2(PortalConfig::enableFileChooser(&error), qPrintable(error));
+    QVERIFY(QFile::exists(configPath()));
+    QVERIFY(QFile::exists(backupPath()));
+    QCOMPARE(readFile(configPath()), kEnabledConfig);
+    // A missing original must still be represented, so disable can remove the
+    // generated config instead of restoring an empty file.
+    QVERIFY(!readFile(backupPath()).isEmpty());
+    QCOMPARE(PortalConfig::status(), kEnabledStatus);
+}
+
+void PortalSelfTest::portalConfigEnablePreservesUnrelatedLines()
+{
+    resetPortalConfig();
+    const QByteArray original("[preferred]\ndefault=gtk\n");
+    writeConfig(original);
+
+    QString error;
+    QVERIFY2(PortalConfig::enableFileChooser(&error), qPrintable(error));
+    QCOMPARE(readFile(backupPath()), original);
+    QCOMPARE(readFile(configPath()),
+             QByteArray("[preferred]\n"
+                        "org.freedesktop.impl.portal.FileChooser=hermes\ndefault=gtk\n"));
+    QVERIFY(readFile(configPath()).contains("default=gtk\n"));
+}
+
+void PortalSelfTest::portalConfigEnableReplacesOnlyExistingValue()
+{
+    resetPortalConfig();
+    const QByteArray original("[other]\nfoo=bar\n\n[preferred]\ndefault=gtk\n"
+                              "org.freedesktop.impl.portal.FileChooser=gtk\nkeep=yes\n");
+    writeConfig(original);
+
+    QString error;
+    QVERIFY2(PortalConfig::enableFileChooser(&error), qPrintable(error));
+    QCOMPARE(readFile(backupPath()), original);
+    QCOMPARE(readFile(configPath()),
+             QByteArray("[other]\nfoo=bar\n\n[preferred]\ndefault=gtk\n"
+                        "org.freedesktop.impl.portal.FileChooser=hermes\nkeep=yes\n"));
+}
+
+void PortalSelfTest::portalConfigEnableAppendsSectionWithExistingLineEnding()
+{
+    resetPortalConfig();
+    const QByteArray original("[other]\r\nfoo=bar\r\n");
+    writeConfig(original);
+
+    QString error;
+    QVERIFY2(PortalConfig::enableFileChooser(&error), qPrintable(error));
+    QCOMPARE(readFile(backupPath()), original);
+    QCOMPARE(readFile(configPath()),
+             QByteArray("[other]\r\nfoo=bar\r\n[preferred]\r\n"
+                        "org.freedesktop.impl.portal.FileChooser=hermes\r\n"));
+
+    resetPortalConfig();
+    writeConfig(QByteArray("[other]"));
+    QVERIFY2(PortalConfig::enableFileChooser(&error), qPrintable(error));
+    QCOMPARE(readFile(configPath()),
+             QByteArray("[other]\n[preferred]\n"
+                        "org.freedesktop.impl.portal.FileChooser=hermes\n"));
+}
+
+void PortalSelfTest::portalConfigEnableIsIdempotent()
+{
+    resetPortalConfig();
+    const QByteArray original("[preferred]\ndefault=gtk\n");
+    writeConfig(original);
+
+    QString error;
+    QVERIFY2(PortalConfig::enableFileChooser(&error), qPrintable(error));
+    QVERIFY2(PortalConfig::enableFileChooser(&error), qPrintable(error));
+    QCOMPARE(readFile(backupPath()), original);
+    QCOMPARE(readFile(configPath()),
+             QByteArray("[preferred]\n"
+                        "org.freedesktop.impl.portal.FileChooser=hermes\ndefault=gtk\n"));
+}
+
+void PortalSelfTest::portalConfigDisableRestoresExactOriginalBytes()
+{
+    resetPortalConfig();
+    // Mixed line endings and no final newline catch any normalisation.
+    const QByteArray original("[preferred]\r\ndefault=gtk\r\n\n[other]\r\nfoo=bar");
+    writeConfig(original);
+
+    QString error;
+    QVERIFY2(PortalConfig::enableFileChooser(&error), qPrintable(error));
+    QVERIFY(readFile(configPath()) != original);
+    QVERIFY2(PortalConfig::disableFileChooser(&error), qPrintable(error));
+    QVERIFY(!QFile::exists(backupPath()));
+    QCOMPARE(readFile(configPath()), original);
+    QCOMPARE(PortalConfig::status(), kDisabledStatus);
+}
+
+void PortalSelfTest::portalConfigDisableRemovesConfigWhenOriginalMissing()
+{
+    resetPortalConfig();
+    QString error;
+    QVERIFY2(PortalConfig::enableFileChooser(&error), qPrintable(error));
+    QVERIFY(QFile::exists(configPath()));
+
+    QVERIFY2(PortalConfig::disableFileChooser(&error), qPrintable(error));
+    QVERIFY(!QFile::exists(configPath()));
+    QVERIFY(!QFile::exists(backupPath()));
+}
+
+void PortalSelfTest::portalConfigDisableWithoutBackupRemovesOnlyHermesKey()
+{
+    resetPortalConfig();
+    writeConfig(QByteArray("[preferred]\ndefault=gtk\n"
+                           "org.freedesktop.impl.portal.FileChooser=hermes\nkeep=yes\n"));
+    QVERIFY(!QFile::exists(backupPath()));
+
+    QString error;
+    QVERIFY2(PortalConfig::disableFileChooser(&error), qPrintable(error));
+    QCOMPARE(readFile(configPath()),
+             QByteArray("[preferred]\ndefault=gtk\nkeep=yes\n"));
+}
+
+void PortalSelfTest::portalConfigStatusTracksEnableAndDisable()
+{
+    resetPortalConfig();
+    QCOMPARE(PortalConfig::status(), kDisabledStatus);
+
+    QString error;
+    QVERIFY2(PortalConfig::enableFileChooser(&error), qPrintable(error));
+    QCOMPARE(PortalConfig::status(), kEnabledStatus);
+
+    QVERIFY2(PortalConfig::disableFileChooser(&error), qPrintable(error));
+    QCOMPARE(PortalConfig::status(), kDisabledStatus);
+}
+
+void PortalSelfTest::portalConfigNeverWritesUnderRealHome()
+{
+    resetPortalConfig();
+    QString error;
+    QVERIFY2(PortalConfig::enableFileChooser(&error), qPrintable(error));
+    QVERIFY2(PortalConfig::disableFileChooser(&error), qPrintable(error));
+
+    if (m_realHomeTracked) {
+        QCOMPARE(QFile::exists(m_realHomeConfig), m_realHomeExisted);
+        QCOMPARE(QFile::exists(m_realHomeBackup), m_realHomeBackupExisted);
+        if (m_realHomeExisted)
+            QCOMPARE(readFile(m_realHomeConfig), m_realHomeBytes);
+        if (m_realHomeBackupExisted)
+            QCOMPARE(readFile(m_realHomeBackup), m_realHomeBackupBytes);
+    }
 }
 
 QTEST_MAIN(PortalSelfTest)

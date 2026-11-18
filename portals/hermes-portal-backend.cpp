@@ -1,8 +1,9 @@
 // D-Bus-activatable portal backend. With no CLI flags it owns the FileManager1
-// and FileChooser services for the lifetime of the session; Task 5 implements
-// the opt-in configuration flags, which keep their print-and-exit behaviour.
+// and FileChooser services for the lifetime of the session; the opt-in flags
+// edit only the user's XDG portals.conf and then exit.
 #include "file_chooser_backend.h"
 #include "file_manager1_service.h"
+#include "portal_config.h"
 
 #include <QCommandLineOption>
 #include <QCommandLineParser>
@@ -17,17 +18,17 @@ int main(int argc, char **argv)
 
     QCommandLineParser parser;
     parser.setApplicationDescription(
-        QStringLiteral("Hermes desktop portal backend (headless stub)"));
+        QStringLiteral("Hermes desktop portal backend"));
     parser.addHelpOption();
     const QCommandLineOption enableFileChooser(
         QStringLiteral("enable-filechooser"),
-        QStringLiteral("Opt in to the Hermes file-chooser portal (stub)."));
+        QStringLiteral("Opt in to the Hermes file-chooser portal."));
     const QCommandLineOption disableFileChooser(
         QStringLiteral("disable-filechooser"),
-        QStringLiteral("Opt out of the Hermes file-chooser portal (stub)."));
+        QStringLiteral("Opt out of the Hermes file-chooser portal."));
     const QCommandLineOption status(
         QStringLiteral("status"),
-        QStringLiteral("Print portal role status (stub)."));
+        QStringLiteral("Print portal role status."));
     parser.addOption(enableFileChooser);
     parser.addOption(disableFileChooser);
     parser.addOption(status);
@@ -35,11 +36,21 @@ int main(int argc, char **argv)
 
     QTextStream out(stdout);
     if (parser.isSet(enableFileChooser)) {
-        out << QStringLiteral("filechooser: enable requested (stub)\n");
+        QString error;
+        if (!PortalConfig::enableFileChooser(&error)) {
+            QTextStream(stderr) << QStringLiteral("hermes-portal-backend: ") << error << '\n';
+            return 1;
+        }
+        out << PortalConfig::status() << '\n';
     } else if (parser.isSet(disableFileChooser)) {
-        out << QStringLiteral("filechooser: disable requested (stub)\n");
+        QString error;
+        if (!PortalConfig::disableFileChooser(&error)) {
+            QTextStream(stderr) << QStringLiteral("hermes-portal-backend: ") << error << '\n';
+            return 1;
+        }
+        out << PortalConfig::status() << '\n';
     } else if (parser.isSet(status)) {
-        out << QStringLiteral("filechooser: status requested (stub)\n");
+        out << PortalConfig::status() << '\n';
     } else {
         QDBusConnection bus = QDBusConnection::sessionBus();
         QString error;
