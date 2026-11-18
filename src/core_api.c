@@ -16,6 +16,11 @@ static pthread_mutex_t g_registry_mtx = PTHREAD_MUTEX_INITIALIZER;
 static HermesCore *g_cores;
 static int g_live_cores;
 
+// The host table is copied, so a frontend may pass a temporary. Callers must
+// still install it before starting jobs: engine workers read it without a lock.
+static pthread_mutex_t g_host_mtx = PTHREAD_MUTEX_INITIALIZER;
+static HermesCoreHost g_owned_host;
+
 static bool core_live(HermesCore *core) {
     if (!core) return false;
     pthread_mutex_lock(&g_registry_mtx);
@@ -28,7 +33,14 @@ static bool core_live(HermesCore *core) {
 }
 
 void hermes_core_set_host(const struct HermesCoreHost *host) {
-    g_core_host = host ? host : &hermes_core_host_defaults;
+    pthread_mutex_lock(&g_host_mtx);
+    if (host) {
+        g_owned_host = *host;
+        g_core_host = &g_owned_host;
+    } else {
+        g_core_host = &hermes_core_host_defaults;
+    }
+    pthread_mutex_unlock(&g_host_mtx);
 }
 
 HermesCore *hermes_core_create(HermesWakeFn wake, void *user) {
@@ -53,9 +65,14 @@ void hermes_core_destroy(HermesCore *core) {
     if (!*link) { pthread_mutex_unlock(&g_registry_mtx); return; }
     *link = core->next;
     core->destroyed = true;
-    bool last = --g_live_cores == 0;
+    g_live_cores--;
+    // The newest live core is the registry head. Restore its hook when the
+    // destroyed core was the one that installed it; clear it only when none
+    // remain. Otherwise a late callback could use the destroyed core's user.
+    HermesWakeFn wake = g_cores ? g_cores->wake : NULL;
+    void *user = g_cores ? g_cores->user : NULL;
     pthread_mutex_unlock(&g_registry_mtx);
-    if (last) pool_set_wake(NULL, NULL);
+    pool_set_wake(wake, user);
     main_drain();
     free(core);
 }

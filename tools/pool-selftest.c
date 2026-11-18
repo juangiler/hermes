@@ -41,6 +41,9 @@ int main(void) {
     assert(atomic_load(&ran) == 1);
     assert(atomic_load(&wakes) >= 1);
 
+    // Install the first hook before starting the flipper, otherwise early jobs
+    // in the stress batch would still invoke the previous test's wake hook.
+    pool_set_wake(wake_a, NULL);
     pthread_t t;
     assert(!pthread_create(&t, NULL, flipper, NULL));
     for (int i = 0; i < 500; i++) pool_submit(stress_worker, NULL);

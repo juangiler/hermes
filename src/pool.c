@@ -79,13 +79,13 @@ static void pool_set_wake(CoreWakeFn fn, void *user) {
 }
 
 static void main_wake(void) {
-    CoreWakeFn fn;
-    void *user;
+    // Keep the lock across the call: pool_set_wake() is then a quiescence
+    // barrier: once it returns, no worker is still inside the old callback,
+    // so a frontend may safely release that callback's user data. Wake
+    // callbacks must therefore not call pool_set_wake() themselves.
     pthread_mutex_lock(&g_wake_mtx);
-    fn = g_wake_fn;
-    user = g_wake_user;
+    if (g_wake_fn) g_wake_fn(g_wake_user);
     pthread_mutex_unlock(&g_wake_mtx);
-    if (fn) fn(user);
 }
 
 static void main_post(JobFn fn, void *arg) {

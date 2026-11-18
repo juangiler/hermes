@@ -26,6 +26,7 @@ typedef struct {
 struct HermesCoreHost; // defined in core_host.h; installed once by the frontend
 
 HermesCore *hermes_core_create(HermesWakeFn wake, void *user);
+// The table is copied, but install it before starting any jobs.
 void hermes_core_set_host(const struct HermesCoreHost *host);
 void hermes_core_destroy(HermesCore *core);
 void hermes_core_drain(HermesCore *core);
