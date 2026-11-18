@@ -19,8 +19,8 @@
 - Badge colors for new static badges use the existing Tokyo Night palette (`7aa2f7`).
 - `?job=` is an undocumented GitHub badge parameter; keep the documented `?branch=main` too.
 - Markdown-only change: do not claim an application rebuild occurred.
-- Release badge tracks the manual `Release preparation` workflow (`release.yml`); it will show "no status" until dispatched by hand.
-- A dynamic latest-release version badge is included by user choice. It will read `not found`/invalid until a real GitHub Release exists and the private repo is readable by Shields. No release/tag/version bump is created by this work.
+- One dynamic latest-release version badge, labelled `Last Release`, is included by user choice. It will read `not found`/invalid until a real GitHub Release exists and the private repo is readable by Shields. No release/tag/version bump is created by this work.
+- No separate `Release preparation` workflow badge in the README. The `release.yml` workflow file remains unchanged.
 
 ## Review Focus
 
@@ -153,4 +153,44 @@ Expected: no whitespace errors.
 ```bash
 git add README.md docs/superpowers/specs/2026-11-18-readme-badges-design.md docs/superpowers/plans/2026-11-18-readme-badges.md
 git commit -m "docs(readme): add dynamic release version badge"
+```
+
+---
+
+### Task 4: Keep one live release badge labelled Last Release
+
+**Files:**
+- Modify: `README.md:11-15` (first badge row only)
+- Modify: `docs/superpowers/specs/2026-11-18-readme-badges-design.md` (already edited: prep badge removed, version badge labelled Last Release)
+- Modify: `docs/superpowers/plans/2026-11-18-readme-badges.md` (this plan; constraints and Task 4)
+
+**Interfaces:**
+- Consumes: repo `juangiler/hermes`, Shields GitHub Release endpoint, releases page URL.
+- Produces: no code interfaces; output is the rendered README header.
+
+- [ ] **Step 1: Replace the two release badge lines with one**
+
+In the first badge row of `README.md`, remove the `Release preparation` badge line and change the version badge line to:
+
+```markdown
+[![Last Release](https://img.shields.io/github/v/release/juangiler/hermes?label=Last%20Release)](https://github.com/juangiler/hermes/releases)
+```
+
+Do not change `.github/workflows/release.yml` or any other badge line.
+
+- [ ] **Step 2: Verify the change**
+
+Run: `git diff -- README.md docs/superpowers/specs/2026-11-18-readme-badges-design.md docs/superpowers/plans/2026-11-18-readme-badges.md`
+
+Expected: README removes only `release.yml/badge.svg`, adds `?label=Last%20Release` to the version badge, and keeps CI, Build and OpenCode lines; docs describe one release badge and state the workflow file is unchanged.
+
+Run: `git diff --check`
+
+Expected: no whitespace errors.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add README.md docs/superpowers/specs/2026-11-18-readme-badges-design.md docs/superpowers/plans/2026-11-18-readme-badges.md
+git commit -m "docs(readme): show one live Last Release badge"
 ```
