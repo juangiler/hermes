@@ -1,26 +1,43 @@
-name: Release preparation
+name: Release
 
-# Hermes has no public binary channel yet. Manual artifacts only: no release
-# publication, package-repository credentials, upstream OBS calls or tag deploys.
 on:
-  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
 
 permissions:
   contents: read
 
 jobs:
-  source:
+  release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
-      - name: Validate metadata and generated branding
+      - name: Validate release metadata
         run: |
-          sh tools/check-release-version.sh
+          sh tools/check-release-version.sh "${GITHUB_REF_NAME}"
           python3 tools/branding-selftest.py
           python3 tools/build-install-selftest.py
-      - name: Source archive
-        run: sh tools/source-archive.sh
-      - uses: actions/upload-artifact@v4
-        with:
-          name: hermes-source
-          path: dist/hermes-*.tar.gz
+      - name: Build source archive and checksum
+        run: |
+          version=$(sed -n 's/^#define APP_VERSION "\([^"]*\)".*/\1/p' src/app.c)
+          sh tools/source-archive.sh
+          (cd dist && sha256sum "hermes-$version.tar.gz" > "hermes-$version.tar.gz.sha256")
+          awk -v heading="## $version" '
+            /^## / { active = ($0 == heading); next }
+            active { print }
+          ' CHANGELOG.md > dist/release-notes.md
+          [ -s dist/release-notes.md ]
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version=$(sed -n 's/^#define APP_VERSION "\([^"]*\)".*/\1/p' src/app.c)
+          gh release create "$GITHUB_REF_NAME" \
+            "dist/hermes-$version.tar.gz" \
+            "dist/hermes-$version.tar.gz.sha256" \
+            --title "Hermes $version" \
+            --notes-file dist/release-notes.md \
+            --verify-tag
