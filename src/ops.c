@@ -996,7 +996,7 @@ static void run_admin(Op *op) {
     char exe[PATH_MAX];
     const char *extra;
     if (!admin_exe(exe, sizeof exe, &extra)) { op_error(op, "Can't find this program to run it as administrator"); return; }
-    const char *pk = getenv("FE_PKEXEC") ? getenv("FE_PKEXEC") : "pkexec";
+    const char *pk = identity_env("FE_PKEXEC") ? identity_env("FE_PKEXEC") : "pkexec";
     bool pairs = op->kind == OP_SYNC || op->kind == OP_RENAME;
     int na = 0;
     char **av = xmalloc((size_t)(op->nsrc * 2 + 16) * sizeof(char *));

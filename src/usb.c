@@ -47,7 +47,7 @@ typedef struct {
     char kind;           // 'a' iPhone / iPad (usbmux), 'm' MTP (Android...), 'c' PTP camera
 } UsbDevInfo;
 
-static const char *usb_sys_dir(void) { return getenv("FE_SYS_USB") ? getenv("FE_SYS_USB") : "/sys/bus/usb/devices"; }
+static const char *usb_sys_dir(void) { return identity_env("FE_SYS_USB") ? identity_env("FE_SYS_USB") : "/sys/bus/usb/devices"; }
 
 static bool usb_sys_read(const char *dev, const char *attr, char *out, size_t cap) {
     char p[PATH_MAX];

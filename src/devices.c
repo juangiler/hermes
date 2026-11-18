@@ -195,7 +195,7 @@ static int run_capture(char *const argv[], char *out, size_t cap) {
 }
 
 static const char *tool(const char *env, const char *def) { // tests swap in fake tools
-    const char *v = getenv(env);
+    const char *v = identity_env(env); // HERMES_* first, FE_* legacy alias
     return v && v[0] ? v : def;
 }
 
@@ -252,13 +252,13 @@ static void gvfs_label(const char *name, char *out, size_t cap) {
 
 // Where GVfs's FUSE bridge shows its mounts as plain folders.
 static void gvfs_dir(char *out, size_t cap) {
-    const char *ov = getenv("FE_GVFS_DIR");
+    const char *ov = identity_env("FE_GVFS_DIR");
     if (ov && ov[0]) snprintf(out, cap, "%s", ov);
     else snprintf(out, cap, "%s/gvfs", getenv("XDG_RUNTIME_DIR") ? getenv("XDG_RUNTIME_DIR") : "/run/user/0");
 }
 
 static bool gvfs_fuse_running(void) {
-    if (getenv("FE_GVFS_DIR")) return true; // tests: a plain folder stands in
+    if (identity_env("FE_GVFS_DIR")) return true; // tests: a plain folder stands in
     char gdir[PATH_MAX], line[PATH_MAX * 2], src[PATH_MAX], mp[PATH_MAX], type[64];
     gvfs_dir(gdir, sizeof gdir);
     FILE *f = fopen("/proc/self/mounts", "r");
@@ -375,7 +375,7 @@ static int network_mounts(NetMount *out, int max) {
         fclose(f);
     }
     // Keep configured NFS/SMB mounts available for reconnection after unmount.
-    f = fopen(getenv("FE_FSTAB") ? getenv("FE_FSTAB") : "/etc/fstab", "r");
+    f = fopen(identity_env("FE_FSTAB") ? identity_env("FE_FSTAB") : "/etc/fstab", "r");
     if (f) {
         char line[PATH_MAX * 2], src[PATH_MAX], mp[PATH_MAX], type[64];
         while (n < max && fgets(line, sizeof line, f)) {
@@ -401,7 +401,7 @@ static int network_mounts(NetMount *out, int max) {
 
 // GVfs backend daemon installed? (gvfsd-mtp, gvfsd-afc...; FE_GVFS_LIBEXEC: tests)
 static bool gvfs_backend_installed(const char *backend) {
-    const char *ov = getenv("FE_GVFS_LIBEXEC");
+    const char *ov = identity_env("FE_GVFS_LIBEXEC");
     char p[PATH_MAX], name[64];
     snprintf(name, sizeof name, "gvfsd-%s", backend);
     if (!ov) return gvfs_helper_path(name, p, sizeof p);
@@ -511,7 +511,7 @@ static void phones_parse(const char *text, DevList *L) {
 
 // An iPhone / iPad on the USB bus (Apple's vendor id, their product id range), whatever GVfs makes of it.
 static bool usb_has_iphone(void) {
-    const char *dir = getenv("FE_SYS_USB") ? getenv("FE_SYS_USB") : "/sys/bus/usb/devices";
+    const char *dir = identity_env("FE_SYS_USB") ? identity_env("FE_SYS_USB") : "/sys/bus/usb/devices";
     DIR *d = opendir(dir);
     if (!d) return false;
     bool found = false;
@@ -593,7 +593,7 @@ static void phones_scan_gvfs(DevList *L, bool hint) {
 
 // Our own connector (usb.c + iphone.c / mtp.c, served by devfs.c) for what it can talk to, GVfs for the rest.
 // FE_NO_OWN_PHONES turns ours off; self-tests use it only with a made-up USB bus.
-static bool own_phones_enabled(void) { return !getenv("FE_NO_OWN_PHONES") && (!getenv("FE_GIO") || getenv("FE_SYS_USB")); }
+static bool own_phones_enabled(void) { return !identity_env("FE_NO_OWN_PHONES") && (!identity_env("FE_GIO") || identity_env("FE_SYS_USB")); }
 
 // Where our helper mounted a device: its /proc/self/mounts line reads "fe-device:<id> <mount point> fuse.fe-device".
 static bool own_mount_of(const char *id, char *out, size_t cap) {
@@ -759,61 +759,8 @@ static void dev_net_answer(DevJob *j, int choice) {
 static bool str_has_ci(const char *s, const char *w) { return strcasestr(s, w) != NULL; }
 
 // --- system keyring (Secret Service via secret-tool): passwords for saved servers, only when asked to ---------
-// The secret goes through pipes (never argv); attributes: application=file-explorer, uri=<server address>.
-static int secret_cmd(char *const argv[], const char *input, char *out, size_t cap) {
-    int in[2], o[2];
-    if (out && cap) out[0] = 0;
-    if (pipe2(in, O_CLOEXEC)) return -1;
-    if (pipe2(o, O_CLOEXEC)) { close(in[0]); close(in[1]); return -1; }
-    posix_spawn_file_actions_t fa;
-    posix_spawn_file_actions_init(&fa);
-    posix_spawn_file_actions_adddup2(&fa, in[0], 0);
-    posix_spawn_file_actions_adddup2(&fa, o[1], 1);
-    posix_spawn_file_actions_addopen(&fa, 2, "/dev/null", O_WRONLY, 0);
-    pid_t pid;
-    int rc = posix_spawnp(&pid, argv[0], &fa, spawn_attr(), argv, environ);
-    posix_spawn_file_actions_destroy(&fa);
-    close(in[0]);
-    close(o[1]);
-    if (rc) { close(in[1]); close(o[0]); return -1; }
-    if (input) { ssize_t w = write(in[1], input, strlen(input)); (void)w; }
-    close(in[1]);
-    size_t n = 0;
-    char tmp[512];
-    for (;;) {
-        ssize_t r = read(o[0], tmp, sizeof tmp);
-        if (r < 0 && errno == EINTR) continue;
-        if (r <= 0) break;
-        for (ssize_t i = 0; i < r && out && n + 1 < cap; i++) out[n++] = tmp[i];
-    }
-    explicit_bzero(tmp, sizeof tmp);
-    close(o[0]);
-    if (out && cap) out[n] = 0;
-    return (int)n;
-}
-
-static bool secret_available(void) {
-    const char *t = getenv("FE_SECRET_TOOL");
-    if (t && t[0]) return true;
-    return access("/usr/bin/secret-tool", X_OK) == 0 || access("/usr/local/bin/secret-tool", X_OK) == 0;
-}
-
-static bool secret_lookup(const char *uri, char *out, size_t cap) {
-    char *argv[] = {(char *)tool("FE_SECRET_TOOL", "secret-tool"), "lookup", "application", "file-explorer", "uri", (char *)uri, NULL};
-    return secret_cmd(argv, NULL, out, cap) > 0 && out[0];
-}
-
-static void secret_store(const char *uri, const char *password) {
-    char label[1100];
-    snprintf(label, sizeof label, "Files: %s", uri);
-    char *argv[] = {(char *)tool("FE_SECRET_TOOL", "secret-tool"), "store", "--label", label, "application", "file-explorer", "uri", (char *)uri, NULL};
-    secret_cmd(argv, password, NULL, 0);
-}
-
-static void secret_clear(const char *uri) {
-    char *argv[] = {(char *)tool("FE_SECRET_TOOL", "secret-tool"), "clear", "application", "file-explorer", "uri", (char *)uri, NULL};
-    secret_cmd(argv, NULL, NULL, 0);
-}
+// The secret goes through pipes (never argv); attributes: application=hermes, uri=<server address>.
+#include "credentials.c"
 
 // --- shared ssh connection to SFTP servers (git status runs over it) --------------------------------------
 // Right after an SFTP connect worked, one ssh connection to the server is opened with the password / passphrase the
@@ -874,10 +821,10 @@ static void ssh_dest(const SshTarget *t, char *out, size_t cap) {
     snprintf(out, cap, "%s%s%s", t->user, t->user[0] ? "@" : "", t->host);
 }
 
-// `file-explorer <prompt>` with FE_ASKPASS_FILE set: ssh asking for a password or passphrase (anything else, like
+// `hermes <prompt>` with HERMES_ASKPASS_FILE set: ssh asking for a password or passphrase (anything else, like
 // an unknown host key, is refused). Called from main() before anything else.
 static int askpass_main(const char *prompt) {
-    const char *file = getenv("FE_ASKPASS_FILE");
+    const char *file = identity_env("FE_ASKPASS_FILE");
     if (!str_has_ci(prompt, "password") && !str_has_ci(prompt, "passphrase")) return 1;
     int fd = open(file, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
     if (fd < 0) return 1;
@@ -937,7 +884,7 @@ done:
 // After `uri` (sftp://...) connected with secret (may be ""): open the shared connection in the background.
 static void ssh_master_open(const char *uri, const char *secret) {
     SshTarget t;
-    if (!ssh_target_uri(uri, &t) || (app_selftest() && !getenv("FE_SSH"))) return;
+    if (!ssh_target_uri(uri, &t) || (app_selftest() && !identity_env("FE_SSH"))) return;
     SshOpen *o = xcalloc(1, sizeof *o);
     o->t = t;
     snprintf(o->secret, sizeof o->secret, "%s", secret ? secret : "");
@@ -947,7 +894,7 @@ static void ssh_master_open(const char *uri, const char *secret) {
 // The SFTP folder (GVfs) was disconnected: close its shared connection too.
 static void ssh_master_close(const char *mount) {
     SshTarget t;
-    if (!ssh_target_gvfs(mount, &t) || (app_selftest() && !getenv("FE_SSH"))) return;
+    if (!ssh_target_gvfs(mount, &t) || (app_selftest() && !identity_env("FE_SSH"))) return;
     char dest[400], ctl[PATH_MAX], out[256];
     ssh_dest(&t, dest, sizeof dest);
     ssh_control_path(ctl, sizeof ctl);
@@ -1102,7 +1049,8 @@ static int net_mount_run(DevJob *j) {
     char *m = NULL;
     for (char *q = buf; (q = strstr(q, "\n@rc=")); q++) m = q;
     if (m) { status = atoi(m + 5); *m = 0; }
-    if (status == 0 && j->store_secret && j->password[0] && !j->secret_used) secret_store(j->target, j->password);
+    if (status == 0 && j->store_secret && j->password[0] && !j->secret_used && !secret_store(j->target, j->password))
+        fprintf(stderr, "Hermes: connected, but the keyring could not save/verify the credential.\n");
     if (status == 0 || str_has_ci(buf, "already mounted")) ssh_master_open(j->target, j->password); // SFTP: for git status
     explicit_bzero(j->password, sizeof j->password);
     if (!j->out[0]) { // the last meaningful line (gio's error), without our prompts
@@ -1130,17 +1078,21 @@ static int net_mount_run(DevJob *j) {
 
 // Where our helper puts its folders (tests: FE_DEVICES_DIR).
 static void own_devices_dir(char *out, size_t cap) {
-    const char *ov = getenv("FE_DEVICES_DIR");
+    const char *ov = identity_env("FE_DEVICES_DIR");
     if (ov && ov[0]) snprintf(out, cap, "%s", ov);
-    else snprintf(out, cap, "%s/file-explorer/devices", getenv("XDG_RUNTIME_DIR") ? getenv("XDG_RUNTIME_DIR") : "/tmp");
+    else {
+        const char *rt = getenv("XDG_RUNTIME_DIR");
+        if (rt && rt[0] == '/') snprintf(out, cap, "%s/hermes/devices", rt);
+        else snprintf(out, cap, "/tmp/hermes-%u/devices", (unsigned)getuid());
+    }
 }
 
-// Start our helper for the device (`file-explorer --device-mount SYS DIR`: it stays running as the folder's FUSE
+// Start our helper for the device (`hermes --device-mount SYS DIR`: it stays running as the folder's FUSE
 // server) and follow what it says until the folder is there or it gave up. 0 ok (j->mount), else j->out has
 // "kind: text".
 static int own_mount_run(DevJob *j) {
     char exe[PATH_MAX], dir[PATH_MAX];
-    const char *helper = getenv("FE_DEVICE_HELPER"); // tests: a stand-in
+    const char *helper = identity_env("FE_DEVICE_HELPER"); // tests: a stand-in
     ssize_t el = helper ? 0 : readlink("/proc/self/exe", exe, sizeof exe - 1);
     if (helper) snprintf(exe, sizeof exe, "%s", helper);
     else if (el > 0) exe[el] = 0;
@@ -1306,7 +1258,7 @@ static u64 dir_signature(const char *dir) {
 static void *dev_watch_thread(void *arg) {
     (void)arg;
     int fd = open("/proc/self/mounts", O_RDONLY | O_CLOEXEC);
-    const char *usb = getenv("FE_SYS_USB") ? getenv("FE_SYS_USB") : "/sys/bus/usb/devices";
+    const char *usb = identity_env("FE_SYS_USB") ? identity_env("FE_SYS_USB") : "/sys/bus/usb/devices";
     char gdir[PATH_MAX];
     gvfs_dir(gdir, sizeof gdir);
     u64 sig = dir_signature("/sys/class/block"), usig = dir_signature(usb), gsig = dir_signature(gdir);

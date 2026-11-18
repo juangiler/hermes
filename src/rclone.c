@@ -2,12 +2,13 @@
 //
 // The remotes are what `rclone listremotes --long` reports; they're set up with `rclone config` (a remote's edit button
 // runs it in a terminal tab). Connecting one writes a systemd user unit
-// ~/.config/systemd/user/file-explorer-cloud-<name>.service running `rclone mount <name>: <folder>` (units.c):
+// ~/.config/systemd/user/hermes-cloud-<name>.service running `rclone mount <name>: <folder>` (units.c):
 // it keeps running when the app is closed, restarts after failures and can start at login.
-// Type=notify: the unit is active once the folder is mounted. The folders are $XDG_DATA_HOME/file-explorer/cloud/<name>.
+// Type=notify: the unit is active once the folder is mounted. The folders are $XDG_DATA_HOME/hermes/cloud/<name>.
 // A remote mounted some other way (a fuse.rclone mount of "<name>:") shows as connected, at its own folder.
 
 #define MAX_CLOUDS 32
+#include "cloud_identity.c"
 enum { CS_OFF, CS_STARTING, CS_UP, CS_RETRY, CS_FAILED };
 
 typedef struct {
@@ -40,10 +41,10 @@ static char g_cloud_term_cmd[600]; // self-tests: the terminal command that woul
 static const char *cloud_rclone(void) { return tool("FE_RCLONE", "rclone"); }
 
 static void cloud_base(char *out, size_t cap) {
-    const char *ov = getenv("FE_CLOUD_DIR"), *x = getenv("XDG_DATA_HOME"), *h = getenv("HOME");
+    const char *ov = identity_env("FE_CLOUD_DIR"), *x = getenv("XDG_DATA_HOME"), *h = getenv("HOME");
     if (ov && ov[0] == '/') snprintf(out, cap, "%s", ov);
-    else if (x && x[0] == '/') snprintf(out, cap, "%s/file-explorer/cloud", x);
-    else snprintf(out, cap, "%s/.local/share/file-explorer/cloud", h ? h : "/tmp");
+    else if (x && x[0] == '/') snprintf(out, cap, "%s/hermes/cloud", x);
+    else snprintf(out, cap, "%s/.local/share/hermes/cloud", h ? h : "/tmp");
 }
 
 static void cloud_dir(const char *name, char *out, size_t cap) {
@@ -57,15 +58,19 @@ static bool path_in_cloud(const char *path) {
     char b[PATH_MAX];
     cloud_base(b, sizeof b);
     size_t l = strlen(b);
+    if (!strncmp(path, b, l) && (path[l] == 0 || path[l] == '/')) return true;
+    identity_xdg("XDG_DATA_HOME", ".local/share", HERMES_LEGACY_SLUG "/cloud", b, sizeof b);
+    l = strlen(b);
     return !strncmp(path, b, l) && (path[l] == 0 || path[l] == '/');
 }
 
 // Unit names keep letters, digits, - and .; anything else becomes _xx (hex), so every name maps to one unit.
-static void cloud_unit_name(const char *name, char *out, size_t cap) {
-    size_t o = (size_t)snprintf(out, cap, "file-explorer-cloud-");
-    for (const char *c = name; *c && o + 12 < cap; c++)
-        o += isalnum((u8)*c) || *c == '-' || *c == '.' ? (size_t)snprintf(out + o, cap - o, "%c", *c) : (size_t)snprintf(out + o, cap - o, "_%02x", (u8)*c);
-    snprintf(out + o, cap - o, ".service");
+static bool cloud_legacy_owned(const char *name) {
+    char dir[PATH_MAX], unit[160], path[PATH_MAX + 200];
+    units_dir(dir, sizeof dir);
+    cloud_legacy_unit_name(name, unit, sizeof unit);
+    snprintf(path, sizeof path, "%s/%s", dir, unit);
+    return cloud_unit_owner(path) == CLOUD_LEGACY;
 }
 
 // rclone remote names: letters, digits, _ - . + @ and spaces (not at the ends).
@@ -180,12 +185,7 @@ static void cloud_unit_text(const char *name, const char *type_label, char *out,
 }
 
 static bool cloud_unit_ours(const char *path) {
-    char head[64] = "";
-    FILE *f = fopen(path, "r");
-    if (!f) return false;
-    if (!fgets(head, sizeof head, f)) head[0] = 0;
-    fclose(f);
-    return !strncmp(head, "# Written by file-explorer for the cloud", 40);
+    return cloud_unit_owner(path) == CLOUD_HERMES;
 }
 
 // --- commands (worker thread) ----------------------------------------------------------------------------------
@@ -286,6 +286,11 @@ static void cloud_connect(int i, int how) {
         else if (how == 1) open_folder(c->mount);
         return;
     }
+    if (cloud_legacy_owned(c->name)) {
+        c->ownership = CLOUD_LEGACY;
+        toast("Legacy cloud service retained: reconnect in File Explorer; Hermes handover is deferred");
+        return;
+    }
     if (!g_units_systemd) { toast("Cloud folders need systemd user services (systemctl --user isn't available)"); return; }
     c->open_after = how;
     if (cloud_busy(c)) return;
@@ -301,6 +306,11 @@ static void cloud_connect(int i, int how) {
 static void cloud_disconnect(int i) {
     if (i < 0 || i >= g_ncloud) return;
     Cloud *c = &g_cloud[i];
+    if (cloud_legacy_owned(c->name)) {
+        c->ownership = CLOUD_LEGACY;
+        toast("Legacy cloud service retained: disconnect through File Explorer, not FUSE");
+        return;
+    }
     if (c->mount[0]) panes_leave(c->mount); // a mount in use can't go away
     c->open_after = 0;
     c->notify_until = 0;
@@ -314,6 +324,11 @@ static void cloud_disconnect(int i) {
 static void cloud_set_login(int i, bool on) {
     if (i < 0 || i >= g_ncloud) return;
     Cloud *c = &g_cloud[i];
+    if (cloud_legacy_owned(c->name)) {
+        c->ownership = CLOUD_LEGACY;
+        toast("Legacy connect-at-login is retained until cloud handover");
+        return;
+    }
     c->login = on;
     A.settings_dirty = true;
     if (g_units_systemd) cloud_submit(cloud_op_new(COP_LOGIN, c));
@@ -372,7 +387,7 @@ static void cloud_status_done(void *arg);
 
 // Where remote name is mounted (fuse.rclone, source "name:" or "name:sub/path"); ours preferred. false: nowhere.
 static bool cloud_mount_lookup(const char *name, char *out, size_t cap, bool *ours) {
-    const char *ov = getenv("FE_PROC_MOUNTS"); // tests
+    const char *ov = identity_env("FE_PROC_MOUNTS"); // tests
     FILE *f = fopen(ov ? ov : "/proc/self/mounts", "r");
     if (!f) return false;
     char line[PATH_MAX * 2 + 200], src[PATH_MAX], mp[PATH_MAX], type[64], mine[PATH_MAX];
@@ -487,7 +502,7 @@ static void cloud_status_job(void *arg) {
             DIR *d = opendir(udir);
             struct dirent *de;
             while (d && (de = readdir(d)) != NULL) {
-                if (strncmp(de->d_name, "file-explorer-cloud-", 20) || !strstr(de->d_name, ".service") || strstr(de->d_name, ".tmp")) continue;
+                if (strncmp(de->d_name, "hermes-cloud-", 13) || !strstr(de->d_name, ".service") || strstr(de->d_name, ".tmp")) continue;
                 bool keep = false;
                 for (int i = 0; i < s->nr && !keep; i++) {
                     char u[160];
@@ -605,6 +620,7 @@ static void cloud_status_done(void *arg) {
         int st = s->state[k];
         if (st == CS_OFF && cloud_busy(c) && now < c->asked + 3000000000ull) st = c->state; // a connect on its way to systemd
         c->unit = s->unit_exists[k];
+        c->ownership = cloud_legacy_owned(c->name) ? CLOUD_LEGACY : s->ours[k] ? CLOUD_HERMES : CLOUD_EXTERNAL;
         if (strcmp(c->mount, s->mount[k]) || c->ours != s->ours[k]) {
             snprintf(c->mount, sizeof c->mount, "%s", s->mount[k]);
             c->ours = s->ours[k];
@@ -651,7 +667,7 @@ static void cloud_tick(void) {
     // (the picker too: a file can be opened from / saved to a cloud folder; the mount outlives the picker, so the app
     // that asked can still read or write the path it got)
     if (A.screenshot || atomic_load(&g_cloud_job) > 0) return;
-    if (A.selftest && !getenv("FE_RCLONE")) return; // tests only ever run a stand-in rclone
+    if (A.selftest && !identity_env("FE_RCLONE")) return; // tests only ever run a stand-in rclone
     u64 now = now_ns();
     u64 every = g_rclone == 0 ? 30000000000ull : now < g_cloud_fast_until || cloud_pending() ? 700000000ull : A.win_hidden ? 10000000000ull : 2500000000ull;
     if (g_cloud_polled && now - g_cloud_polled < every) return;

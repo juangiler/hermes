@@ -365,7 +365,7 @@ static int apps_for_mime(const char *mime, DesktopApp **out, int max) {
     return n;
 }
 
-// --- recently used apps (per MIME type, $XDG_STATE_HOME/file-explorer/recent-apps) ---
+// --- recently used apps (per MIME type, $XDG_STATE_HOME/hermes/recent-apps) ---
 
 #define RECENT_APPS 5
 typedef struct {

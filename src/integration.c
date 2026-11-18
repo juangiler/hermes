@@ -21,16 +21,19 @@ static void ig_data_dir(char *out, size_t cap) { // $XDG_DATA_HOME
 }
 
 static bool ig_write_file(const char *path, const char *text, mode_t mode) {
-    char dir[PATH_MAX], tmp[PATH_MAX + 16];
+    char dir[PATH_MAX], tmp[PATH_MAX + 24];
     snprintf(dir, sizeof dir, "%s", path);
     char *sl = strrchr(dir, '/');
     if (sl) { *sl = 0; mkdir_p(dir, 0755); }
-    snprintf(tmp, sizeof tmp, "%s.fe-tmp", path);
-    FILE *f = fopen(tmp, "w");
-    if (!f) return false;
+    snprintf(tmp, sizeof tmp, "%s.hermes-XXXXXX", path);
+    int fd = mkstemp(tmp);
+    if (fd < 0) return false;
+    FILE *f = fdopen(fd, "w");
+    if (!f) { close(fd); unlink(tmp); return false; }
     bool ok = fputs(text, f) >= 0;
+    ok = fflush(f) == 0 && ok;
+    ok = fchmod(fd, mode) == 0 && fsync(fd) == 0 && ok;
     if (fclose(f) != 0 || !ok) { unlink(tmp); return false; }
-    chmod(tmp, mode);
     return rename(tmp, path) == 0;
 }
 
@@ -43,7 +46,8 @@ static void ig_run(char *const argv[]) {
 
 // --- default file manager ---------------------------------------------------------------------------------------
 
-#define IG_OUR_ID "dev.fileexplorer.desktop"
+#include "integration_identity.c"
+#define IG_OUR_ID HERMES_APP_ID ".desktop"
 
 static const char *ig_folder_app(void) { // the app folders open with now ("" none)
     DesktopApp *a = app_default_for("inode/directory");
@@ -604,7 +608,7 @@ static bool upd_sha256_file(const char *path, char out[65]) {
 
 // How this copy got here, so it can say how it updates. Packages are found by their database knowing about us.
 static int upd_kind(void) {
-    const char *k = getenv("FE_UPDATE_KIND"); // (tests, screenshots: appimage, arch, deb, rpm, source)
+    const char *k = identity_env("FE_UPDATE_KIND"); // (tests, screenshots: appimage, arch, deb, rpm, source)
     if (k) return !strcmp(k, "appimage") ? UK_APPIMAGE : !strcmp(k, "arch") ? UK_ARCH : !strcmp(k, "deb") ? UK_DEB
                  : !strcmp(k, "rpm") ? UK_RPM : UK_SOURCE;
     static int kind = -1;
@@ -1019,7 +1023,7 @@ static bool upd_card_click(f32 x, f32 y) {
 
 // Visual checks (--screenshot): FE_SHOT_UPDATE=available|downloading|ready|failed puts up the card for 0.99.0.
 static void upd_shot(void) {
-    const char *s = getenv("FE_SHOT_UPDATE");
+    const char *s = identity_env("FE_SHOT_UPDATE");
     if (!A.screenshot || !s) return;
     snprintf(g_upd.tag, sizeof g_upd.tag, "v0.99.0");
     g_upd.size = 46 << 20;

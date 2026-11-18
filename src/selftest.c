@@ -328,7 +328,7 @@ static f32 st_row_y(Pane *p, const char *name) {
 }
 
 static void st_shot(const char *name) {
-    const char *dir = getenv("FE_SHOTS");
+    const char *dir = identity_env("FE_SHOTS");
     if (!dir) return;
     st_frames(2);
     snprintf(A.shot_once, sizeof A.shot_once, "%s/%s.bmp", dir, name);
@@ -811,7 +811,7 @@ static int run_selftest_ops(void) {
     st_write(ST_BASE "/big.bin", 768u << 20);
     char *big[1] = {ST_BASE "/big.bin"};
     start_transfer(big, 1, ST_XDEV, false, false);
-    if (getenv("FE_SHOTS")) {
+    if (identity_env("FE_SHOTS")) {
         A.ops[A.nops - 1]->t_start -= 400000000ull; // make the card visible right away
         st_frames(3);
         st_shot("progress");
@@ -4463,7 +4463,28 @@ static int run_selftest_m10(void) {
     int nt0 = A.ntabs;
     char *argv2[] = {exe, M10_BASE "/b", M10_BASE "/c.txt", NULL};
     pid_t pid;
-    ST_CHECK(posix_spawn(&pid, exe, NULL, NULL, argv2, environ) == 0);
+    mkdir("/tmp/fe-m10-run/rt", 0700);
+    mkdir(M10_BASE "/xdg", 0755);
+    mkdir(M10_BASE "/cfg", 0755);
+    mkdir(M10_BASE "/cache", 0755);
+    mkdir(M10_BASE "/state", 0755);
+    char *e_rt = st_env_save("XDG_RUNTIME_DIR"), *e_data = st_env_save("XDG_DATA_HOME"),
+         *e_cfg = st_env_save("XDG_CONFIG_HOME"), *e_cache = st_env_save("XDG_CACHE_HOME"),
+         *e_state = st_env_save("XDG_STATE_HOME"), *e_vid = st_env_save("SDL_VIDEODRIVER");
+    setenv("XDG_RUNTIME_DIR", "/tmp/fe-m10-run/rt", 1);
+    setenv("XDG_DATA_HOME", M10_BASE "/xdg", 1);
+    setenv("XDG_CONFIG_HOME", M10_BASE "/cfg", 1);
+    setenv("XDG_CACHE_HOME", M10_BASE "/cache", 1);
+    setenv("XDG_STATE_HOME", M10_BASE "/state", 1);
+    setenv("SDL_VIDEODRIVER", "offscreen", 1);
+    int spawn_rc = posix_spawn(&pid, exe, NULL, NULL, argv2, environ);
+    st_env_restore("XDG_RUNTIME_DIR", e_rt);
+    st_env_restore("XDG_DATA_HOME", e_data);
+    st_env_restore("XDG_CONFIG_HOME", e_cfg);
+    st_env_restore("XDG_CACHE_HOME", e_cache);
+    st_env_restore("XDG_STATE_HOME", e_state);
+    st_env_restore("SDL_VIDEODRIVER", e_vid);
+    ST_CHECK(spawn_rc == 0);
     ST_CHECK(st_wait_cond(c_ipc_one, 15000));
     st_wait();
     ST_CHECK(A.ntabs == nt0 + 2);
@@ -4737,11 +4758,11 @@ static int run_selftest_m10(void) {
         static const struct { int proto; const char *message, *shot; } missing[] = {
             {6, "GVfs NFS backend not installed for direct connection. System NFS mounts still appear in Network; configure new mounts in your system settings.", "connect-nfs-unavailable"},
             {1, "GVfs SMB backend not installed for direct connection. Existing system SMB mounts still appear in Network; configure new mounts in your system settings.", "connect-smb-unavailable"},
-            {4, "GVfs WebDAV backend not installed for direct connection. Configured rclone WebDAV remotes still appear in Network; add one with rclone config.", "connect-webdav-unavailable"},
-            {5, "GVfs WebDAV backend not installed for direct connection. Configured rclone WebDAV remotes still appear in Network; add one with rclone config.", "connect-webdavs-unavailable"},
+            {4, "GVfs WebDAV backend not installed for direct connection. Configured rclone WebDAV remotes still appear in Cloud; add one with rclone config.", "connect-webdav-unavailable"},
+            {5, "GVfs WebDAV backend not installed for direct connection. Configured rclone WebDAV remotes still appear in Cloud; add one with rclone config.", "connect-webdavs-unavailable"},
         };
         char gio_path[PATH_MAX];
-        snprintf(gio_path, sizeof gio_path, "%s", getenv("FE_GIO"));
+        snprintf(gio_path, sizeof gio_path, "%s", identity_env("FE_GIO"));
         unsetenv("FE_GIO");
         setenv("FE_GVFS_LIBEXEC", M10_BASE "/missing-libexec", 1);
         for (int k = 0; k < (int)ARRAY_COUNT(missing); k++) {
@@ -5736,11 +5757,82 @@ static int run_selftest_m10(void) {
         g_cloud_relist = true;
         st_cloud_settle();
         int gr = st_place_row(PK_CLOUD, "gdrive");
-        ST_CHECK(g_rclone == 1 && g_ncloud == 2 && st_place_row(PK_NETHDR, "Network") >= 0 && gr >= 0 && st_place_row(PK_CLOUD, "work s3") >= 0);
+        ST_CHECK(g_rclone == 1 && g_ncloud == 3 && st_place_row(PK_NETHDR, "Network") >= 0 && gr >= 0 && st_place_row(PK_CLOUD, "work s3") >= 0);
+        int cloud_hdr = st_place_row(PK_CLOUDHDR, "Cloud");
+        int webdav_row = st_place_row(PK_CLOUD, "webdav");
+        ST_CHECK(cloud_hdr > st_place_row(PK_NETHDR, NULL) && gr > cloud_hdr && webdav_row > cloud_hdr);
+        ST_CHECK(cloud_find("webdav") && !strcmp(cloud_find("webdav")->type, "webdav"));
+        // deferred handover: a legacy-generated unit keeps the remote under File Explorer
+        mkdir_p(udir, 0755);
+        char legunit[PATH_MAX + 160];
+        snprintf(legunit, sizeof legunit, "%s/file-explorer-cloud-webdav.service", udir);
+        st_write_text(legunit, "# Written by file-explorer for the cloud remote \"webdav\". Edit it in the app: this file is replaced.\n");
+        g_cloud_relist = true;
+        st_cloud_settle();
+        {
+            Cloud *c = cloud_find("webdav");
+            ST_CHECK(c && c->ownership == CLOUD_LEGACY);
+            if (c) {
+                int idx = (int)(c - g_cloud), state0 = c->state;
+                bool login0 = c->login;
+                char mount0[sizeof c->mount];
+                snprintf(mount0, sizeof mount0, "%s", c->mount);
+                cloud_connect(idx, 1);
+                ST_CHECK(!strcmp(A.toast, "Legacy cloud service retained: reconnect in File Explorer; Hermes handover is deferred"));
+                ST_CHECK(c->state == state0 && !strcmp(c->mount, mount0) && !c->login); // nothing started
+                cloud_disconnect(idx);
+                ST_CHECK(!strcmp(A.toast, "Legacy cloud service retained: disconnect through File Explorer, not FUSE"));
+                ST_CHECK(c->state == state0 && !strcmp(c->mount, mount0));
+                cloud_set_login(idx, true);
+                ST_CHECK(!strcmp(A.toast, "Legacy connect-at-login is retained until cloud handover") && c->login == login0);
+            }
+            unlink(legunit); // handover done: the remote is ours again
+            g_cloud_relist = true;
+            st_cloud_settle();
+            c = cloud_find("webdav");
+            ST_CHECK(c && c->ownership != CLOUD_LEGACY && c->state == CS_OFF && !c->mount[0]);
+        }
+        if (A.nnets + 2 <= (int)ARRAY_COUNT(A.nets)) {
+            int old_nnets = A.nnets;
+            snprintf(A.nets[A.nnets].path, sizeof A.nets[A.nnets].path, "%s", M10_BASE "/native-webdav");
+            snprintf(A.nets[A.nnets].label, sizeof A.nets[A.nnets].label, "Direct WebDAV");
+            A.nets[A.nnets++].mounted = true;
+            snprintf(A.nets[A.nnets].path, sizeof A.nets[A.nnets].path, "%s", M10_BASE "/external-webdav");
+            snprintf(A.nets[A.nnets].label, sizeof A.nets[A.nnets].label, "webdav:");
+            A.nets[A.nnets++].mounted = true;
+            init_places();
+            int native_row = st_place_row(PK_NETWORK, "Direct WebDAV");
+            ST_CHECK(native_row > st_place_row(PK_NETHDR, NULL) && native_row < st_place_row(PK_CLOUDHDR, NULL));
+            ST_CHECK(st_place_row(PK_NETWORK, "webdav:") < 0 && st_place_row(PK_CLOUD, "webdav") >= 0);
+            A.clouds_collapsed = true;
+            init_places();
+            ST_CHECK(st_place_row(PK_NETWORK, "Direct WebDAV") >= 0 && st_place_row(PK_CLOUD, "webdav") < 0);
+            A.clouds_collapsed = false;
+            A.nnets = old_nnets;
+        }
+        A.nets_collapsed = true;
+        init_places();
+        ST_CHECK(st_place_row(PK_CLOUD, "webdav") > st_place_row(PK_CLOUDHDR, NULL));
+        A.clouds_collapsed = true;
+        settings_save();
+        A.nets_collapsed = A.clouds_collapsed = false;
+        settings_load();
+        ST_CHECK(A.nets_collapsed && A.clouds_collapsed);
+        A.nets_collapsed = false;
+        settings_save();
+        A.nets_collapsed = true;
+        A.clouds_collapsed = false;
+        settings_load();
+        ST_CHECK(!A.nets_collapsed && A.clouds_collapsed);
+        init_places();
+        ST_CHECK(st_place_row(PK_CLOUD, NULL) < 0 && st_place_row(PK_NETHDR, NULL) >= 0);
+        A.clouds_collapsed = false;
+        init_places();
+        gr = st_place_row(PK_CLOUD, "gdrive");
         ST_CHECK(!strcmp(cloud_icon(&g_cloud[0]), "gdrive") && !strcmp(cloud_icon(&g_cloud[1]), "aws") && !A.places[gr].path[0]);
         char un[160];
         cloud_unit_name("work s3", un, sizeof un);
-        ST_CHECK(!strcmp(un, "file-explorer-cloud-work_20s3.service"));
+        ST_CHECK(!strcmp(un, "hermes-cloud-work_20s3.service"));
         // click: the unit written and started; connected once the mount shows up, then opened
         Rect rr = place_rect(gr);
         A.side_scroll = A.side_scroll_target = MAX(0.f, rr.y + rr.h - A.r_sidebar.y - A.r_sidebar.h + S(8));
@@ -5749,12 +5841,12 @@ static int run_selftest_m10(void) {
         st_mouse(SDL_EVENT_MOUSE_BUTTON_UP, rr.x + S(40), rr.y + rr.h * 0.5f, SDL_BUTTON_LEFT, 1, 0);
         ST_CHECK(g_cloud[0].state == CS_STARTING && g_cloud[0].open_after == 1);
         st_cloud_settle();
-        snprintf(up, sizeof up, "%s/file-explorer-cloud-gdrive.service", udir);
+        snprintf(up, sizeof up, "%s/hermes-cloud-gdrive.service", udir);
         snprintf(gdir, sizeof gdir, "%s/gdrive", cdir);
-        ST_CHECK(st_file_has(up, "# Written by file-explorer for the cloud remote \"gdrive\"") && st_file_has(up, "Type=notify") &&
+        ST_CHECK(st_file_has(up, "# Written by hermes for the cloud remote \"gdrive\"") && st_file_has(up, "Type=notify") &&
                  st_file_has(up, "mount \"gdrive:\" \"" M10_BASE "/cloud/gdrive\" --vfs-cache-mode full") && st_file_has(up, "Restart=on-failure") &&
                  st_file_has(up, "Description=Files cloud: gdrive (Google Drive)"));
-        ST_CHECK(access(M10_BASE "/sd/file-explorer-cloud-gdrive.service.active", F_OK) == 0 && access(gdir, F_OK) == 0);
+        ST_CHECK(access(M10_BASE "/sd/hermes-cloud-gdrive.service.active", F_OK) == 0 && access(gdir, F_OK) == 0);
         ST_CHECK(g_cloud[0].state == CS_STARTING && g_cloud[0].unit && path_is_remote(gdir)); // active, not mounted yet
         if (A.nnets < (int)ARRAY_COUNT(A.nets)) { // mount discovery can precede rclone's status poll
             int old_nnets = A.nnets;
@@ -5795,7 +5887,7 @@ static int run_selftest_m10(void) {
         A.menu_place = gr;
         do_action(active_pane(), ACT_CLOUD_LOGIN);
         st_cloud_settle();
-        ST_CHECK(g_cloud[0].login && access(M10_BASE "/sd/file-explorer-cloud-gdrive.service.enabled", F_OK) == 0);
+        ST_CHECK(g_cloud[0].login && access(M10_BASE "/sd/hermes-cloud-gdrive.service.enabled", F_OK) == 0);
         settings_save();
         g_cloud[0].login = false;
         settings_load();
@@ -5807,12 +5899,12 @@ static int run_selftest_m10(void) {
         st_cloud_settle();
         gr = st_place_row(PK_CLOUD, "gdrive");
         ST_CHECK(g_cloud[0].state == CS_OFF && !g_cloud[0].mount[0] && gr >= 0 && !A.places[gr].path[0] &&
-                 access(M10_BASE "/sd/file-explorer-cloud-gdrive.service.active", F_OK) != 0);
+                 access(M10_BASE "/sd/hermes-cloud-gdrive.service.active", F_OK) != 0);
         st_write_text(M10_BASE "/rc/remotes", ""); // a transient empty list must not remove the reconnect row
         g_cloud_relist = true;
         st_cloud_settle();
         ST_CHECK(st_place_row(PK_CLOUD, "gdrive") >= 0);
-        st_write_text(M10_BASE "/rc/remotes", "gdrive:      drive\nwork s3:     s3\n");
+        st_write_text(M10_BASE "/rc/remotes", "gdrive:      drive\nwork s3:     s3\nwebdav:      webdav\n");
         g_cloud_relist = true;
         st_cloud_settle();
         // a connect that fails: the reason from the log; an expired sign-in offers rclone's reconnect

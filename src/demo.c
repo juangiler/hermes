@@ -37,13 +37,13 @@ static void dm_write(const char *path, const char *text) {
     if (f) { fputs(text, f); fclose(f); }
 }
 
-// Before settings are read: a private home (FE_DEMO_HOME, made by tools/demo-home.sh; tools/demo.sh shows it as
-// /home/alex), config and caches under FE_DEMO_DIR, made-up drives, a window the size of the video's, larger text.
+// Before settings are read: a private home (HERMES_DEMO_HOME, made by tools/demo-home.sh; tools/demo.sh shows it as
+// /home/alex), config and caches under HERMES_DEMO_DIR, made-up drives, a window the size of the video's, larger text.
 // Returns the folder to start in.
 static const char *demo_setup(void) {
     static char home[PATH_MAX], path[PATH_MAX + 64];
-    const char *base = getenv("FE_DEMO_DIR") ? getenv("FE_DEMO_DIR") : "/tmp/fe-demo";
-    snprintf(home, sizeof home, "%s", getenv("FE_DEMO_HOME") ? getenv("FE_DEMO_HOME") : "/tmp/fe-demo/home");
+    const char *base = identity_env("FE_DEMO_DIR") ? identity_env("FE_DEMO_DIR") : "/tmp/fe-demo";
+    snprintf(home, sizeof home, "%s", identity_env("FE_DEMO_HOME") ? identity_env("FE_DEMO_HOME") : "/tmp/fe-demo/home");
     setenv("HOME", home, 1);
 #define DM_ENV(var, sub) do { snprintf(path, sizeof path, "%s/" sub, base); mkdir_p(path, 0755); setenv(var, path, 1); } while (0)
     DM_ENV("XDG_CONFIG_HOME", "config");
@@ -646,7 +646,7 @@ static int demo_run(void) {
     dm_fade(&D.win, 1, 0.7f);
     D.cursor = true;
 
-    const char *only = getenv("FE_DEMO_SCENES"); // while working on it: "1,3" runs just those (from the start state)
+    const char *only = identity_env("FE_DEMO_SCENES"); // while working on it: "1,3" runs just those (from the start state)
     void (*scenes[])(void) = {scene_huge, scene_filter, scene_goto, scene_preview, scene_panels, scene_git, scene_terminal,
                               scene_grep, scene_du, scene_compare, scene_archive, scene_themes};
     for (int i = 0; i < (int)ARRAY_COUNT(scenes); i++) {

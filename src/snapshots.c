@@ -114,7 +114,7 @@ static void snap_zfs(SnapJob *j, const char *mnt, const char *rel) {
 // Timeshift: btrfs mode keeps <base>/timeshift-btrfs/snapshots/<date>/<subvolume>/<rel>, rsync mode
 // <base>/timeshift/snapshots/<date>/localhost/<absolute path>; <base> is where Timeshift mounted the backup disk.
 static void snap_timeshift(SnapJob *j, const char *abs, const char *subvol, const char *rel) {
-    const char *run = getenv("FE_TIMESHIFT") ? getenv("FE_TIMESHIFT") : "/run/timeshift";
+    const char *run = identity_env("FE_TIMESHIFT") ? identity_env("FE_TIMESHIFT") : "/run/timeshift";
     char bases[8][PATH_MAX];
     int nb = 0;
     snprintf(bases[nb++], PATH_MAX, "/");
@@ -153,7 +153,7 @@ static void snap_find(SnapJob *j) {
     // the filesystem the item is on: the longest mount point that contains it
     DuScan t;
     memset(&t, 0, sizeof t);
-    const char *mi = getenv("FE_MOUNTINFO");
+    const char *mi = identity_env("FE_MOUNTINFO");
     FILE *f = fopen(mi ? mi : "/proc/self/mountinfo", "r");
     if (f) {
         size_t cap = 1 << 16, len = 0;
@@ -226,7 +226,7 @@ static void *snap_admin_thread(void *arg) {
     char exe[PATH_MAX];
     const char *extra;
     bool have = admin_exe(exe, sizeof exe, &extra);
-    const char *pk = getenv("FE_PKEXEC") ? getenv("FE_PKEXEC") : "pkexec";
+    const char *pk = identity_env("FE_PKEXEC") ? identity_env("FE_PKEXEC") : "pkexec";
     int out[2] = {-1, -1};
     pid_t pid = 0;
     int rc = -1;
@@ -401,7 +401,7 @@ static int snap_run(char *const argv[], char *out, size_t cap) {
     return status == 127 ? -1 : status;
 }
 
-static const char *snapper_bin(void) { return getenv("FE_SNAPPER") ? getenv("FE_SNAPPER") : "snapper"; }
+static const char *snapper_bin(void) { return identity_env("FE_SNAPPER") ? identity_env("FE_SNAPPER") : "snapper"; }
 
 // The value of "key" in one JSON object (a string, number, null...), copied without quotes; false when absent.
 static bool snap_json_val(const char *obj, const char *end, const char *key, char *out, size_t cap) {
@@ -470,7 +470,7 @@ static int snapinfo_cmp(const void *a, const void *b) {
 static void snaplist_find(SnapList *l) {
     DuScan t;
     memset(&t, 0, sizeof t);
-    const char *mi = getenv("FE_MOUNTINFO");
+    const char *mi = identity_env("FE_MOUNTINFO");
     FILE *f = fopen(mi ? mi : "/proc/self/mountinfo", "r");
     if (f) {
         size_t cap = 1 << 16, len = 0;
@@ -552,7 +552,7 @@ static void snaplist_find(SnapList *l) {
         }
         // Timeshift (btrfs mode): .../timeshift-btrfs/snapshots/<date>/<subvolume>
         const char *sv = !strcmp(m->fstype, "btrfs") && m->root[0] == '/' && m->root[1] ? m->root + 1 : NULL;
-        const char *run = getenv("FE_TIMESHIFT") ? getenv("FE_TIMESHIFT") : "/run/timeshift";
+        const char *run = identity_env("FE_TIMESHIFT") ? identity_env("FE_TIMESHIFT") : "/run/timeshift";
         DIR *r = sv && !l->n ? opendir(run) : NULL;
         for (struct dirent *e; r && (e = readdir(r));) {
             if (e->d_name[0] == '.') continue;
@@ -649,7 +649,7 @@ static int snap_allow_main(const char *cfg, const char *user) {
         if (!isalnum((u8)*c) && *c != '_' && *c != '-') { printf("e 1\tBad config name\n"); return 2; }
     if (!getpwnam(user)) { printf("e 1\tNo such user\n"); return 2; }
     char path[PATH_MAX], line[1024], users[900] = "";
-    snprintf(path, sizeof path, "%s/%s", getenv("FE_SNAPPER_CONFIGS") ? getenv("FE_SNAPPER_CONFIGS") : "/etc/snapper/configs", cfg);
+    snprintf(path, sizeof path, "%s/%s", identity_env("FE_SNAPPER_CONFIGS") ? identity_env("FE_SNAPPER_CONFIGS") : "/etc/snapper/configs", cfg);
     FILE *f = fopen(path, "r");
     while (f && fgets(line, sizeof line, f)) {
         if (strncmp(line, "ALLOW_USERS=", 12)) continue;
@@ -686,7 +686,7 @@ static SnapCmd *snap_allow_start(const char *cfg) {
     const char *extra;
     admin_exe(exe, sizeof exe, &extra);
     struct passwd *pw = getpwuid(getuid());
-    const char *pk = getenv("FE_PKEXEC") ? getenv("FE_PKEXEC") : "pkexec";
+    const char *pk = identity_env("FE_PKEXEC") ? identity_env("FE_PKEXEC") : "pkexec";
     const char *av[8];
     int na = 0;
     av[na++] = pk; av[na++] = exe;

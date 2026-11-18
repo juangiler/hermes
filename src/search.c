@@ -728,7 +728,7 @@ static void content_start_builtin(ContentCtx *c) {
 static void *content_rg_thread(void *arg) {
     ContentCtx *c = arg;
     thread_background_priority();
-    const char *rg = getenv("FE_RG");
+    const char *rg = identity_env("FE_RG");
     if (!rg || !rg[0]) rg = "rg";
     char *argv[40];
     int na = 0;

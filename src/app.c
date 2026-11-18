@@ -1656,7 +1656,7 @@ static void window_close_requested(void);
 
 static bool titlebar_wanted(void) {
   int m = A.title_bar;
-  const char *e = getenv("FE_TITLE_BAR"); // (tests, screenshots)
+  const char *e = identity_env("FE_TITLE_BAR"); // (tests, screenshots)
   if (e && !strcmp(e, "app"))
     m = TITLEBAR_APP;
   else if (e && !strcmp(e, "system"))
@@ -1965,7 +1965,7 @@ static void toplevel_configure(void *data, void *top, i32 w, i32 h,
     if (st == 1 || st == 2)
       full = true; // MAXIMIZED, FULLSCREEN
   }
-  if (getenv("FE_SHADOW_DEBUG"))
+  if (identity_env("FE_SHADOW_DEBUG"))
     fprintf(stderr, "shadow: configure %dx%d%s\n", w, h,
             tiled  ? " tiled"
             : full ? " maximized"
@@ -2416,7 +2416,7 @@ static void x11_tiled_update(void) {
   bool mh = x11_atom_listed(g_x11.dpy, g_x11.win, g_x11.a_state, g_x11.a_max_h);
   if (mv != mh)
     tiled = true;
-  if (getenv("FE_SHADOW_DEBUG"))
+  if (identity_env("FE_SHADOW_DEBUG"))
     fprintf(stderr, "shadow: x11 edge constraints%s, max %d/%d -> %s\n",
             v ? "" : " (none)", mv, mh, tiled ? "tiled" : "floating");
   if (tiled != A.win_tiled) {
@@ -2876,7 +2876,7 @@ static bool path_is_remote(const char *path) {
     if (!strncmp(path, g_remote[i], l) && (path[l] == 0 || path[l] == '/'))
       return true;
   }
-  const char *gv = getenv("FE_GVFS_DIR"); // tests
+  const char *gv = identity_env("FE_GVFS_DIR"); // tests
   return gv && gv[0] && !strncmp(path, gv, strlen(gv));
 }
 
@@ -3572,7 +3572,7 @@ static const NetProto g_net_protos[] = {
 
 // GVfs backend for the protocol installed? (fake tools in tests: yes)
 static bool net_proto_available(int i) {
-  if (getenv("FE_GIO"))
+  if (identity_env("FE_GIO"))
     return true;
   return gvfs_backend_installed(g_net_protos[i].backend);
 }
@@ -3711,7 +3711,7 @@ static bool net_kio_available(int proto) {
   if (!strcmp(sch, "ftps")) return false; // KIO's FTP worker does not advertise FTPS here
   char bin[PATH_MAX];
   if (!tool_abs(tool("FE_DBUS_SEND", "dbus-send"), bin, sizeof bin) || access(bin, X_OK)) return false;
-  const char *svc = getenv("FE_KIO_SERVICE");
+  const char *svc = identity_env("FE_KIO_SERVICE");
   bool service = svc ? access(svc, R_OK) == 0 : false;
   if (!svc) {
     const char *home = getenv("XDG_DATA_HOME");
@@ -3737,7 +3737,7 @@ static bool net_kio_available(int proto) {
   static const char *dirs[] = {"/usr/lib64/qt6/plugins/kf6/kio", "/usr/lib64/qt5/plugins/kf5/kio",
                                "/usr/lib/qt6/plugins/kf6/kio", "/usr/lib/qt5/plugins/kf5/kio"};
   char path[PATH_MAX];
-  const char *override = getenv("FE_KIO_WORKER_DIR");
+  const char *override = identity_env("FE_KIO_WORKER_DIR");
   if (override) {
     snprintf(path, sizeof path, "%s/kio_%s.so", override, worker);
     return access(path, R_OK) == 0;
@@ -3888,7 +3888,8 @@ static void net_server_save(const char *name, const char *uri, const char *icon)
 }
 
 static void secret_clear_job(void *arg) {
-  secret_clear(arg);
+  if (!secret_clear(arg))
+    fprintf(stderr, "Hermes: keyring deletion deferred; durable deletion intent retained.\n");
   free(arg);
 }
 
@@ -3903,8 +3904,10 @@ static void secret_move_job(
     size_t l = strlen(pw);
     if (l && pw[l - 1] == '\n')
       pw[l - 1] = 0;
-    secret_store(m->to, pw);
-    secret_clear(m->from);
+    if (secret_store(m->to, pw)) {
+      if (!secret_clear(m->from))
+        fprintf(stderr, "Hermes: old credential deletion deferred; deletion intent retained.\n");
+    } else fprintf(stderr, "Hermes: credential move failed; original credential retained.\n");
   }
   explicit_bzero(pw, sizeof pw);
   free(m);
@@ -3916,7 +3919,8 @@ typedef struct {
 static void secret_put_job(
     void *arg) { // keyring calls can block (unlock prompt): off the main thread
   SecretPut *m = arg;
-  secret_store(m->uri, m->pw);
+  if (!secret_store(m->uri, m->pw))
+    fprintf(stderr, "Hermes: credential could not be saved/verified; retry after unlocking the keyring.\n");
   explicit_bzero(m->pw, sizeof m->pw);
   free(m);
 }
@@ -6573,7 +6577,7 @@ static bool op_admin_ok(int kind) {
 }
 
 static bool admin_allowed(void) { // tests only ever use a stand-in pkexec
-  if (A.selftest && !getenv("FE_PKEXEC")) {
+  if (A.selftest && !identity_env("FE_PKEXEC")) {
     toast("pkexec is not run in tests");
     return false;
   }
@@ -7599,7 +7603,7 @@ static void ssh_tab_open(const SshTarget *st) {
   sh_quote(qp, sizeof qp, st->path[0] ? st->path : ".");
   snprintf(rcmd, sizeof rcmd,
            "cd %s 2>/dev/null || cd; exec \"${SHELL:-/bin/sh}\" -l", qp);
-  const char *ssh = getenv("FE_SSH"); // tests: a stand-in
+  const char *ssh = identity_env("FE_SSH"); // tests: a stand-in
   char *argv[8];
   int n = 0;
   argv[n++] = (char *)(ssh && ssh[0] ? ssh : "ssh");
@@ -10370,7 +10374,7 @@ static Listing *content_listing_new(Pane *p, const char *q) {
   cq_init(L->cq, text, A.cs_case, A.cs_word, A.cs_regex);
   bool use_rg =
       !A.selftest ||
-      getenv("FE_RG"); // tests: the built-in search, or a stand-in ripgrep
+      identity_env("FE_RG"); // tests: the built-in search, or a stand-in ripgrep
   content_start(L, p->path, text, glob, A.cs_case, A.cs_word, A.cs_regex,
                 A.show_hidden, A.search_recursive, use_rg);
   return L;
@@ -10963,7 +10967,7 @@ static bool git_pane_eligible(Pane *p) {
   if (t && t->term)
     return false;
   return !A.selftest ||
-         getenv("FE_GIT"); // tests use a stand-in git, never the real one
+         identity_env("FE_GIT"); // tests use a stand-in git, never the real one
 }
 
 static struct GitRepo *git_repo(const char *root, bool create) {
@@ -12284,7 +12288,7 @@ static bool du_key(Pane *p, SDL_Keycode k, SDL_Keymod mod) {
   return true;
 }
 
-// --- recent folders (persisted in $XDG_STATE_HOME/file-explorer/recent) ----
+// --- recent folders (persisted in $XDG_STATE_HOME/hermes/recent) ----
 
 #define MAX_RECENT 200
 static char *g_recent[MAX_RECENT];
@@ -13270,7 +13274,7 @@ static void snap_cmd(Pane *p, int kind, const char *const *argv, size_t cap) {
   SnapView *v = p->sv;
   if (!v || v->cmd)
     return;
-  if (A.selftest && !getenv("FE_SNAPPER")) {
+  if (A.selftest && !identity_env("FE_SNAPPER")) {
     toast("snapper is not run in tests");
     return;
   }
@@ -15594,12 +15598,12 @@ static void frame(void) {
   // Keep Vulkan's discovery/redraw passes off the swapchain. A tab switch can
   // add glyphs and redraw the frame; only the finished image should reach the
   // window, including the one-pixel boundaries between panels. Set
-  // FE_VK_TARGET=0 to compare the direct swapchain path when diagnosing.
+  // HERMES_VK_TARGET=0 to compare the direct swapchain path when diagnosing.
   bool target_frame = false;
   SDL_Rect window_viewport;
   SDL_GetRenderViewport(A.ren, &window_viewport);
   const char *renderer_name = SDL_GetRendererName(A.ren);
-  const char *vk_target = getenv("FE_VK_TARGET");
+  const char *vk_target = identity_env("FE_VK_TARGET");
   if ((!vk_target || strcmp(vk_target, "0")) && renderer_name &&
       (!strcmp(renderer_name, "vulkan") || !strcmp(renderer_name, "gpu"))) {
     int width = 0, height = 0;
@@ -16013,7 +16017,7 @@ static void restart_if_updated(const char *msg) {
 }
 
 static void ipc_handle(char *msg) {
-  if (getenv("FE_IPC_DEBUG"))
+  if (identity_env("FE_IPC_DEBUG"))
     fprintf(stderr, "IPC[%s]\n", msg);
   restart_if_updated(msg);
   bool first = true, paths = false;
@@ -16074,7 +16078,7 @@ int main(int argc, char **argv) {
   // The UI and filesystem paths use UTF-8; libarchive converts entry names
   // through LC_CTYPE when writing ZIP and tar headers.
   if (!setlocale(LC_CTYPE, "C.UTF-8")) setlocale(LC_CTYPE, "");
-  if (argc == 2 && getenv("FE_ASKPASS_FILE"))
+  if (argc == 2 && identity_env("FE_ASKPASS_FILE"))
     return askpass_main(argv[1]); // ssh wants a password (devices.c)
   if (argc == 4 && !strcmp(argv[1], "--admin-op") &&
       !strcmp(argv[2], "versions"))
@@ -16338,7 +16342,7 @@ int main(int argc, char **argv) {
     A.win_alpha = false; // (no compositor: the corners would be black)
   A.win_shadow = A.win_alpha && vdrv &&
                  (!strcmp(vdrv, "wayland") || (A.win_x11 && x11_ext)) &&
-                 !getenv("FE_NO_SHADOW");
+                 !identity_env("FE_NO_SHADOW");
   // X11 with alpha: shown only once the frame extents and the resize sync
   // counter are set, as GTK does (the window manager reads them when it takes
   // the window on: set later, it keeps the size without the shadow and grows
@@ -16388,7 +16392,7 @@ int main(int argc, char **argv) {
   SDL_SetRenderVSync(A.ren, any_selftest || A.screenshot ? 0 : 1);
   g_ren = A.ren;
   dragout_init(); // (after the renderer: SDL may make the window again for it)
-  if (getenv("FE_SHADOW_DEBUG"))
+  if (identity_env("FE_SHADOW_DEBUG"))
     fprintf(stderr, "shadow: driver %s, renderer %s, alpha %d, shadow %d\n",
             SDL_GetCurrentVideoDriver(), SDL_GetRendererName(A.ren),
             A.win_alpha, A.win_shadow);

@@ -704,7 +704,7 @@ static Term *term_new(const char *dir, char *const argv[], int rows, int cols, b
     term_winsize(t);
     // the program: own session (the pty becomes its controlling terminal), default signal handling
     // (the app ignores SIGCHLD; a shell must not inherit that), the terminal's environment
-    const char *shell = getenv("FE_TERM_SHELL");
+    const char *shell = identity_env("FE_TERM_SHELL");
     if (!shell || !shell[0]) shell = getenv("SHELL");
     if (!shell || !shell[0]) shell = "/bin/sh";
     char *sh_argv[4] = {(char *)shell, NULL};

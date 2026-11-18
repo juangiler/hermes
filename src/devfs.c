@@ -1026,9 +1026,9 @@ static int devfs_main(int argc, char **argv) {
     dfs_report("ok %s", g_dfs_mp);
     int nul = open("/dev/null", O_RDWR);
     char logp[PATH_MAX + 16];
-    snprintf(logp, sizeof logp, "%s/.device.log", argv[3]); // what happens from now on (FE_DEVICE_DEBUG: stays on stderr)
-    int logfd = getenv("FE_DEVICE_DEBUG") ? -1 : open(logp, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600);
-    if (nul >= 0) { dup2(nul, 0); dup2(nul, 1); if (logfd >= 0) dup2(logfd, 2); else if (!getenv("FE_DEVICE_DEBUG")) dup2(nul, 2); close(nul); }
+    snprintf(logp, sizeof logp, "%s/.device.log", argv[3]); // what happens from now on (HERMES_DEVICE_DEBUG: stays on stderr)
+    int logfd = identity_env("FE_DEVICE_DEBUG") ? -1 : open(logp, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600);
+    if (nul >= 0) { dup2(nul, 0); dup2(nul, 1); if (logfd >= 0) dup2(logfd, 2); else if (!identity_env("FE_DEVICE_DEBUG")) dup2(nul, 2); close(nul); }
     if (logfd >= 0) close(logfd);
     dev_log("devfs: serving %s (%s) at %s", name, info->sys, g_dfs_mp);
     g_dfs_out = NULL;

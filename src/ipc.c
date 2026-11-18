@@ -13,11 +13,21 @@ static char g_ipc_path[108];
 static void (*g_ipc_handler)(char *msg); // runs on the main thread, owns msg
 
 static void ipc_socket_path(char *out, size_t cap) {
-    const char *ov = getenv("FE_IPC_SOCKET"); // tests: a private instance
+    const char *ov = identity_env("FE_IPC_SOCKET"); // tests: a private instance
     if (ov && ov[0] == '/') { snprintf(out, cap, "%s", ov); return; }
     const char *rt = getenv("XDG_RUNTIME_DIR");
-    if (rt && rt[0] == '/') snprintf(out, cap, "%s/file-explorer.sock", rt);
-    else snprintf(out, cap, "/tmp/file-explorer-%u.sock", (unsigned)getuid());
+    if (rt && rt[0] == '/') snprintf(out, cap, "%s/hermes.sock", rt);
+    else {
+        char dir[80];
+        snprintf(dir, sizeof dir, "/tmp/hermes-%u", (unsigned)getuid());
+        mkdir(dir, 0700);
+        struct stat st;
+        if (lstat(dir, &st) || !S_ISDIR(st.st_mode) || st.st_uid != getuid() || (st.st_mode & 0077)) {
+            out[0] = 0;
+            return;
+        }
+        snprintf(out, cap, "%s/ipc.sock", dir);
+    }
 }
 
 static bool ipc_write_all(int fd, const char *p, size_t n) {
