@@ -5,7 +5,6 @@ include(GNUInstallDirs)
 # D-Bus adaptors are hand-written; dbus-interfaces/*.xml documents the wire
 # contract because qdbusxml2cpp is not available in the build images.
 add_library(hermes-portals STATIC
-    portals.cpp
     portal_config.cpp
     settings_client.cpp
     open_uri_client.cpp
