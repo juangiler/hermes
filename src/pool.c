@@ -50,6 +50,9 @@ static void *worker_main(void *arg) {
 }
 
 static void pool_init(void) {
+    static bool inited;
+    if (inited) return;
+    inited = true;
     long n = sysconf(_SC_NPROCESSORS_ONLN);
     g_nworkers = (int)CLAMP(n - 1, 2, 12);
     for (int i = 0; i < g_nworkers; i++) {

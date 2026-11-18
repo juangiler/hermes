@@ -1,6 +1,7 @@
 /* cc -std=gnu11 -Wall -Wextra -Wno-unused-function -Wno-unused-parameter -Wno-format-truncation
    tools/core-selftest.c -o /tmp/hermes-core-test -lm -ldl -pthread $(pkg-config --cflags --libs libarchive fuse3 openssl) */
 #include "../src/base.h"
+#include "../src/core_api.h"
 #include "../src/core_host.h"
 #include <assert.h>
 #include <ctype.h>
@@ -34,6 +35,7 @@ static struct { bool selftest; bool screenshot; } A = {.selftest = true};
 #include "../src/git.c"
 #include "../src/apps.c"
 #include "../src/cloud_identity.c"
+#include "../src/core_api.c"
 
 static void op_finished(void *arg) { op_free((Op *)arg); }
 static void search_batch_cb(void *arg) { (void)arg; }
@@ -211,6 +213,46 @@ static void test_core_host_defaults(void) {
     g_core_host->open_tab("/tmp", 0, true);
 }
 
+static _Atomic int abi_wakes;
+static void abi_wake(void *user) { (void)user; atomic_fetch_add(&abi_wakes, 1); }
+static _Atomic int abi_jobs;
+static void abi_main_job(void *arg) { (void)arg; atomic_fetch_add(&abi_jobs, 1); }
+static void abi_worker_job(void *arg) { (void)arg; main_post(abi_main_job, NULL); }
+
+static void test_public_abi(const char *dir) {
+    HermesCore *core = hermes_core_create(abi_wake, NULL);
+    assert(core);
+
+    HermesListing out;
+    assert(hermes_core_scan(core, dir, &out) == 0);
+    assert(out.count == 4);
+    bool found = false;
+    for (size_t i = 0; i < out.count; i++) {
+        if (!strcmp(out.items[i].name, "a.txt")) {
+            assert(out.items[i].name_len == 5);
+            found = true;
+        }
+    }
+    assert(found);
+    hermes_listing_free(&out);
+    assert(out.items == NULL && out.count == 0);
+
+    // Exercise the public drain path, then destroy with another job queued:
+    // a late callback must not touch freed core state, and drain after destroy
+    // must stay a safe no-op.
+    struct timespec pause = {0, 1000000};
+    pool_submit(abi_worker_job, NULL);
+    for (int i = 0; i < 10000 && !atomic_load(&abi_jobs); i++) {
+        hermes_core_drain(core);
+        nanosleep(&pause, NULL);
+    }
+    assert(atomic_load(&abi_jobs) == 1);
+    assert(atomic_load(&abi_wakes) >= 1);
+    pool_submit(abi_worker_job, NULL);
+    hermes_core_destroy(core);
+    hermes_core_drain(core);
+}
+
 static void cleanup_dir(const char *dir, const char *longname) {
     char p[PATH_MAX];
     const char *names[] = {"a.txt", "b b.txt", "caf\xc3\xa9.txt", "copy-me.bin", "secret/x", "loop"};
@@ -248,6 +290,7 @@ int main(void) {
     memset(longname, 'z', 255);
     longname[255] = 0;
     test_scan_names(dir);
+    test_public_abi(dir);
     test_scan_empty_and_symlink(plain, empty);
     test_scan_denied(dir);
     test_copy_cross_device(dir, shm);
