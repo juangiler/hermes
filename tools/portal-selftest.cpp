@@ -1,17 +1,27 @@
 // Headless portal suite: stub portal objects on a private session bus.
 // Later tasks append the service and configuration cases here.
 #include "../portals/documents_client.h"
+#include "../portals/file_chooser_backend.h"
+#include "../portals/file_manager1_service.h"
 #include "../portals/open_uri_client.h"
 #include "../portals/portal_common.h"
 #include "../portals/settings_client.h"
 
+#include "../src/core_api.h"
+#include "../src/core_host.h"
+
 #include <QtCore/QList>
 #include <QtCore/QObject>
+#include <QtCore/QStringList>
 #include <QtCore/QTimer>
 #include <QtCore/QUrl>
 #include <QtDBus/QDBusAbstractAdaptor>
 #include <QtDBus/QDBusConnection>
+#include <QtDBus/QDBusInterface>
+#include <QtDBus/QDBusMessage>
 #include <QtDBus/QDBusObjectPath>
+#include <QtDBus/QDBusPendingCall>
+#include <QtDBus/QDBusPendingCallWatcher>
 #include <QtDBus/QDBusVariant>
 #include <QtTest/QtTest>
 
@@ -32,6 +42,49 @@ const QString kParentWindow = QStringLiteral("hermes_selftest");
 const QString kUriResult = QStringLiteral("uri");
 const uint kAccentValue = 1;
 const uint kColorSchemeValue = 2;
+
+const QString kFileManagerService = QStringLiteral("org.freedesktop.FileManager1");
+const QString kFileManagerPath = QStringLiteral("/org/freedesktop/FileManager1");
+const QString kFileManagerInterface = QStringLiteral("org.freedesktop.FileManager1");
+const QString kImplService = QStringLiteral("org.freedesktop.impl.portal.desktop.hermes");
+const QString kChooserInterface = QStringLiteral("org.freedesktop.impl.portal.FileChooser");
+const QString kCancelledError = QStringLiteral("org.freedesktop.portal.Error.Cancelled");
+const QString kOpenHandle = QStringLiteral(
+    "/org/freedesktop/portal/desktop/request/hermes_selftest/open");
+const QString kSaveHandle = QStringLiteral(
+    "/org/freedesktop/portal/desktop/request/hermes_selftest/save");
+const QString kAppId = QStringLiteral("org.kde.hermes.selftest");
+const QString kChooserTitle = QStringLiteral("Select a file");
+const uint kCancelledResponse = 2;
+
+QStringList g_openedPaths;
+QList<int> g_openedIndexes;
+QList<bool> g_openedFocus;
+
+void recordOpenTab(const char *path, int index, bool focus)
+{
+    g_openedPaths.append(QString::fromUtf8(path));
+    g_openedIndexes.append(index);
+    g_openedFocus.append(focus);
+}
+
+QVariantMap chooserOptions()
+{
+    const QVariantList filters{QVariantMap{{QStringLiteral("name"), QStringLiteral("Text")},
+                                           {QStringLiteral("patterns"),
+                                            QStringList{QStringLiteral("*.txt")}}}};
+    QVariantMap options;
+    options.insert(QStringLiteral("filters"), filters);
+    options.insert(QStringLiteral("multiple"), true);
+    options.insert(QStringLiteral("current_folder"), QByteArray("/tmp"));
+    return options;
+}
+
+bool waitForCall(QDBusPendingCallWatcher *watcher)
+{
+    QSignalSpy finished(watcher, &QDBusPendingCallWatcher::finished);
+    return finished.wait(2000) && watcher->isFinished();
+}
 }
 
 // The real portal wraps ReadOne's value in an a{sv} with a "v" entry.
@@ -224,6 +277,59 @@ private:
     bool m_acquired = false;
 };
 
+// The engine's host table is global; install the recorder only for the slot
+// that exercises ShowItems and always put the defaults back afterwards.
+class RecordingHostGuard
+{
+public:
+    RecordingHostGuard()
+    {
+        g_openedPaths.clear();
+        g_openedIndexes.clear();
+        g_openedFocus.clear();
+        m_host = hermes_core_host_defaults;
+        m_host.open_tab = recordOpenTab;
+        hermes_core_set_host(&m_host);
+    }
+
+    ~RecordingHostGuard() { hermes_core_set_host(nullptr); }
+
+private:
+    HermesCoreHost m_host;
+};
+
+// Owns the in-process services for one slot. The QDBusInterface in each test is
+// the caller; nothing external is launched on the private bus.
+class PortalServiceStub : public QObject
+{
+    Q_OBJECT
+
+public:
+    explicit PortalServiceStub(QObject *parent = nullptr)
+        : QObject(parent),
+          fileManager(new FileManager1Service(this)),
+          chooser(new FileChooserBackend(this)) {}
+
+    ~PortalServiceStub() override
+    {
+        QDBusConnection bus = QDBusConnection::sessionBus();
+        bus.unregisterObject(kFileManagerPath);
+        bus.unregisterObject(kDesktopPath);
+        bus.unregisterService(kFileManagerService);
+        bus.unregisterService(kImplService);
+    }
+
+    bool start(QString *error)
+    {
+        QDBusConnection bus = QDBusConnection::sessionBus();
+        return bus.isConnected() && fileManager->registerService(bus, error)
+            && chooser->registerService(bus, error);
+    }
+
+    FileManager1Service *fileManager = nullptr;
+    FileChooserBackend *chooser = nullptr;
+};
+
 class PortalSelfTest : public QObject
 {
     Q_OBJECT
@@ -237,6 +343,9 @@ private slots:
     void openUriDeliversOverlappingResponses();
     void documentsAddReturnsDocumentId();
     void clientsReportUnavailableWithoutService();
+    void fileManagerShowItemsOpensUrisAndCancels();
+    void fileChooserOpenFileReturnsCancelled();
+    void fileChooserSaveFileReturnsCancelled();
 };
 
 void PortalSelfTest::initTestCase()
@@ -385,6 +494,87 @@ void PortalSelfTest::clientsReportUnavailableWithoutService()
     QTRY_COMPARE_WITH_TIMEOUT(documentsSpy.count(), 1, 2000);
     QCOMPARE(documentsSpy.at(0).at(1).value<PortalReply>().status,
              PortalReply::Status::Unavailable);
+}
+
+void PortalSelfTest::fileManagerShowItemsOpensUrisAndCancels()
+{
+    RecordingHostGuard host;
+    PortalServiceStub stub;
+    QString error;
+    QVERIFY2(stub.start(&error), qPrintable(error));
+
+    QSignalSpy itemsSpy(stub.fileManager, &FileManager1Service::itemsRequested);
+    QVERIFY(itemsSpy.isValid());
+
+    QDBusInterface caller(kFileManagerService, kFileManagerPath, kFileManagerInterface,
+                          QDBusConnection::sessionBus());
+    QVERIFY(caller.isValid());
+
+    const QStringList uris{QUrl::fromLocalFile(kFirstPath).toString(),
+                           QUrl::fromLocalFile(kSecondPath).toString()};
+    QDBusPendingCall pending = caller.asyncCall(QStringLiteral("ShowItems"), uris,
+                                                QStringLiteral("startup-1"));
+    QDBusPendingCallWatcher watcher(pending);
+    QVERIFY(waitForCall(&watcher));
+    QVERIFY(watcher.isError());
+    QCOMPARE(watcher.error().name(), kCancelledError);
+
+    const QStringList expectedPaths{kFirstPath, kSecondPath};
+    const QList<int> expectedIndexes{-1, -1};
+    const QList<bool> expectedFocus{true, true};
+    QCOMPARE(g_openedPaths, expectedPaths);
+    QCOMPARE(g_openedIndexes, expectedIndexes);
+    QCOMPARE(g_openedFocus, expectedFocus);
+    QCOMPARE(itemsSpy.count(), 1);
+    QCOMPARE(itemsSpy.at(0).at(0).toStringList(), uris);
+}
+
+void PortalSelfTest::fileChooserOpenFileReturnsCancelled()
+{
+    PortalServiceStub stub;
+    QString error;
+    QVERIFY2(stub.start(&error), qPrintable(error));
+
+    QDBusInterface caller(kImplService, kDesktopPath, kChooserInterface,
+                          QDBusConnection::sessionBus());
+    QVERIFY(caller.isValid());
+
+    QDBusPendingCall pending =
+        caller.asyncCall(QStringLiteral("OpenFile"),
+                         QVariant::fromValue(QDBusObjectPath(kOpenHandle)), kAppId,
+                         kParentWindow, kChooserTitle, chooserOptions());
+    QDBusPendingCallWatcher watcher(pending);
+    QVERIFY(waitForCall(&watcher));
+    QVERIFY(!watcher.isError());
+
+    const QList<QVariant> arguments = watcher.reply().arguments();
+    QCOMPARE(arguments.size(), 2);
+    QCOMPARE(arguments.at(0).toUInt(), kCancelledResponse);
+    QVERIFY(arguments.at(1).toMap().isEmpty());
+}
+
+void PortalSelfTest::fileChooserSaveFileReturnsCancelled()
+{
+    PortalServiceStub stub;
+    QString error;
+    QVERIFY2(stub.start(&error), qPrintable(error));
+
+    QDBusInterface caller(kImplService, kDesktopPath, kChooserInterface,
+                          QDBusConnection::sessionBus());
+    QVERIFY(caller.isValid());
+
+    QDBusPendingCall pending =
+        caller.asyncCall(QStringLiteral("SaveFile"),
+                         QVariant::fromValue(QDBusObjectPath(kSaveHandle)), kAppId,
+                         kParentWindow, kChooserTitle, chooserOptions());
+    QDBusPendingCallWatcher watcher(pending);
+    QVERIFY(waitForCall(&watcher));
+    QVERIFY(!watcher.isError());
+
+    const QList<QVariant> arguments = watcher.reply().arguments();
+    QCOMPARE(arguments.size(), 2);
+    QCOMPARE(arguments.at(0).toUInt(), kCancelledResponse);
+    QVERIFY(arguments.at(1).toMap().isEmpty());
 }
 
 QTEST_MAIN(PortalSelfTest)

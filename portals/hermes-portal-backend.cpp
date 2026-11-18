@@ -1,8 +1,13 @@
-// D-Bus-activatable portal backend. This is a CLI stub until tasks 4-5 attach
-// the services and the opt-in configuration to this same long-lived process.
+// D-Bus-activatable portal backend. With no CLI flags it owns the FileManager1
+// and FileChooser services for the lifetime of the session; Task 5 implements
+// the opt-in configuration flags, which keep their print-and-exit behaviour.
+#include "file_chooser_backend.h"
+#include "file_manager1_service.h"
+
 #include <QCommandLineOption>
 #include <QCommandLineParser>
 #include <QCoreApplication>
+#include <QDBusConnection>
 #include <QTextStream>
 
 int main(int argc, char **argv)
@@ -33,8 +38,27 @@ int main(int argc, char **argv)
         out << QStringLiteral("filechooser: enable requested (stub)\n");
     } else if (parser.isSet(disableFileChooser)) {
         out << QStringLiteral("filechooser: disable requested (stub)\n");
-    } else {
+    } else if (parser.isSet(status)) {
         out << QStringLiteral("filechooser: status requested (stub)\n");
+    } else {
+        QDBusConnection bus = QDBusConnection::sessionBus();
+        QString error;
+        if (!bus.isConnected()) {
+            QTextStream(stderr) << QStringLiteral("hermes-portal-backend: no session bus\n");
+            return 1;
+        }
+
+        FileManager1Service fileManager;
+        if (!fileManager.registerService(bus, &error)) {
+            QTextStream(stderr) << QStringLiteral("hermes-portal-backend: ") << error << '\n';
+            return 1;
+        }
+        FileChooserBackend chooser;
+        if (!chooser.registerService(bus, &error)) {
+            QTextStream(stderr) << QStringLiteral("hermes-portal-backend: ") << error << '\n';
+            return 1;
+        }
+        return app.exec();
     }
     return 0;
 }

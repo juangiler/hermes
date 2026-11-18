@@ -2,11 +2,15 @@ include(GNUInstallDirs)
 
 # Static library for the Qt D-Bus clients, services and opt-in configuration.
 # It only ever includes the narrow C ABI from src/core_api.h / core_host.h.
+# D-Bus adaptors are hand-written; dbus-interfaces/*.xml documents the wire
+# contract because qdbusxml2cpp is not available in the build images.
 add_library(hermes-portals STATIC
     portals.cpp
     settings_client.cpp
     open_uri_client.cpp
-    documents_client.cpp)
+    documents_client.cpp
+    file_manager1_service.cpp
+    file_chooser_backend.cpp)
 set_target_properties(hermes-portals PROPERTIES AUTOMOC ON)
 target_include_directories(hermes-portals PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_options(hermes-portals PRIVATE -Wall -Wextra -Werror)
