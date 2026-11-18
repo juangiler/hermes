@@ -3,26 +3,37 @@ import org.kde.kirigami as Kirigami
 
 Kirigami.Page {
   id: page
+  objectName: "directoryPage"
   title: "Directory"
 
-  // A control character separates paths so every filename stays intact.
-  property string set: ""
-  readonly property var selectedPaths: page.set.length > 0
-      ? page.set.split(String.fromCharCode(31)) : []
+  property var selectedPaths: []
 
   function toggleSelection(path) {
-    const marker = String.fromCharCode(31);
-    var parts = page.set.length > 0 ? page.set.split(marker) : [];
+    var parts = page.selectedPaths.slice();
     const index = parts.indexOf(path);
     if (index >= 0)
       parts.splice(index, 1);
     else
       parts.push(path);
-    page.set = parts.join(marker);
+    page.selectedPaths = parts;
   }
 
   function clearSelection() {
-    page.set = "";
+    page.selectedPaths = [];
+  }
+
+  Connections {
+    target: hermes.directory
+    function onPathChanged() {
+      page.clearSelection()
+    }
+  }
+
+  Connections {
+    target: hermes
+    function onCurrentTabChanged() {
+      page.clearSelection()
+    }
   }
 
   ListView {

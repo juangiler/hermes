@@ -70,6 +70,14 @@ if(HERMES_BUILD_QT_UI)
       PREFIX "/qtui" BASE qtui FILES qtui/qml/main.qml qtui/qml/DirectoryPage.qml)
 
   add_executable(hermes-qt qtui/main.cpp)
+  file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/src/app.c" HERMES_APP_VERSION_LINE
+      REGEX "^#define APP_VERSION ")
+  string(REGEX MATCH "\"([^\"]+)\"" HERMES_APP_VERSION_MATCH "${HERMES_APP_VERSION_LINE}")
+  set(HERMES_APP_VERSION "${CMAKE_MATCH_1}")
+  if(HERMES_APP_VERSION STREQUAL "")
+    message(FATAL_ERROR "Could not read APP_VERSION from src/app.c")
+  endif()
+  target_compile_definitions(hermes-qt PRIVATE HERMES_APP_VERSION="${HERMES_APP_VERSION}")
   target_link_libraries(hermes-qt PRIVATE hermes-kirigami-ui)
   set_target_properties(hermes-qt PROPERTIES
       OUTPUT_NAME hermes-qt
@@ -80,6 +88,7 @@ if(HERMES_BUILD_QT_UI)
       AUTOMOC ON
       RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
   target_compile_options(hermes-qt-selftest PRIVATE -Wall -Wextra -Werror)
+  target_compile_definitions(hermes-qt-selftest PRIVATE HERMES_APP_VERSION="${HERMES_APP_VERSION}")
   target_link_libraries(hermes-qt-selftest PRIVATE hermes-kirigami-ui Qt6::Test)
 
   pkg_check_modules(LEGACY REQUIRED IMPORTED_TARGET sdl3 freetype2 harfbuzz fontconfig vterm)

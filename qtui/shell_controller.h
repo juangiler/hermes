@@ -25,6 +25,7 @@ class ShellController : public QObject
   Q_PROPERTY(int currentTab READ currentTab NOTIFY currentTabChanged)
   Q_PROPERTY(bool canGoBack READ canGoBack NOTIFY historyChanged)
   Q_PROPERTY(bool canGoForward READ canGoForward NOTIFY historyChanged)
+  Q_PROPERTY(bool canPaste READ canPaste NOTIFY clipboardChanged)
 
 public:
   explicit ShellController(QObject *parent = nullptr);
@@ -36,6 +37,7 @@ public:
   int currentTab() const;
   bool canGoBack() const;
   bool canGoForward() const;
+  bool canPaste() const;
   HermesCore *core() const;
 
   // The engine's open_tab hook arrives on this method, off the GUI thread.
@@ -50,7 +52,7 @@ public:
   Q_INVOKABLE void setConflictPolicy(HermesConflictPolicy policy);
 
   // Called from the queued operations_changed hook on the GUI thread.
-  void recordOperationCompletion();
+  void recordOperationCompletion(int kind, int errorCount);
   void refreshDirectory();
   int operationsChangedCount() const;
   void resetOperationsChangedCount();
@@ -70,6 +72,10 @@ signals:
   void tabsChanged();
   void currentTabChanged();
   void historyChanged();
+  void operationFailed(const QString &message);
+  void operationCompleted(int kind, int errorCount);
+  void operationFinished(int kind, bool succeeded, int errorCount);
+  void clipboardChanged();
 
 private:
   struct TabState {
@@ -78,7 +84,7 @@ private:
     int historyIndex = -1;
   };
 
-  void goTo(const QString &path, bool record);
+  bool goTo(const QString &path, bool record, int historyIndex = -2);
   void emitHistory();
 
   HermesCore *m_core = nullptr;
@@ -90,5 +96,5 @@ private:
   bool m_clipboardMove = false;
   HermesConflictPolicy m_conflictPolicy = HERMES_CONFLICT_RENAME;
   std::atomic<int> m_operationsChangedCount{0};
-  int m_currentTab = -1;
+  std::atomic<int> m_currentTab{-1};
 };

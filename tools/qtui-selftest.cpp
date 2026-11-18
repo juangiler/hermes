@@ -14,8 +14,13 @@
 #include <QTemporaryDir>
 #include <QTimeZone>
 #include <QUrl>
+#include <QProcess>
+#include <QProcessEnvironment>
+#include <QQuickItem>
+#include <QQuickWindow>
 #include <QtTest>
 #include <memory>
+#include <thread>
 
 static void noWake(void *) {}
 
@@ -38,11 +43,23 @@ private slots:
   void closeTabBeforeCurrentKeepsFocusedTab();
   void focusFreeHostTabKeepsValidCursor();
   void hostOpenTabAtIndexInsertsTab();
+  void hostHooksAreSafeAcrossControllerLifetime();
+  void selectionUsesPathListAndClearsOnNavigation();
+  void selectionClearsOnNavigation();
   void directoryModelRejectsStaleScanResults();
   void operationsCreateRenameAndTrash();
   void operationsHandleUtf8Names();
+  void createAndRenameRejectNonLeafNames();
+  void operationFailuresAreReported();
   void operationsUseConfiguredConflictPolicy();
+  void defaultConflictPolicyRenamesWithoutOverride();
   void copyPasteMoveRoundTrip();
+  void successfulMoveClearsClipboard();
+  void navigationNotifiesTabLabels();
+  void failedHistoryNavigationKeepsCursor();
+  void permanentDeleteRequiresConfirmation();
+  void tabManagementHasReadableLabels();
+  void cliHelpAndVersionNeedNoPlatformPlugin();
 
 private:
   using CorePtr = std::unique_ptr<HermesCore, decltype(&hermes_core_destroy)>;
@@ -368,6 +385,100 @@ void HermesQtUiTest::hostOpenTabAtIndexInsertsTab()
   QCOMPARE(controller.directory()->path(), first);
 }
 
+void HermesQtUiTest::hostHooksAreSafeAcrossControllerLifetime()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  CorePtr core = makeCore();
+  QVERIFY(core);
+  const QByteArray uri = QUrl::fromLocalFile(dir.path()).toEncoded();
+  const char *uris[] = {uri.constData()};
+  std::atomic<bool> start{false};
+  std::atomic<int> calls{0};
+  auto controller = std::make_unique<ShellController>();
+  controller->navigate(dir.path());
+  std::thread caller([&] {
+    while (!start.load())
+      std::this_thread::yield();
+    for (int i = 0; i < 200000; ++i)
+      if (hermes_core_open_uris(core.get(), uris, 1, false) == 1)
+        calls.fetch_add(1);
+  });
+  start.store(true);
+  while (calls.load() < 100)
+    std::this_thread::yield();
+  controller.reset();
+  caller.join();
+  hermes_core_destroy(core.release());
+}
+
+void HermesQtUiTest::selectionUsesPathListAndClearsOnNavigation()
+{
+  QTemporaryDir first;
+  QTemporaryDir second;
+  QVERIFY(first.isValid());
+  QVERIFY(second.isValid());
+  const QString separatorName = QStringLiteral("has") + QChar(0x1f) + QStringLiteral("separator");
+  QVERIFY(writeFile(first.filePath(separatorName), "x"));
+
+  ShellController controller;
+  controller.navigate(first.path());
+  QQmlApplicationEngine engine;
+  engine.rootContext()->setContextProperty(QStringLiteral("hermes"), &controller);
+  engine.load(QUrl(QStringLiteral("qrc:/qtui/qml/main.qml")));
+  QVERIFY(!engine.rootObjects().isEmpty());
+  QQuickWindow *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
+  QVERIFY(window);
+  window->resize(800, 600);
+  window->show();
+  QCoreApplication::processEvents();
+  QObject *page = window->findChild<QObject *>(QStringLiteral("directoryPage"));
+  QVERIFY(page);
+
+  const QString selectedPath = first.filePath(separatorName);
+  QVERIFY(QMetaObject::invokeMethod(page, "toggleSelection",
+                                    Q_ARG(QVariant, QVariant(selectedPath))));
+  QVariantList selected = page->property("selectedPaths").toList();
+  QCOMPARE(selected.size(), 1);
+  QCOMPARE(selected.constFirst().toString(), selectedPath);
+
+  QVERIFY(QMetaObject::invokeMethod(page, "toggleSelection",
+                                    Q_ARG(QVariant, QVariant(first.filePath(QStringLiteral("other"))))));
+  QCOMPARE(page->property("selectedPaths").toList().size(), 2);
+  controller.navigate(second.path());
+  QVERIFY(page->property("selectedPaths").toList().isEmpty());
+}
+
+void HermesQtUiTest::selectionClearsOnNavigation()
+{
+  QTemporaryDir first;
+  QTemporaryDir second;
+  QVERIFY(first.isValid());
+  QVERIFY(second.isValid());
+  const QString selectedPath = first.filePath(QStringLiteral("file.txt"));
+  QVERIFY(writeFile(selectedPath, "x"));
+
+  ShellController controller;
+  controller.navigate(first.path());
+  QQmlApplicationEngine engine;
+  engine.rootContext()->setContextProperty(QStringLiteral("hermes"), &controller);
+  engine.load(QUrl(QStringLiteral("qrc:/qtui/qml/main.qml")));
+  QVERIFY(!engine.rootObjects().isEmpty());
+  QQuickWindow *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
+  QVERIFY(window);
+  window->resize(800, 600);
+  window->show();
+  QCoreApplication::processEvents();
+  QObject *page = window->findChild<QObject *>(QStringLiteral("directoryPage"));
+  QVERIFY(page);
+  QVERIFY(QMetaObject::invokeMethod(page, "toggleSelection",
+                                    Q_ARG(QVariant, QVariant(selectedPath))));
+  QCOMPARE(page->property("selectedPaths").toList().size(), 1);
+
+  controller.navigate(second.path());
+  QVERIFY(page->property("selectedPaths").toList().isEmpty());
+}
+
 void HermesQtUiTest::directoryModelRejectsStaleScanResults()
 {
   QTemporaryDir current;
@@ -442,6 +553,54 @@ void HermesQtUiTest::operationsHandleUtf8Names()
   QVERIFY(QFileInfo::exists(dir.filePath(renamed)));
 }
 
+void HermesQtUiTest::createAndRenameRejectNonLeafNames()
+{
+  QTemporaryDir root;
+  QVERIFY(root.isValid());
+  const QString dir = root.filePath(QStringLiteral("inside"));
+  QVERIFY(QDir().mkpath(dir));
+  ShellController controller;
+  controller.navigate(dir);
+
+  QVERIFY(!controller.createFolder(QStringLiteral("../escaped")));
+  QVERIFY(!controller.createFolder(QStringLiteral("nested/name")));
+  QVERIFY(!controller.createFolder(QStringLiteral(".")));
+  QVERIFY(!controller.createFolder(QStringLiteral("..")));
+  QVERIFY(!QFileInfo::exists(root.filePath(QStringLiteral("escaped"))));
+
+  const QString source = dir + QStringLiteral("/source");
+  QVERIFY(writeFile(source, "x"));
+  QVERIFY(!controller.renameEntry(source, dir + QStringLiteral("/../escaped")));
+  QVERIFY(!controller.renameEntry(source, dir + QStringLiteral("/nested/name")));
+  QVERIFY(!controller.renameEntry(source, dir + QStringLiteral("/.")));
+  QVERIFY(QFileInfo::exists(source));
+  QVERIFY(!QFileInfo::exists(root.filePath(QStringLiteral("escaped"))));
+
+  const QString outsideSource = root.filePath(QStringLiteral("outside"));
+  QVERIFY(writeFile(outsideSource, "outside"));
+  QVERIFY(!controller.renameEntry(outsideSource, root.filePath(QStringLiteral("renamed"))));
+  QVERIFY(QFileInfo::exists(outsideSource));
+}
+
+void HermesQtUiTest::operationFailuresAreReported()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  ShellController controller;
+  controller.navigate(dir.path());
+  QSignalSpy failures(&controller, SIGNAL(operationFailed(QString)));
+  QVERIFY(failures.isValid());
+
+  QVERIFY(!controller.createFolder(QString()));
+  QCOMPARE(failures.count(), 1);
+
+  QVERIFY(QDir().mkpath(dir.filePath(QStringLiteral("already"))));
+  QVERIFY(controller.createFolder(QStringLiteral("already")));
+  QTRY_COMPARE_WITH_TIMEOUT(controller.operationsChangedCount(), 1, 2000);
+  QTRY_COMPARE_WITH_TIMEOUT(failures.count(), 2, 2000);
+  QVERIFY(failures.takeLast().at(0).toString().contains(QStringLiteral("failure")));
+}
+
 void HermesQtUiTest::operationsUseConfiguredConflictPolicy()
 {
   QTemporaryDir dir;
@@ -472,6 +631,26 @@ void HermesQtUiTest::operationsUseConfiguredConflictPolicy()
   QCOMPARE(fileContents(source), QByteArray("source"));
 }
 
+void HermesQtUiTest::defaultConflictPolicyRenamesWithoutOverride()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString sourceDir = dir.filePath(QStringLiteral("src"));
+  const QString destDir = dir.filePath(QStringLiteral("dest"));
+  QVERIFY(QDir().mkpath(sourceDir));
+  QVERIFY(QDir().mkpath(destDir));
+  const QString source = sourceDir + QStringLiteral("/existing.txt");
+  const QString original = destDir + QStringLiteral("/existing.txt");
+  QVERIFY(writeFile(source, "source"));
+  QVERIFY(writeFile(original, "original"));
+
+  ShellController controller;
+  QVERIFY(controller.copyEntries(QStringList({source}), destDir, false));
+  waitForOperation(&controller);
+  QCOMPARE(fileContents(destDir + QStringLiteral("/existing (2).txt")), QByteArray("original"));
+  QCOMPARE(fileContents(original), QByteArray("source"));
+}
+
 void HermesQtUiTest::copyPasteMoveRoundTrip()
 {
   QTemporaryDir dir;
@@ -495,6 +674,175 @@ void HermesQtUiTest::copyPasteMoveRoundTrip()
   waitForOperation(&controller);
   QVERIFY(!QFileInfo::exists(source));
   QCOMPARE(fileContents(destDir + QStringLiteral("/file.txt")), QByteArray("payload"));
+}
+
+void HermesQtUiTest::successfulMoveClearsClipboard()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString destDir = dir.filePath(QStringLiteral("dest"));
+  QVERIFY(QDir().mkpath(destDir));
+  const QString source = dir.filePath(QStringLiteral("file.txt"));
+  QVERIFY(writeFile(source, "original"));
+
+  ShellController controller;
+  controller.navigate(dir.path());
+  controller.copySelection(QStringList({source}), true);
+  controller.navigate(destDir);
+  controller.pasteIntoCurrentDirectory();
+  waitForOperation(&controller);
+  QVERIFY(!QFileInfo::exists(source));
+
+  QVERIFY(writeFile(source, "reused"));
+  controller.pasteIntoCurrentDirectory();
+  QCoreApplication::processEvents();
+  QCOMPARE(controller.operationsChangedCount(), 0);
+  QCOMPARE(fileContents(source), QByteArray("reused"));
+  QCOMPARE(fileContents(destDir + QStringLiteral("/file.txt")), QByteArray("original"));
+}
+
+void HermesQtUiTest::navigationNotifiesTabLabels()
+{
+  QTemporaryDir first;
+  QTemporaryDir second;
+  QVERIFY(first.isValid());
+  QVERIFY(second.isValid());
+  ShellController controller;
+  controller.navigate(first.path());
+  QSignalSpy changed(&controller, &ShellController::tabsChanged);
+
+  controller.navigate(second.path());
+  QCOMPARE(changed.count(), 1);
+  QCOMPARE(controller.tabs().constFirst(), second.path());
+}
+
+void HermesQtUiTest::failedHistoryNavigationKeepsCursor()
+{
+  QTemporaryDir root;
+  QVERIFY(root.isValid());
+  const QString child = root.filePath(QStringLiteral("child"));
+  QVERIFY(QDir().mkpath(child));
+  ShellController controller;
+  controller.navigate(root.path());
+  controller.navigate(child);
+  controller.navigate(root.path());
+  QVERIFY(QDir(child).removeRecursively());
+  QVERIFY(controller.canGoBack());
+
+  controller.back();
+  QCOMPARE(controller.directory()->path(), root.path());
+  QVERIFY(controller.canGoBack());
+  QVERIFY(!controller.canGoForward());
+}
+
+void HermesQtUiTest::permanentDeleteRequiresConfirmation()
+{
+  ShellController controller;
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString path = dir.filePath(QStringLiteral("file.txt"));
+  QVERIFY(writeFile(path, "x"));
+  controller.navigate(dir.path());
+  QQmlApplicationEngine engine;
+  engine.rootContext()->setContextProperty(QStringLiteral("hermes"), &controller);
+  engine.load(QUrl(QStringLiteral("qrc:/qtui/qml/main.qml")));
+  QVERIFY(!engine.rootObjects().isEmpty());
+  QQuickWindow *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
+  QVERIFY(window);
+  window->resize(800, 600);
+  window->show();
+  QCoreApplication::processEvents();
+  QObject *page = window->findChild<QObject *>(QStringLiteral("directoryPage"));
+  QVERIFY(page);
+  QVERIFY(QMetaObject::invokeMethod(page, "toggleSelection",
+                                    Q_ARG(QVariant, QVariant(path))));
+  QObject *button = window->findChild<QObject *>(QStringLiteral("deleteButton"));
+  QVERIFY(button);
+  QVERIFY(QMetaObject::invokeMethod(button, "click"));
+  QObject *dialog = window->findChild<QObject *>(QStringLiteral("deleteConfirmDialog"));
+  QVERIFY(dialog);
+  QVERIFY(dialog->property("visible").toBool());
+
+  QObject *confirm = window->findChild<QObject *>(QStringLiteral("confirmDeleteButton"));
+  QVERIFY(confirm);
+  QVERIFY(QMetaObject::invokeMethod(confirm, "click"));
+  QTRY_COMPARE_WITH_TIMEOUT(controller.operationsChangedCount(), 1, 2000);
+  QTRY_VERIFY(!dialog->property("visible").toBool());
+  QVERIFY(!QFileInfo::exists(path));
+  QVERIFY(page->property("selectedPaths").toList().isEmpty());
+
+  const QString second = dir.filePath(QStringLiteral("second.txt"));
+  QVERIFY(writeFile(second, "x"));
+  QVERIFY(QMetaObject::invokeMethod(page, "toggleSelection",
+                                    Q_ARG(QVariant, QVariant(second))));
+  QVERIFY(QMetaObject::invokeMethod(button, "click"));
+  QVERIFY(dialog->property("visible").toBool());
+  dialog->setProperty("pending", true);
+  controller.recordOperationCompletion(HERMES_OP_DELETE, 1);
+  QObject *errorDialog = window->findChild<QObject *>(QStringLiteral("operationErrorDialog"));
+  QVERIFY(errorDialog);
+  QVERIFY(errorDialog->property("visible").toBool());
+  QVERIFY(dialog->property("visible").toBool());
+  QCOMPARE(page->property("selectedPaths").toList().size(), 1);
+}
+
+void HermesQtUiTest::tabManagementHasReadableLabels()
+{
+  QTemporaryDir root;
+  QVERIFY(root.isValid());
+  const QString first = root.filePath(QStringLiteral("first"));
+  const QString second = root.filePath(QStringLiteral("second"));
+  QVERIFY(QDir().mkpath(first));
+  QVERIFY(QDir().mkpath(second));
+  ShellController controller;
+  controller.navigate(first);
+  QQmlApplicationEngine engine;
+  engine.rootContext()->setContextProperty(QStringLiteral("hermes"), &controller);
+  engine.load(QUrl(QStringLiteral("qrc:/qtui/qml/main.qml")));
+  QVERIFY(!engine.rootObjects().isEmpty());
+  QObject *window = engine.rootObjects().constFirst();
+
+  QObject *newTab = window->findChild<QObject *>(QStringLiteral("newTabButton"));
+  QVERIFY(newTab);
+  QVERIFY(QMetaObject::invokeMethod(newTab, "click"));
+  QCOMPARE(controller.tabs().size(), 2);
+  QCoreApplication::processEvents();
+  QObject *paste = window->findChild<QObject *>(QStringLiteral("pasteButton"));
+  QVERIFY(paste);
+  QVERIFY(!paste->property("enabled").toBool());
+  QObject *repeater = window->findChild<QObject *>(QStringLiteral("tabRepeater"));
+  QVERIFY(repeater);
+  QCOMPARE(repeater->property("count").toInt(), 2);
+  QQuickItem *label = nullptr;
+  QVERIFY(QMetaObject::invokeMethod(repeater, "itemAt", Qt::DirectConnection,
+                                    Q_RETURN_ARG(QQuickItem *, label), Q_ARG(int, 0)));
+  QVERIFY(label);
+  QCOMPARE(label->objectName(), QStringLiteral("tabLabel_0"));
+  QCOMPARE(label->property("text").toString(), QStringLiteral("first"));
+  QObject *close = label->findChild<QObject *>(QStringLiteral("closeTabButton_0"));
+  QVERIFY(close);
+  QVERIFY(QMetaObject::invokeMethod(close, "click"));
+  QCOMPARE(controller.tabs().size(), 1);
+}
+
+void HermesQtUiTest::cliHelpAndVersionNeedNoPlatformPlugin()
+{
+  const QString executable = QCoreApplication::applicationDirPath()
+      + QStringLiteral("/hermes-qt");
+  for (const QString &flag : {QStringLiteral("--help"), QStringLiteral("--version")}) {
+    QProcess process;
+    QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
+    environment.insert(QStringLiteral("QT_QPA_PLATFORM"), QStringLiteral("plugin-does-not-exist"));
+    process.setProcessEnvironment(environment);
+    process.start(executable, QStringList({flag}));
+    QVERIFY(process.waitForFinished(5000));
+    QCOMPARE(process.exitCode(), 0);
+    const QByteArray output = process.readAllStandardOutput();
+    if (flag == QStringLiteral("--version"))
+      QVERIFY(output.contains(QByteArray(HERMES_APP_VERSION)));
+    else
+      QVERIFY(output.contains("Usage:"));
+  }
 }
 
 QTEST_MAIN(HermesQtUiTest)

@@ -6,13 +6,28 @@
 
 #include <QByteArray>
 #include <QCoreApplication>
+#include <QDir>
 #include <QFileInfo>
 #include <QMetaObject>
 #include <QStandardPaths>
 #include <QUrl>
+#include <mutex>
 
 namespace {
 ShellController *g_controller = nullptr;
+std::mutex g_controller_mutex;
+
+bool validLeafName(const QString &name)
+{
+  return !name.isEmpty() && name != QStringLiteral(".") && name != QStringLiteral("..")
+      && !name.contains(QLatin1Char('/')) && !name.contains(QChar(0));
+}
+
+void reportLaunchFailure(ShellController *controller, const QString &operation)
+{
+  emit controller->operationFailed(
+      QStringLiteral("Could not start %1.").arg(operation));
+}
 
 // Keep the UTF-8 byte arrays alive for the whole C ABI call; only collect the
 // raw pointers once the storage vector can no longer reallocate.
@@ -38,16 +53,19 @@ extern "C" {
 
 static bool hostIsSelftest(void)
 {
+  std::lock_guard<std::mutex> lock(g_controller_mutex);
   return g_controller && QCoreApplication::arguments().contains(QStringLiteral("--selftest"));
 }
 
 static bool hostIsScreenshot(void)
 {
+  std::lock_guard<std::mutex> lock(g_controller_mutex);
   return g_controller && QCoreApplication::arguments().contains(QStringLiteral("--screenshot"));
 }
 
 static bool hostWindowHidden(void)
 {
+  std::lock_guard<std::mutex> lock(g_controller_mutex);
   return g_controller == nullptr;
 }
 
@@ -58,46 +76,48 @@ static void hostMarkSettingsDirty(void)
 
 static void hostRequestRedraw(void)
 {
-  if (!g_controller)
+  std::lock_guard<std::mutex> lock(g_controller_mutex);
+  ShellController *controller = g_controller;
+  if (!controller)
     return;
-  QMetaObject::invokeMethod(g_controller, [] {
-    if (!g_controller)
-      return;
-    hermes_core_drain(g_controller->core());
-    g_controller->directory()->refresh();
+  QMetaObject::invokeMethod(controller, [controller] {
+    hermes_core_drain(controller->core());
+    controller->directory()->refresh();
   }, Qt::QueuedConnection);
 }
 
 static void hostOpenTab(const char *path, int index, bool focus)
 {
-  if (!g_controller || !path)
+  if (!path)
     return;
   const QString requested = QString::fromUtf8(path);
-  QMetaObject::invokeMethod(g_controller,
-      [requested, index, focus] {
-        if (g_controller)
-          g_controller->openTabFromHost(requested, index, focus);
+  std::lock_guard<std::mutex> lock(g_controller_mutex);
+  ShellController *controller = g_controller;
+  if (!controller)
+    return;
+  QMetaObject::invokeMethod(controller,
+      [controller, requested, index, focus] {
+        controller->openTabFromHost(requested, index, focus);
       }, Qt::QueuedConnection);
 }
 
 static int hostCurrentTab(void)
 {
+  std::lock_guard<std::mutex> lock(g_controller_mutex);
   return g_controller ? g_controller->currentTab() : 0;
 }
 
 static void hostOperationsChanged(int kind, int errorCount)
 {
-  (void)kind;
-  (void)errorCount;
-  if (!g_controller)
+  std::lock_guard<std::mutex> lock(g_controller_mutex);
+  ShellController *controller = g_controller;
+  if (!controller)
     return;
   // The engine may publish a completion from inside its drain, so defer the
   // directory refresh (and the test-visible completion count) to the GUI thread.
-  QMetaObject::invokeMethod(g_controller, [] {
-    if (!g_controller)
-      return;
-    g_controller->recordOperationCompletion();
-    g_controller->refreshDirectory();
+  QMetaObject::invokeMethod(controller, [controller, kind, errorCount] {
+    controller->recordOperationCompletion(kind, errorCount);
+    controller->refreshDirectory();
   }, Qt::QueuedConnection);
 }
 
@@ -118,10 +138,16 @@ ShellController::ShellController(QObject *parent)
   : QObject(parent),
     m_openUri(new OpenUriClient(this))
 {
-  g_controller = this;
+  {
+    std::lock_guard<std::mutex> lock(g_controller_mutex);
+    g_controller = this;
+  }
   installShellCoreHost();
   m_core = hermes_core_create([](void *user) {
     auto *controller = static_cast<ShellController *>(user);
+    std::lock_guard<std::mutex> lock(g_controller_mutex);
+    if (g_controller != controller)
+      return;
     QMetaObject::invokeMethod(controller, [controller] {
       hermes_core_drain(controller->m_core);
       if (controller->m_directory)
@@ -135,7 +161,11 @@ ShellController::ShellController(QObject *parent)
 ShellController::~ShellController()
 {
   // Late callbacks must see no controller before the core goes away.
-  g_controller = nullptr;
+  {
+    std::lock_guard<std::mutex> lock(g_controller_mutex);
+    if (g_controller == this)
+      g_controller = nullptr;
+  }
   hermes_core_destroy(m_core);
   m_core = nullptr;
 }
@@ -161,20 +191,27 @@ QStringList ShellController::tabs() const
 
 int ShellController::currentTab() const
 {
-  return m_currentTab;
+  return m_currentTab.load();
+}
+
+bool ShellController::canPaste() const
+{
+  return !m_clipboard.isEmpty();
 }
 
 bool ShellController::canGoBack() const
 {
-  return m_currentTab >= 0 && m_currentTab < m_tabs.size()
-      && m_tabs.at(m_currentTab).historyIndex > 0;
+  const int current = currentTab();
+  return current >= 0 && current < m_tabs.size()
+      && m_tabs.at(current).historyIndex > 0;
 }
 
 bool ShellController::canGoForward() const
 {
-  return m_currentTab >= 0 && m_currentTab < m_tabs.size()
-      && m_tabs.at(m_currentTab).historyIndex >= 0
-      && m_tabs.at(m_currentTab).historyIndex + 1 < m_tabs.at(m_currentTab).history.size();
+  const int current = currentTab();
+  return current >= 0 && current < m_tabs.size()
+      && m_tabs.at(current).historyIndex >= 0
+      && m_tabs.at(current).historyIndex + 1 < m_tabs.at(current).history.size();
 }
 
 HermesCore *ShellController::core() const
@@ -186,28 +223,50 @@ bool ShellController::createFolder(const QString &name)
 {
   const QByteArray parent = m_directory ? m_directory->path().toUtf8() : QByteArray();
   const QByteArray utf8Name = name.toUtf8();
-  if (parent.isEmpty() || utf8Name.isEmpty())
+  if (parent.isEmpty() || !validLeafName(name)) {
+    emit operationFailed(QStringLiteral("Folder name must be a single leaf name."));
     return false;
-  return hermes_core_mkdir(m_core, parent.constData(), utf8Name.constData()) == 0;
+  }
+  if (hermes_core_mkdir(m_core, parent.constData(), utf8Name.constData()) != 0) {
+    reportLaunchFailure(this, QStringLiteral("creating the folder"));
+    return false;
+  }
+  return true;
 }
 
 bool ShellController::renameEntry(const QString &from, const QString &to)
 {
   const QByteArray utf8From = from.toUtf8();
   const QByteArray utf8To = to.toUtf8();
-  if (utf8From.isEmpty() || utf8To.isEmpty())
+  const QString fromParent = QDir::cleanPath(QFileInfo(from).absolutePath());
+  const QString toParent = QDir::cleanPath(QFileInfo(to).absolutePath());
+  if (utf8From.isEmpty() || !validLeafName(QFileInfo(to).fileName())
+      || fromParent != toParent || !m_directory
+      || fromParent != QDir::cleanPath(m_directory->path())) {
+    emit operationFailed(QStringLiteral("Rename must use a single name in the displayed directory."));
     return false;
-  return hermes_core_rename(m_core, utf8From.constData(), utf8To.constData()) == 0;
+  }
+  if (hermes_core_rename(m_core, utf8From.constData(), utf8To.constData()) != 0) {
+    reportLaunchFailure(this, QStringLiteral("renaming the entry"));
+    return false;
+  }
+  return true;
 }
 
 bool ShellController::removeEntries(const QStringList &paths, bool trash)
 {
   QVector<QByteArray> storage;
   const QVector<const char *> utf8Paths = utf8Pointers(paths, storage);
-  if (utf8Paths.size() != paths.size())
+  if (utf8Paths.size() != paths.size()) {
+    reportLaunchFailure(this, QStringLiteral("removing entries"));
     return false;
-  return hermes_core_remove(m_core, utf8Paths.constData(),
-                            static_cast<size_t>(utf8Paths.size()), trash) == 0;
+  }
+  if (hermes_core_remove(m_core, utf8Paths.constData(),
+                         static_cast<size_t>(utf8Paths.size()), trash) != 0) {
+    reportLaunchFailure(this, QStringLiteral("removing entries"));
+    return false;
+  }
+  return true;
 }
 
 bool ShellController::copyEntries(const QStringList &paths, const QString &destDir, bool move)
@@ -215,17 +274,24 @@ bool ShellController::copyEntries(const QStringList &paths, const QString &destD
   const QByteArray utf8Dest = destDir.toUtf8();
   QVector<QByteArray> storage;
   const QVector<const char *> utf8Paths = utf8Pointers(paths, storage);
-  if (utf8Dest.isEmpty() || utf8Paths.size() != paths.size())
+  if (utf8Dest.isEmpty() || utf8Paths.size() != paths.size()) {
+    reportLaunchFailure(this, QStringLiteral("copying entries"));
     return false;
-  return hermes_core_copy(m_core, utf8Paths.constData(),
-                          static_cast<size_t>(utf8Paths.size()), utf8Dest.constData(),
-                          move, m_conflictPolicy) == 0;
+  }
+  if (hermes_core_copy(m_core, utf8Paths.constData(),
+                       static_cast<size_t>(utf8Paths.size()), utf8Dest.constData(),
+                       move, m_conflictPolicy) != 0) {
+    reportLaunchFailure(this, QStringLiteral("copying entries"));
+    return false;
+  }
+  return true;
 }
 
 void ShellController::copySelection(const QStringList &paths, bool move)
 {
   m_clipboard = paths;
   m_clipboardMove = move;
+  emit clipboardChanged();
 }
 
 void ShellController::pasteIntoCurrentDirectory()
@@ -240,9 +306,22 @@ void ShellController::setConflictPolicy(HermesConflictPolicy policy)
   m_conflictPolicy = policy;
 }
 
-void ShellController::recordOperationCompletion()
+void ShellController::recordOperationCompletion(int kind, int errorCount)
 {
   m_operationsChangedCount.fetch_add(1);
+  if (errorCount > 0) {
+    emit operationFailed(
+        QStringLiteral("Operation completed with %1 failure(s).").arg(errorCount));
+    emit operationFinished(kind, false, errorCount);
+    return;
+  }
+  if (kind == HERMES_OP_MOVE) {
+    m_clipboard.clear();
+    m_clipboardMove = false;
+    emit clipboardChanged();
+  }
+  emit operationCompleted(kind, errorCount);
+  emit operationFinished(kind, true, errorCount);
 }
 
 void ShellController::refreshDirectory()
@@ -261,12 +340,13 @@ void ShellController::resetOperationsChangedCount()
   m_operationsChangedCount.store(0);
 }
 
-void ShellController::goTo(const QString &path, bool record)
+bool ShellController::goTo(const QString &path, bool record, int historyIndex)
 {
   if (!m_directory || path.isEmpty() || !m_directory->navigate(path))
-    return;
+    return false;
 
-  if (m_tabs.isEmpty() || m_currentTab < 0 || m_currentTab >= m_tabs.size()) {
+  const int current = currentTab();
+  if (m_tabs.isEmpty() || current < 0 || current >= m_tabs.size()) {
     TabState tab;
     tab.path = path;
     tab.history.append(path);
@@ -274,22 +354,28 @@ void ShellController::goTo(const QString &path, bool record)
     m_tabs.append(tab);
     emit tabsChanged();
     const int index = m_tabs.size() - 1;
-    if (m_currentTab != index) {
+    if (currentTab() != index) {
       m_currentTab = index;
       emit currentTabChanged();
     }
   } else {
-    TabState &tab = m_tabs[m_currentTab];
-    tab.path = path;
+    TabState &tab = m_tabs[current];
+    if (tab.path != path) {
+      tab.path = path;
+      emit tabsChanged();
+    }
     if (record) {
       if (tab.historyIndex >= 0 && tab.historyIndex + 1 < tab.history.size())
         tab.history.remove(tab.historyIndex + 1,
                            tab.history.size() - tab.historyIndex - 1);
       tab.history.append(path);
       tab.historyIndex = tab.history.size() - 1;
+    } else if (historyIndex >= 0) {
+      tab.historyIndex = historyIndex;
     }
   }
   emitHistory();
+  return true;
 }
 
 void ShellController::emitHistory()
@@ -413,23 +499,23 @@ void ShellController::up()
 
 void ShellController::back()
 {
-  if (m_currentTab < 0 || m_currentTab >= m_tabs.size())
+  const int current = currentTab();
+  if (current < 0 || current >= m_tabs.size())
     return;
-  const int index = m_tabs.at(m_currentTab).historyIndex - 1;
+  const int index = m_tabs.at(current).historyIndex - 1;
   if (index < 0)
     return;
-  m_tabs[m_currentTab].historyIndex = index;
-  goTo(m_tabs.at(m_currentTab).history.at(index), false);
+  goTo(m_tabs.at(current).history.at(index), false, index);
 }
 
 void ShellController::forward()
 {
-  if (m_currentTab < 0 || m_currentTab >= m_tabs.size())
+  const int current = currentTab();
+  if (current < 0 || current >= m_tabs.size())
     return;
-  TabState &tab = m_tabs[m_currentTab];
+  TabState &tab = m_tabs[current];
   const int index = tab.historyIndex + 1;
   if (tab.historyIndex < 0 || index >= tab.history.size())
     return;
-  tab.historyIndex = index;
-  goTo(tab.history.at(index), false);
+  goTo(tab.history.at(index), false, index);
 }
