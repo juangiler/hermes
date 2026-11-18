@@ -1,6 +1,7 @@
 // pool.c - worker thread pool + queue of callbacks to run on the main thread
 
 typedef void (*JobFn)(void *arg);
+typedef void (*CoreWakeFn)(void *user);
 
 typedef struct Job {
     JobFn fn;
@@ -17,7 +18,12 @@ typedef struct {
 static JobQueue g_jobs  = {PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, NULL, NULL};
 static JobQueue g_mainq = {PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, NULL, NULL};
 static int g_nworkers;
-static u32 g_wake_event; // SDL user event used to wake the main loop
+// Both wake fields are published together under one mutex: workers read them
+// from arbitrary threads while the host can replace them at any time.
+static pthread_mutex_t g_wake_mtx  = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t g_init_mtx  = PTHREAD_MUTEX_INITIALIZER;
+static CoreWakeFn g_wake_fn;
+static void *g_wake_user;
 
 static void jq_push(JobQueue *q, JobFn fn, void *arg) {
     Job *j = xmalloc(sizeof *j);
@@ -48,6 +54,11 @@ static void *worker_main(void *arg) {
 }
 
 static void pool_init(void) {
+    static bool inited;
+    pthread_mutex_lock(&g_init_mtx);
+    if (inited) { pthread_mutex_unlock(&g_init_mtx); return; }
+    inited = true;
+    pthread_mutex_unlock(&g_init_mtx);
     long n = sysconf(_SC_NPROCESSORS_ONLN);
     g_nworkers = (int)CLAMP(n - 1, 2, 12);
     for (int i = 0; i < g_nworkers; i++) {
@@ -60,12 +71,21 @@ static void pool_init(void) {
 
 static void pool_submit(JobFn fn, void *arg) { jq_push(&g_jobs, fn, arg); }
 
+static void pool_set_wake(CoreWakeFn fn, void *user) {
+    pthread_mutex_lock(&g_wake_mtx);
+    g_wake_fn = fn;
+    g_wake_user = user;
+    pthread_mutex_unlock(&g_wake_mtx);
+}
+
 static void main_wake(void) {
-    if (!g_wake_event) return;
-    SDL_Event ev;
-    SDL_zero(ev);
-    ev.type = g_wake_event;
-    SDL_PushEvent(&ev);
+    // Keep the lock across the call: pool_set_wake() is then a quiescence
+    // barrier: once it returns, no worker is still inside the old callback,
+    // so a frontend may safely release that callback's user data. Wake
+    // callbacks must therefore not call pool_set_wake() themselves.
+    pthread_mutex_lock(&g_wake_mtx);
+    if (g_wake_fn) g_wake_fn(g_wake_user);
+    pthread_mutex_unlock(&g_wake_mtx);
 }
 
 static void main_post(JobFn fn, void *arg) {

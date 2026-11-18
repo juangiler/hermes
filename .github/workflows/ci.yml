@@ -33,11 +33,11 @@ jobs:
       - name: Install dependencies
         run: |
           case "${{ matrix.image }}" in
-            archlinux*) pacman -Syu --noconfirm --needed base-devel git pkgconf sdl3 freetype2 harfbuzz fontconfig libarchive libvterm fuse3 openssl ;;
-            fedora*)    dnf install -y gcc git pkgconf-pkg-config SDL3-devel freetype-devel harfbuzz-devel fontconfig-devel libarchive-devel libvterm-devel fuse3-devel openssl-devel ;;
+            archlinux*) pacman -Syu --noconfirm --needed base-devel git pkgconf cmake sdl3 freetype2 harfbuzz fontconfig libarchive libvterm fuse3 openssl ;;
+            fedora*)    dnf install -y gcc git pkgconf-pkg-config cmake SDL3-devel freetype-devel harfbuzz-devel fontconfig-devel libarchive-devel libvterm-devel fuse3-devel openssl-devel ;;
             debian*|ubuntu*)
               apt-get update
-              DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential git pkg-config libsdl3-dev libfreetype-dev libharfbuzz-dev libfontconfig-dev libarchive-dev libvterm-dev libfuse3-dev libssl-dev ;;
+              DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential git pkg-config cmake libsdl3-dev libfreetype-dev libharfbuzz-dev libfontconfig-dev libarchive-dev libvterm-dev libfuse3-dev libssl-dev ;;
           esac
       - uses: actions/checkout@v4
       - name: Build (package mode)
@@ -45,6 +45,30 @@ jobs:
           ./build.sh package 2>&1 | tee build.log
           if grep -q 'warning:' build.log; then echo "::error::compiler warnings"; exit 1; fi
           ./build/package/hermes --version
+
+  # Informational only until phase 5 of the Qt/Kirigami port: exercises the
+  # headless core library that the future frontend will link against.
+  core-selftest:
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+      options: --shm-size=2g # the cross-device copy test uses /dev/shm
+    steps:
+      - name: Install dependencies
+        run: pacman -Syu --noconfirm --needed base-devel git pkgconf cmake libarchive fuse3 openssl
+      - uses: actions/checkout@v4
+      - name: Headless core self-test (non-root)
+        run: |
+          useradd -m tester
+          chown -R tester .
+          su tester -c '
+            set -e
+            cmake -S . -B build/cmake
+            cmake --build build/cmake --target hermes-core-selftest hermes-core-abi-selftest hermes-cpp-probe
+            ./build/cmake/hermes-core-selftest
+            ./build/cmake/hermes-core-abi-selftest
+            ./build/cmake/hermes-cpp-probe'
 
   # Debug build (ASan/UBSan) + the headless self-tests. A restricted seccomp profile
   # can make LeakSanitizer print a ptrace warning and "Child exited with signal 32";

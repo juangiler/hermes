@@ -50,6 +50,29 @@
 - `src/system_icons.c` resolves installed freedesktop icon themes and inheritance; `src/system_icon_raster.c` converts
   SVG/PNG icons into the existing atlas/texture caches in `icons.c`. Missing icons keep bundled fallbacks.
 
+### Headless core library
+
+- `src/hermes_core.c` is the unity source for the SDL-free core: it includes
+  most of the same engine files as `src/main.c` (scan, ops, search, previews,
+  devices, cloud identity and so on) but none of the UI, SDL or text-rendering
+  files. Cloud *remote management* (`src/rclone.c`) is still SDL-only in this
+  PR: it needs UI callbacks that have not been ported to the core yet. CMake
+  builds the core as the static `hermes_core` library; `build.sh` continues to
+  build the SDL app.
+- `src/core_api.h` is the small C ABI (`hermes_core_create`, `hermes_core_scan`,
+  `hermes_core_drain`, `hermes_core_destroy`, `hermes_listing_free`,
+  `hermes_core_set_host`) that a non-SDL frontend links against. `src/core_host.h`
+  carries the host callbacks the engine uses for UI-side decisions, with inert
+  defaults for headless use. A C++ frontend installs its table through
+  `hermes_core_set_host()`; the SDL app assigns its own table directly at startup.
+- `tools/core-selftest.c` exercises the engine and the public ABI without SDL
+  or a display server, including permission-denied scans, unusual filenames
+  and cross-device copies. It is built by the `hermes-core-selftest` target.
+  `tools/core-abi-selftest.c` is the ABI-level suite: it includes no engine
+  sources and links the `hermes_core` archive itself. `tools/core-api-probe.cpp`
+  is a C++17 consumer that links the same archive, built by the
+  `hermes-cpp-probe` target.
+
 ## Repository layout
 
 - `assets/branding/` owns Hermes's editable pixel-art helmet and generated SVG/PNG
