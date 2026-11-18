@@ -18,6 +18,10 @@ typedef struct {
 static JobQueue g_jobs  = {PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, NULL, NULL};
 static JobQueue g_mainq = {PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, NULL, NULL};
 static int g_nworkers;
+// Both wake fields are published together under one mutex: workers read them
+// from arbitrary threads while the host can replace them at any time.
+static pthread_mutex_t g_wake_mtx  = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t g_init_mtx  = PTHREAD_MUTEX_INITIALIZER;
 static CoreWakeFn g_wake_fn;
 static void *g_wake_user;
 
@@ -51,8 +55,10 @@ static void *worker_main(void *arg) {
 
 static void pool_init(void) {
     static bool inited;
-    if (inited) return;
+    pthread_mutex_lock(&g_init_mtx);
+    if (inited) { pthread_mutex_unlock(&g_init_mtx); return; }
     inited = true;
+    pthread_mutex_unlock(&g_init_mtx);
     long n = sysconf(_SC_NPROCESSORS_ONLN);
     g_nworkers = (int)CLAMP(n - 1, 2, 12);
     for (int i = 0; i < g_nworkers; i++) {
@@ -66,12 +72,20 @@ static void pool_init(void) {
 static void pool_submit(JobFn fn, void *arg) { jq_push(&g_jobs, fn, arg); }
 
 static void pool_set_wake(CoreWakeFn fn, void *user) {
+    pthread_mutex_lock(&g_wake_mtx);
     g_wake_fn = fn;
     g_wake_user = user;
+    pthread_mutex_unlock(&g_wake_mtx);
 }
 
 static void main_wake(void) {
-    if (g_wake_fn) g_wake_fn(g_wake_user);
+    CoreWakeFn fn;
+    void *user;
+    pthread_mutex_lock(&g_wake_mtx);
+    fn = g_wake_fn;
+    user = g_wake_user;
+    pthread_mutex_unlock(&g_wake_mtx);
+    if (fn) fn(user);
 }
 
 static void main_post(JobFn fn, void *arg) {
