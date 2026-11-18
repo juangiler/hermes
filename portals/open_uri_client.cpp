@@ -27,7 +27,7 @@ void OpenUriClient::openFile(const QString &path, const QString &parentWindow)
 {
     // The URI travels outwards; the core's uri_to_path helper is for inbound URIs.
     const QString uri = QUrl::fromLocalFile(path).toString();
-    QDBusPendingCall call = m_iface->asyncCall(QLatin1String("OpenFile"),
+    QDBusPendingCall call = m_iface->asyncCall(QLatin1String("OpenURI"),
                                                parentWindow, uri, QVariantMap());
     auto *watcher = new QDBusPendingCallWatcher(call, this);
     connect(watcher, &QDBusPendingCallWatcher::finished, this, [this, watcher]() {

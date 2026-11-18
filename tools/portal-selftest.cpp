@@ -78,8 +78,8 @@ public:
         : QDBusAbstractAdaptor(parent), m_request(request) {}
 
 public slots:
-    QDBusObjectPath OpenFile(const QString &parentWindow, const QString &uri,
-                             const QVariantMap &options)
+    QDBusObjectPath OpenURI(const QString &parentWindow, const QString &uri,
+                            const QVariantMap &options)
     {
         lastParentWindow = parentWindow;
         lastUri = uri;
