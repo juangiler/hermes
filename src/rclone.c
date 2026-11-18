@@ -58,19 +58,7 @@ static bool path_in_cloud(const char *path) {
     char b[PATH_MAX];
     cloud_base(b, sizeof b);
     size_t l = strlen(b);
-    if (!strncmp(path, b, l) && (path[l] == 0 || path[l] == '/')) return true;
-    identity_xdg("XDG_DATA_HOME", ".local/share", HERMES_LEGACY_SLUG "/cloud", b, sizeof b);
-    l = strlen(b);
     return !strncmp(path, b, l) && (path[l] == 0 || path[l] == '/');
-}
-
-// Unit names keep letters, digits, - and .; anything else becomes _xx (hex), so every name maps to one unit.
-static bool cloud_legacy_owned(const char *name) {
-    char dir[PATH_MAX], unit[160], path[PATH_MAX + 200];
-    units_dir(dir, sizeof dir);
-    cloud_legacy_unit_name(name, unit, sizeof unit);
-    snprintf(path, sizeof path, "%s/%s", dir, unit);
-    return cloud_unit_owner(path) == CLOUD_LEGACY;
 }
 
 // rclone remote names: letters, digits, _ - . + @ and spaces (not at the ends).
@@ -286,11 +274,6 @@ static void cloud_connect(int i, int how) {
         else if (how == 1) open_folder(c->mount);
         return;
     }
-    if (cloud_legacy_owned(c->name)) {
-        c->ownership = CLOUD_LEGACY;
-        toast("Legacy cloud service retained: reconnect in File Explorer; Hermes handover is deferred");
-        return;
-    }
     if (!g_units_systemd) { toast("Cloud folders need systemd user services (systemctl --user isn't available)"); return; }
     c->open_after = how;
     if (cloud_busy(c)) return;
@@ -306,11 +289,6 @@ static void cloud_connect(int i, int how) {
 static void cloud_disconnect(int i) {
     if (i < 0 || i >= g_ncloud) return;
     Cloud *c = &g_cloud[i];
-    if (cloud_legacy_owned(c->name)) {
-        c->ownership = CLOUD_LEGACY;
-        toast("Legacy cloud service retained: disconnect through File Explorer, not FUSE");
-        return;
-    }
     if (c->mount[0]) panes_leave(c->mount); // a mount in use can't go away
     c->open_after = 0;
     c->notify_until = 0;
@@ -324,11 +302,6 @@ static void cloud_disconnect(int i) {
 static void cloud_set_login(int i, bool on) {
     if (i < 0 || i >= g_ncloud) return;
     Cloud *c = &g_cloud[i];
-    if (cloud_legacy_owned(c->name)) {
-        c->ownership = CLOUD_LEGACY;
-        toast("Legacy connect-at-login is retained until cloud handover");
-        return;
-    }
     c->login = on;
     A.settings_dirty = true;
     if (g_units_systemd) cloud_submit(cloud_op_new(COP_LOGIN, c));
@@ -620,7 +593,7 @@ static void cloud_status_done(void *arg) {
         int st = s->state[k];
         if (st == CS_OFF && cloud_busy(c) && now < c->asked + 3000000000ull) st = c->state; // a connect on its way to systemd
         c->unit = s->unit_exists[k];
-        c->ownership = cloud_legacy_owned(c->name) ? CLOUD_LEGACY : s->ours[k] ? CLOUD_HERMES : CLOUD_EXTERNAL;
+        c->ownership = s->ours[k] ? CLOUD_HERMES : CLOUD_EXTERNAL;
         if (strcmp(c->mount, s->mount[k]) || c->ours != s->ours[k]) {
             snprintf(c->mount, sizeof c->mount, "%s", s->mount[k]);
             c->ours = s->ours[k];

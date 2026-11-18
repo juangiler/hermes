@@ -5767,7 +5767,7 @@ static int run_selftest_m10(void) {
         int webdav_row = st_place_row(PK_CLOUD, "webdav");
         ST_CHECK(cloud_hdr > st_place_row(PK_NETHDR, NULL) && gr > cloud_hdr && webdav_row > cloud_hdr);
         ST_CHECK(cloud_find("webdav") && !strcmp(cloud_find("webdav")->type, "webdav"));
-        // deferred handover: a legacy-generated unit keeps the remote under File Explorer
+        // A legacy-generated unit is external: never owned or deferred to.
         mkdir_p(udir, 0755);
         char legunit[PATH_MAX + 160];
         snprintf(legunit, sizeof legunit, "%s/file-explorer-cloud-webdav.service", udir);
@@ -5776,26 +5776,12 @@ static int run_selftest_m10(void) {
         st_cloud_settle();
         {
             Cloud *c = cloud_find("webdav");
-            ST_CHECK(c && c->ownership == CLOUD_LEGACY);
-            if (c) {
-                int idx = (int)(c - g_cloud), state0 = c->state;
-                bool login0 = c->login;
-                char mount0[sizeof c->mount];
-                snprintf(mount0, sizeof mount0, "%s", c->mount);
-                cloud_connect(idx, 1);
-                ST_CHECK(!strcmp(A.toast, "Legacy cloud service retained: reconnect in File Explorer; Hermes handover is deferred"));
-                ST_CHECK(c->state == state0 && !strcmp(c->mount, mount0) && !c->login); // nothing started
-                cloud_disconnect(idx);
-                ST_CHECK(!strcmp(A.toast, "Legacy cloud service retained: disconnect through File Explorer, not FUSE"));
-                ST_CHECK(c->state == state0 && !strcmp(c->mount, mount0));
-                cloud_set_login(idx, true);
-                ST_CHECK(!strcmp(A.toast, "Legacy connect-at-login is retained until cloud handover") && c->login == login0);
-            }
-            unlink(legunit); // handover done: the remote is ours again
+            ST_CHECK(c && c->ownership == CLOUD_EXTERNAL);
+            unlink(legunit);
             g_cloud_relist = true;
             st_cloud_settle();
             c = cloud_find("webdav");
-            ST_CHECK(c && c->ownership != CLOUD_LEGACY && c->state == CS_OFF && !c->mount[0]);
+            ST_CHECK(c && c->ownership != CLOUD_HERMES && c->state == CS_OFF && !c->mount[0]);
         }
         if (A.nnets + 2 <= (int)ARRAY_COUNT(A.nets)) {
             int old_nnets = A.nnets;

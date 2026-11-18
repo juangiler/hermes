@@ -14,13 +14,12 @@ FORBIDDEN = (
     "startup.lock",
     "HERMES_MIGRATION_RETRY",
     "HERMES_LEGACY_SLUG",
+    "cloud_legacy_owned",
 )
 
 # Tasks 3-5 remove these owners; allow the token only in those files until then.
 TEMP_ALLOWED = {
-    "src/cloud_identity.c": {"HERMES_LEGACY_SLUG"},
     "src/integration_identity.c": {"HERMES_LEGACY_SLUG"},
-    "src/rclone.c": {"HERMES_LEGACY_SLUG"},
     "src/identity.h": {"HERMES_LEGACY_SLUG"},
 }
 
