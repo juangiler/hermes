@@ -73,6 +73,30 @@
   is a C++17 consumer that links the same archive, built by the
   `hermes-cpp-probe` target.
 
+### Qt portal plumbing
+
+- `portals/` owns the Qt 6 / D-Bus desktop integration. It is C++ behind the
+  narrow `src/core_api.h` and `src/core_host.h` C ABI; the C engine has no Qt
+  dependency.
+- `portals/settings_client.cpp`, `portals/open_uri_client.cpp` and
+  `portals/documents_client.cpp` are async clients for Settings `ReadOne`,
+  OpenURI `OpenURI` (outgoing `file://` URIs) and Documents `Add`.
+- `portals/file_manager1_service.cpp` and `portals/file_chooser_backend.cpp`
+  own the headless D-Bus services. Their `QDBusAbstractAdaptor` classes are
+  hand-written because the build images have no `qdbusxml2cpp`; the method
+  signatures are documented as XML contracts under `portals/dbus-interfaces/`.
+- `portals/portal_config.cpp` implements the opt-in role CLI: it edits only
+  `$XDG_CONFIG_HOME/xdg-desktop-portal/portals.conf`, with byte-for-byte
+  backup/restore, and never writes at install time.
+- `portals/hermes-portal-backend.cpp` is the D-Bus-activatable host: with no
+  flags it owns the services for the session; the config flags edit the user's
+  preference and exit. `portals/hermes.portal` and
+  `portals/org.freedesktop.impl.portal.desktop.hermes.service` declare the
+  backend and its FileChooser interface as data files, not system-wide config.
+- `tools/portal-selftest.cpp` drives the clients, services and config through
+  a private session bus, built as `hermes-portal-selftest`; see
+  [Building](building.md). There is no Kirigami/QML shell or picker yet.
+
 ## Repository layout
 
 - `assets/branding/` owns Hermes's editable pixel-art helmet and generated SVG/PNG

@@ -62,6 +62,30 @@ ABI self-test and C++ probe compile only against the public headers and link
 the static archive, which is what a Qt frontend will do. The cross-device copy
 case needs `/dev/shm`, and the permission-denied case must run as a normal user.
 
+### Qt portal plumbing
+
+Qt 6 (`Core`, `DBus`, `Test`) builds the headless portal library and its test
+through the same CMake project, separately from the `build.sh` application:
+
+```sh
+cmake -S . -B build/cmake
+cmake --build build/cmake     # all targets, including the portal backend and suite
+sh tools/portal-selftest.sh   # private dbus-run-session, Qt Test portal suite
+./build/cmake/hermes-portal-backend --help
+./build/cmake/hermes-core-abi-selftest
+./build/cmake/hermes-core-selftest
+./build/cmake/hermes-cpp-probe
+```
+
+`tools/portal-selftest.sh` builds `hermes-portal-backend` and
+`hermes-portal-selftest` itself and runs them under `dbus-run-session`, so a
+local run and CI use the same entry point. The suite needs a working session
+bus; it does not open a picker window. CI's informational `portal-selftest`
+job runs on `archlinux:latest` with `qt6-base` and `dbus` (plus the core build
+dependencies) as a non-root user. The other images in the build matrix do not
+declare Qt packages in CI yet, so do not assume coverage there. These headless
+runs prove D-Bus plumbing only, not live KDE Plasma portal behaviour.
+
 ## Install and package
 
 ```sh

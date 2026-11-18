@@ -7,6 +7,12 @@ will be listed above that history.
 ## Unreleased
 
 **New**
+- Headless Qt 6 D-Bus/portal plumbing against the `hermes_core` C ABI: async
+  Settings/OpenURI/Documents clients, FileManager1 and FileChooser service
+  stubs, and an opt-in file-chooser role CLI (`--enable-filechooser` /
+  `--disable-filechooser` / `--status`, with `portals.conf.hermes-backup`
+  restore). No desktop role is taken by default and no picker UI exists yet;
+  `sh tools/portal-selftest.sh` covers the plumbing headlessly.
 - Pushing a `v<version>` tag now creates a draft release with the Hermes source
   archive and its SHA256 checksum, using notes from that version's `CHANGELOG.md`
   section. Dispatching the `Publish release` workflow with the tag publishes the
