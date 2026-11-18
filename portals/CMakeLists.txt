@@ -30,6 +30,8 @@ set_target_properties(hermes-portal-selftest PROPERTIES
 set_target_properties(hermes-portal-backend PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 target_compile_options(hermes-portal-selftest PRIVATE -Wall -Wextra -Werror)
+target_compile_definitions(hermes-portal-selftest PRIVATE
+    HERMES_PORTAL_BACKEND_PATH="${CMAKE_BINARY_DIR}/hermes-portal-backend")
 target_link_libraries(hermes-portal-selftest PRIVATE hermes-portals Qt6::Test)
 
 # The service file needs the install prefix, so generate it into the build tree.

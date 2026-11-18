@@ -1,6 +1,7 @@
-// D-Bus-activatable portal backend. With no CLI flags it owns the FileManager1
-// and FileChooser services for the lifetime of the session; the opt-in flags
-// edit only the user's XDG portals.conf and then exit.
+// D-Bus-activatable portal backend. With no CLI flags it owns the FileChooser
+// service and, when no other file manager holds the name, FileManager1 for the
+// lifetime of the session; the opt-in flags edit only the user's XDG
+// portals.conf and then exit.
 #include "file_chooser_backend.h"
 #include "file_manager1_service.h"
 #include "portal_config.h"
@@ -59,15 +60,17 @@ int main(int argc, char **argv)
             return 1;
         }
 
-        FileManager1Service fileManager;
-        if (!fileManager.registerService(bus, &error)) {
-            QTextStream(stderr) << QStringLiteral("hermes-portal-backend: ") << error << '\n';
-            return 1;
-        }
+        // The opt-in role must survive a desktop file manager already owning
+        // FileManager1; losing that optional name is only a warning.
         FileChooserBackend chooser;
         if (!chooser.registerService(bus, &error)) {
             QTextStream(stderr) << QStringLiteral("hermes-portal-backend: ") << error << '\n';
             return 1;
+        }
+        FileManager1Service fileManager;
+        if (!fileManager.registerService(bus, &error)) {
+            QTextStream(stderr) << QStringLiteral("hermes-portal-backend: ") << error
+                                << QStringLiteral("; continuing without FileManager1\n");
         }
         return app.exec();
     }

@@ -16,12 +16,14 @@
 #include <QtCore/QFile>
 #include <QtCore/QList>
 #include <QtCore/QObject>
+#include <QtCore/QProcess>
 #include <QtCore/QStringList>
 #include <QtCore/QTemporaryDir>
 #include <QtCore/QTimer>
 #include <QtCore/QUrl>
 #include <QtDBus/QDBusAbstractAdaptor>
 #include <QtDBus/QDBusConnection>
+#include <QtDBus/QDBusConnectionInterface>
 #include <QtDBus/QDBusInterface>
 #include <QtDBus/QDBusMessage>
 #include <QtDBus/QDBusObjectPath>
@@ -98,6 +100,45 @@ bool waitForCall(QDBusPendingCallWatcher *watcher)
     QSignalSpy finished(watcher, &QDBusPendingCallWatcher::finished);
     return finished.wait(2000) && watcher->isFinished();
 }
+
+// Hold a well-known name on the private bus so the real backend's activation
+// hits the same conflict a Plasma file manager would cause.
+class FileManagerNameOwner
+{
+public:
+    FileManagerNameOwner()
+    {
+        m_acquired = QDBusConnection::sessionBus().registerService(kFileManagerService);
+    }
+
+    ~FileManagerNameOwner()
+    {
+        QDBusConnection::sessionBus().unregisterService(kFileManagerService);
+    }
+
+    bool acquired() const { return m_acquired; }
+
+private:
+    bool m_acquired = false;
+};
+
+// Assertions may return early; always stop a spawned backend before Qt kills it.
+class BoundedProcess
+{
+public:
+    ~BoundedProcess()
+    {
+        if (process.state() == QProcess::Running) {
+            process.terminate();
+            if (!process.waitForFinished(2000)) {
+                process.kill();
+                process.waitForFinished(2000);
+            }
+        }
+    }
+
+    QProcess process;
+};
 }
 
 // The real portal wraps ReadOne's value in an a{sv} with a "v" entry.
@@ -359,6 +400,7 @@ private slots:
     void fileManagerShowItemsOpensUrisAndCancels();
     void fileChooserOpenFileReturnsCancelled();
     void fileChooserSaveFileReturnsCancelled();
+    void backendKeepsFileChooserWhenFileManager1IsTaken();
     void portalConfigUsesForcedXdgConfigHome();
     void portalConfigEnableCreatesKeyAndBackup();
     void portalConfigEnablePreservesUnrelatedLines();
@@ -680,6 +722,28 @@ void PortalSelfTest::fileChooserSaveFileReturnsCancelled()
     QCOMPARE(arguments.size(), 2);
     QCOMPARE(arguments.at(0).toUInt(), kCancelledResponse);
     QVERIFY(arguments.at(1).toMap().isEmpty());
+}
+
+void PortalSelfTest::backendKeepsFileChooserWhenFileManager1IsTaken()
+{
+    FileManagerNameOwner nameOwner;
+    QVERIFY(nameOwner.acquired());
+
+    BoundedProcess child;
+    child.process.start(QStringLiteral(HERMES_PORTAL_BACKEND_PATH));
+    QVERIFY2(child.process.waitForStarted(2000),
+             qPrintable(child.process.errorString()));
+
+    QDBusConnection bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.interface() != nullptr);
+    QTRY_VERIFY_WITH_TIMEOUT(
+        bus.interface()->isServiceRegistered(kImplService).value(), 3000);
+    QCOMPARE(child.process.state(), QProcess::Running);
+    QVERIFY(bus.interface()->isServiceRegistered(kFileManagerService).value());
+
+    child.process.terminate();
+    QVERIFY(child.process.waitForFinished(2000));
+    QVERIFY(child.process.readAllStandardError().contains("FileManager1"));
 }
 
 void PortalSelfTest::portalConfigUsesForcedXdgConfigHome()
