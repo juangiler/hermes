@@ -70,6 +70,25 @@ jobs:
             ./build/cmake/hermes-core-abi-selftest
             ./build/cmake/hermes-cpp-probe'
 
+  # Informational until the Qt/Kirigami port lands: headless portal harness.
+  # This job reports failures normally; it is not yet a required check.
+  portal-selftest:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+    steps:
+      - name: Install dependencies
+        run: pacman -Syu --noconfirm --needed base-devel git pkgconf cmake libarchive fuse3 openssl qt6-base dbus
+      - uses: actions/checkout@v4
+      - name: Headless portal self-test (non-root)
+        run: |
+          useradd -m tester
+          chown -R tester .
+          su tester -c '
+            set -e
+            cmake -S . -B build/cmake
+            sh tools/portal-selftest.sh'
+
   # Debug build (ASan/UBSan) + the headless self-tests. A restricted seccomp profile
   # can make LeakSanitizer print a ptrace warning and "Child exited with signal 32";
   # suite exit codes are authoritative. Keep leak detection on; see docs/building.md.

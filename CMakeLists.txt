@@ -8,6 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(CORE REQUIRED IMPORTED_TARGET libarchive fuse3 openssl)
+find_package(Qt6 REQUIRED COMPONENTS Core DBus Test)
 
 # src/hermes_core.c is a unity source: the same engine files the SDL app
 # compiles, but without SDL or the UI. build.sh remains authoritative for the
@@ -34,3 +35,5 @@ target_link_libraries(hermes-cpp-probe PRIVATE hermes_core)
 add_executable(hermes-core-abi-selftest tools/core-abi-selftest.c)
 target_compile_options(hermes-core-abi-selftest PRIVATE -Wall -Wextra -Werror -Wno-format-truncation)
 target_link_libraries(hermes-core-abi-selftest PRIVATE hermes_core)
+
+add_subdirectory(portals)
