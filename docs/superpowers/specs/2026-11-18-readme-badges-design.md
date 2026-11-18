@@ -12,7 +12,8 @@ The user asked for "more proper badges about the build, CI pass status" and a ba
 showing the project was built with AI, specifically OpenCode. They chose the
 **Hybrid** approach: live workflow status for the technical badges, a static badge
 for OpenCode. They later asked that release status be dynamic too and chose a
-badge for the manual `Release preparation` workflow.
+badge for the manual `Release preparation` workflow, then also chose a dynamic
+latest-release version badge despite its current empty-state limitations.
 
 Constraint: `juangiler/hermes` is a private repository. GitHub documents that
 workflow badges in private repos "are not accessible externally", so live badges
@@ -66,10 +67,25 @@ dynamic status/tooling badges first, existing static identity badges second.
    This workflow is `workflow_dispatch` only and Hermes has no published release
    or tag yet, so the badge will read "no status" until someone triggers it
    manually. That is intentional and honest: it tracks the preparation pipeline,
-   not a published binary. A Shields "latest release" badge was rejected because
-   there is no release to report and the repo is private.
+   not a published binary. A Shields "latest release" badge was initially rejected
+   for the same reason (no release to report, private repo), but the user later
+   explicitly chose to add it anyway; see item 4.
 
-4. **Built with OpenCode** — static Shields badge using the palette already used
+4. **Release version** — a dynamic Shields badge reading GitHub's latest release,
+   linked to the releases page:
+
+   ```markdown
+   [![Release](https://img.shields.io/github/v/release/juangiler/hermes)](https://github.com/juangiler/hermes/releases)
+   ```
+
+   The user chose this after being told the limitations. It is not expected to
+   show a useful value yet: there is no GitHub Release or `v0.0.1` tag, and the
+   repository is private, so the unauthenticated Shields endpoint cannot read
+   release data. It will typically render as `not found` / invalid until a real
+   release exists and the repo is public (or Shields is given a token). This is
+   recorded so the expected empty state is not mistaken for a broken URL.
+
+5. **Built with OpenCode** — static Shields badge using the palette already used
    by the existing badges (Tokyo Night blue `7aa2f7`), linked to the project site:
 
    ```markdown
@@ -82,7 +98,7 @@ License, Linux, C11 + SDL3 stay exactly as they are.
 
 ## Non-goals
 
-- No "latest release" version badge: there is no published release or tag, and the repo is private. The manual `Release preparation` workflow badge is included instead.
+- No GitHub Release, tag, or version bump is created by this badge work; the dynamic version badge simply reads whatever GitHub already publishes.
 - No version bump, workflow change, or package identity change.
 - No change to badge colors in the existing static row.
 - No attempt to make private-repo badges visible externally (not possible).

@@ -19,7 +19,8 @@
 - Badge colors for new static badges use the existing Tokyo Night palette (`7aa2f7`).
 - `?job=` is an undocumented GitHub badge parameter; keep the documented `?branch=main` too.
 - Markdown-only change: do not claim an application rebuild occurred.
-- Release badge tracks the manual `Release preparation` workflow (`release.yml`); it will show "no status" until dispatched by hand. Do not add a "latest release" version badge (no release/tag, private repo).
+- Release badge tracks the manual `Release preparation` workflow (`release.yml`); it will show "no status" until dispatched by hand.
+- A dynamic latest-release version badge is included by user choice. It will read `not found`/invalid until a real GitHub Release exists and the private repo is readable by Shields. No release/tag/version bump is created by this work.
 
 ## Review Focus
 
@@ -112,4 +113,44 @@ Expected: no whitespace errors.
 ```bash
 git add README.md docs/superpowers/specs/2026-11-18-readme-badges-design.md docs/superpowers/plans/2026-11-18-readme-badges.md
 git commit -m "docs(readme): add release workflow status badge"
+```
+
+---
+
+### Task 3: Add dynamic latest-release version badge
+
+**Files:**
+- Modify: `README.md:11-15` (first badge row only)
+- Modify: `docs/superpowers/specs/2026-11-18-readme-badges-design.md` (already edited: version badge section, context, non-goals)
+- Modify: `docs/superpowers/plans/2026-11-18-readme-badges.md` (this plan; version-badge constraint and Task 3)
+
+**Interfaces:**
+- Consumes: repo `juangiler/hermes`, Shields GitHub Release endpoint, releases page URL.
+- Produces: no code interfaces; output is the rendered README header.
+
+- [ ] **Step 1: Insert the version badge**
+
+Insert this line between the Release preparation badge and the Built with OpenCode badge in the first badge row of `README.md`:
+
+```markdown
+[![Release](https://img.shields.io/github/v/release/juangiler/hermes)](https://github.com/juangiler/hermes/releases)
+```
+
+Do not alter any other badge line.
+
+- [ ] **Step 2: Verify the change**
+
+Run: `git diff -- README.md docs/superpowers/specs/2026-11-18-readme-badges-design.md docs/superpowers/plans/2026-11-18-readme-badges.md`
+
+Expected: one added badge line in README between Release preparation and OpenCode; docs contain the Shields release URL and the empty-state caveat; no other README lines changed.
+
+Run: `git diff --check`
+
+Expected: no whitespace errors.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add README.md docs/superpowers/specs/2026-11-18-readme-badges-design.md docs/superpowers/plans/2026-11-18-readme-badges.md
+git commit -m "docs(readme): add dynamic release version badge"
 ```
