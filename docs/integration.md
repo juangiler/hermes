@@ -38,7 +38,7 @@ instead of starting the long-lived services:
 | Command | What it does |
 |---|---|
 | `--enable-filechooser` | Writes only `org.freedesktop.impl.portal.FileChooser=hermes` under `[preferred]` in `$XDG_CONFIG_HOME/xdg-desktop-portal/portals.conf`, keeping unrelated bytes unchanged and backing up the original to `portals.conf.hermes-backup`. |
-| `--disable-filechooser` | Restores that backup byte-for-byte (or removes the generated entry/config when there was no original) and removes the backup. |
+| `--disable-filechooser` | Restores that backup byte-for-byte when the config is unchanged since opt-in; if it has since been edited, removes only the Hermes key (restoring a previous value) so unrelated edits survive. Removes the backup in both cases. |
 | `--status` | Prints whether the Hermes file-chooser role is enabled, without changing anything. |
 
 Installers and the default configuration never take over a desktop role: Hermes

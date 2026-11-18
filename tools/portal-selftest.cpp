@@ -408,6 +408,8 @@ private slots:
     void portalConfigEnableAppendsSectionWithExistingLineEnding();
     void portalConfigEnableIsIdempotent();
     void portalConfigDisableRestoresExactOriginalBytes();
+    void portalConfigDisableWithBackupPreservesUnrelatedEdits();
+    void portalConfigDisableWithBackupRestoresForeignKeyAfterEdit();
     void portalConfigDisableRemovesConfigWhenOriginalMissing();
     void portalConfigDisableWithoutBackupRemovesOnlyHermesKey();
     void portalConfigDisableWithoutBackupKeepsForeignFileChooserValue();
@@ -850,6 +852,51 @@ void PortalSelfTest::portalConfigDisableRestoresExactOriginalBytes()
     QVERIFY(!QFile::exists(backupPath()));
     QCOMPARE(readFile(configPath()), original);
     QCOMPARE(PortalConfig::status(), kDisabledStatus);
+}
+
+void PortalSelfTest::portalConfigDisableWithBackupPreservesUnrelatedEdits()
+{
+    resetPortalConfig();
+    const QByteArray original("[preferred]\r\ndefault=gtk\r\n");
+    writeConfig(original);
+
+    QString error;
+    QVERIFY2(PortalConfig::enableFileChooser(&error), qPrintable(error));
+    QCOMPARE(readFile(backupPath()), original);
+
+    // A later, unrelated edit means the file is no longer the exact enabled
+    // form; only the Hermes line may disappear, every other byte must survive.
+    writeConfig(QByteArray("[preferred]\r\n"
+                           "org.freedesktop.impl.portal.FileChooser=hermes\r\n"
+                           "default=gtk\r\n"
+                           "user-later=yes"));
+
+    QVERIFY2(PortalConfig::disableFileChooser(&error), qPrintable(error));
+    QVERIFY(!QFile::exists(backupPath()));
+    QCOMPARE(readFile(configPath()),
+             QByteArray("[preferred]\r\ndefault=gtk\r\nuser-later=yes"));
+}
+
+void PortalSelfTest::portalConfigDisableWithBackupRestoresForeignKeyAfterEdit()
+{
+    resetPortalConfig();
+    const QByteArray original("[preferred]\ndefault=gtk\n"
+                              "org.freedesktop.impl.portal.FileChooser=gtk\n"
+                              "keep=yes\n");
+    writeConfig(original);
+
+    QString error;
+    QVERIFY2(PortalConfig::enableFileChooser(&error), qPrintable(error));
+    QCOMPARE(readFile(backupPath()), original);
+
+    writeConfig(QByteArray("[preferred]\ndefault=gtk\n"
+                           "org.freedesktop.impl.portal.FileChooser=hermes\n"
+                           "keep=yes\n"
+                           "user-later=added\n"));
+
+    QVERIFY2(PortalConfig::disableFileChooser(&error), qPrintable(error));
+    QVERIFY(!QFile::exists(backupPath()));
+    QCOMPARE(readFile(configPath()), original + "user-later=added\n");
 }
 
 void PortalSelfTest::portalConfigDisableRemovesConfigWhenOriginalMissing()

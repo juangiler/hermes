@@ -239,6 +239,30 @@ bool fileChooserEnabled(const QByteArray &content)
     return isHermesKey(lines, findKey(lines));
 }
 
+// Once the enabled file has been edited, the whole backup is no longer safe to
+// restore: only the line Hermes wrote may change. A foreign value that enable
+// replaced goes back in that line's place; otherwise the line is removed.
+QByteArray disableDiverged(const QByteArray &content, const QByteArray &original)
+{
+    QList<Line> lines = splitLines(content);
+    const KeyLocation location = findKey(lines);
+    if (!isHermesKey(lines, location))
+        return content;
+
+    if (original != kMissingOriginal) {
+        const QList<Line> originalLines = splitLines(original);
+        const KeyLocation originalLocation = findKey(originalLines);
+        if (originalLocation.key >= 0) {
+            const QByteArray body = originalLines.at(originalLocation.key).body;
+            const QByteArray ending = lines.at(location.key).ending;
+            lines[location.key].raw = body + ending;
+            return joinLines(lines);
+        }
+    }
+    lines.removeAt(location.key);
+    return joinLines(lines);
+}
+
 } // namespace
 
 bool PortalConfig::enableFileChooser(QString *error)
@@ -276,12 +300,26 @@ bool PortalConfig::disableFileChooser(QString *error)
         QByteArray original;
         if (!readAll(paths.backup, &original, error))
             return false;
-        if (original == kMissingOriginal) {
-            if (QFile::exists(paths.config) && !QFile::remove(paths.config)) {
-                return fail(error, QStringLiteral("cannot remove %1").arg(paths.config));
-            }
-        } else if (!writeAll(paths.config, original, error)) {
+
+        const bool hasConfig = QFile::exists(paths.config);
+        QByteArray content;
+        if (hasConfig && !readAll(paths.config, &content, error))
             return false;
+
+        // Only the exact bytes enableFileChooser() produced may be replaced by
+        // the backup. Any later edit keeps its place and every other byte.
+        const QByteArray basis = original == kMissingOriginal ? QByteArray() : original;
+        if (!hasConfig || content == editedConfig(basis, true)) {
+            if (original == kMissingOriginal) {
+                if (hasConfig && !QFile::remove(paths.config))
+                    return fail(error, QStringLiteral("cannot remove %1").arg(paths.config));
+            } else if (!writeAll(paths.config, original, error)) {
+                return false;
+            }
+        } else {
+            const QByteArray updated = disableDiverged(content, original);
+            if (updated != content && !writeAll(paths.config, updated, error))
+                return false;
         }
         if (!QFile::remove(paths.backup))
             return fail(error, QStringLiteral("cannot remove %1").arg(paths.backup));
