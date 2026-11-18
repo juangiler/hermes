@@ -382,6 +382,31 @@ static void test_operations_changed_hook(void) {
     hermes_core_destroy(core);
 }
 
+static void test_invalid_conflict_policy_rejected(void) {
+    char dir[] = "/tmp/hermes-core-abi-policy-XXXXXX";
+    assert(mkdtemp(dir));
+    char src[PATH_MAX], dst[PATH_MAX];
+    snprintf(src, sizeof src, "%s/source", dir);
+    snprintf(dst, sizeof dst, "%s/dest", dir);
+    write_content(src, "x", 1);
+    assert(mkdir(dst, 0755) == 0);
+
+    HermesCoreHost temporary = recording_host;
+    hermes_core_set_host(&temporary);
+    HermesCore *core = hermes_core_create(wake_single, NULL);
+    assert(core);
+    const char *paths[] = {src};
+    int before = atomic_load(&g_op_completions);
+    assert(hermes_core_copy(core, paths, 1, dst, false,
+                            (HermesConflictPolicy)99) == -1);
+    assert(atomic_load(&g_op_completions) == before);
+
+    assert(!unlink(src));
+    assert(!rmdir(dst));
+    assert(!rmdir(dir));
+    hermes_core_destroy(core);
+}
+
 int main(void) {
     char dir[] = "/tmp/hermes-core-abi-XXXXXX";
     assert(mkdtemp(dir));
@@ -395,6 +420,7 @@ int main(void) {
     test_ops_mkdir_rename_remove();
     test_ops_copy_move_conflict_policy();
     test_operations_changed_hook();
+    test_invalid_conflict_policy_rejected();
 
     char p[PATH_MAX];
     for (int i = 0; i < 8; i++) {

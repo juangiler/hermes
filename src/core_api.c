@@ -215,7 +215,7 @@ static int policy_engine(HermesConflictPolicy policy) {
     case HERMES_CONFLICT_KEEP_BOTH: return CF_KEEP_BOTH;
     case HERMES_CONFLICT_NEWER: return CF_NEWER;
     }
-    return CF_SKIP; // not reached: the enum is closed
+    return -1;
 }
 
 // Hand one operation to the engine. Operations are asynchronous: the engine
@@ -224,9 +224,11 @@ static int policy_engine(HermesConflictPolicy policy) {
 static int launch_op(HermesCore *core, HermesOpKind kind, char **src, int nsrc, const char *dst_dir, char **dst, HermesConflictPolicy policy) {
     if (!core_live(core) || nsrc < 1 || (size_t)nsrc > (size_t)INT_MAX) return -1;
     for (int i = 0; i < nsrc; i++) if (!src[i] || !src[i][0]) return -1;
+    int engine_policy = policy_engine(policy);
+    if (engine_policy < 0) return -1;
     Op *op = op_new((int)op_kind_engine(kind), src, nsrc, dst_dir);
     if (dst) op->dst = strv_dup(dst, nsrc);
-    op->policy = policy_engine(policy);
+    op->policy = engine_policy;
     op_launch(op);
     return 0;
 }
