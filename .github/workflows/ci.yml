@@ -56,7 +56,7 @@ jobs:
       options: --shm-size=2g # the cross-device copy test uses /dev/shm
     steps:
       - name: Install dependencies
-        run: pacman -Syu --noconfirm --needed base-devel git pkgconf cmake libarchive fuse3 openssl
+        run: pacman -Syu --noconfirm --needed base-devel git pkgconf cmake libarchive fuse3 openssl qt6-base
       - uses: actions/checkout@v4
       - name: Headless core self-test (non-root)
         run: |
