@@ -25,7 +25,7 @@
 - **Portal service absent:** clients must degrade to existing behaviour and never block startup or a file operation — test each client with no service registered.
 - **Pre-existing `portals.conf`:** unrelated keys must survive and disable must restore the exact original bytes — test with a fixture containing other interfaces.
 - **Malformed URIs:** `file://` with percent-encoding works, other schemes and truncated URIs are rejected without crashing — test both in the core ABI suite.
-- **Request with no picker attached:** FileChooser Open/Save must answer immediately with `org.freedesktop.portal.Error.Cancelled` so callers never hang — test the error response.
+- **Request with no picker attached:** FileChooser `OpenFile`/`SaveFile` must answer immediately with portal `Response(response=1)` (Cancelled), and `FileManager1.ShowItems` with the D-Bus error `org.freedesktop.portal.Error.Cancelled`, so callers never hang — test both.
 - **Real user config isolation:** tests must force `XDG_CONFIG_HOME` under `/tmp` and never touch the user's desktop config — assert the path in the config tests.
 
 ---
@@ -142,7 +142,7 @@ Expected: link/compile failure for the new classes.
 
 - [ ] **Step 3: Implement the three clients**
 
-Use `QDBusInterface`/`QDBusPendingCallWatcher` on `org.freedesktop.portal.Desktop`; call `Settings.ReadOne`, `OpenURI.OpenFile`, `Documents.Add`. Map `QDBusError` to `PortalReply::Unavailable` when the service/interface is absent and to `Error` otherwise. Never call `waitForFinished()`.
+Use `QDBusInterface`/`QDBusPendingCallWatcher` on `org.freedesktop.portal.Desktop`; call `Settings.ReadOne`, `OpenURI.OpenURI`, `Documents.Add`. Map `QDBusError` to `PortalReply::Unavailable` when the service/interface is absent and to `Error` otherwise. Never call `waitForFinished()`. (Corrected by ruling R9: `OpenURI.OpenFile` takes an fd, not a URI string.)
 
 - [ ] **Step 4: Run the suite to verify all cases pass**
 
@@ -169,11 +169,11 @@ git commit -m "feat(portals): add Settings, OpenURI and Documents clients"
 - Consumes: `hermes_core_open_uris`, `hermes_core_scan`, `PortalReply` from Task 3.
 - Produces:
   - `class FileManager1Service : public QObject` with `bool registerService(QDBusConnection bus, QString *error);` and signal `void itemsRequested(const QStringList &uris);`. `ShowItems(as uris, s startupId)` converts each URI with `hermes_core_uri_to_path` and calls `hermes_core_open_uris`; with no UI attached it returns D-Bus error `org.freedesktop.portal.Error.Cancelled`.
-  - `class FileChooserBackend : public QObject` with `bool registerService(QDBusConnection bus, QString *error);`. Implements `org.freedesktop.impl.portal.FileChooser.Open` and `Save` returning a handle plus an options dictionary; emits `org.freedesktop.portal.Request.Response` with `response = 2` (Cancelled) when no picker is attached. Supports filter, multi-select and current_folder options in the returned metadata.
+  - `class FileChooserBackend : public QObject` with `bool registerService(QDBusConnection bus, QString *error);`. Implements `org.freedesktop.impl.portal.FileChooser.OpenFile` and `SaveFile` with `(IN o handle, IN s app_id, IN s parent_window, IN s title, IN a{sv} options) -> (OUT u response, OUT a{sv} results)`, returning `response = 1` (Cancelled) and an empty results dict when no picker is attached. Supports filter, multiple and current_folder options in per-handle state. (Corrected by rulings R10 and R11: the impl methods return the response directly, and `1` means Cancelled while `2` means Other.)
 
 - [ ] **Step 1: Write failing protocol tests**
 
-Register a caller stub on the private bus. Assert `ShowItems` with two `file://` URIs records both paths through a test host hook; assert that with no UI attached `ShowItems` returns the Cancelled error; assert `Open` and `Save` each emit a `Response` with `response = 2` and do not block the caller for more than 2 seconds.
+Register a caller stub on the private bus. Assert `ShowItems` with two `file://` URIs records both paths through a test host hook; assert that with no UI attached `ShowItems` returns the Cancelled error; assert `OpenFile` and `SaveFile` each return `response = 1` immediately and do not block the caller for more than 2 seconds.
 
 - [ ] **Step 2: Run the suite to verify the new cases fail**
 
