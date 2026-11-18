@@ -328,7 +328,7 @@ static f32 st_row_y(Pane *p, const char *name) {
 }
 
 static void st_shot(const char *name) {
-    const char *dir = identity_env("FE_SHOTS");
+    const char *dir = identity_env("HERMES_SHOTS");
     if (!dir) return;
     st_frames(2);
     snprintf(A.shot_once, sizeof A.shot_once, "%s/%s.bmp", dir, name);
@@ -811,7 +811,7 @@ static int run_selftest_ops(void) {
     st_write(ST_BASE "/big.bin", 768u << 20);
     char *big[1] = {ST_BASE "/big.bin"};
     start_transfer(big, 1, ST_XDEV, false, false);
-    if (identity_env("FE_SHOTS")) {
+    if (identity_env("HERMES_SHOTS")) {
         A.ops[A.nops - 1]->t_start -= 400000000ull; // make the card visible right away
         st_frames(3);
         st_shot("progress");
@@ -1297,8 +1297,8 @@ static int run_selftest_m4(void) {
               "exec sh -c \"$(printf '%s' \"$last\" | sed \"s#sh '/srv/#sh '" M4_SFTP "/srv/#\")\"\n", f);
         fclose(f);
         chmod(M4_BASE "/ssh", 0755);
-        setenv("FE_SSH", M4_BASE "/ssh", 1);
-        setenv("FE_GVFS_DIR", M4_BASE "/gvfs", 1);
+        setenv("HERMES_SSH", M4_BASE "/ssh", 1);
+        setenv("HERMES_GVFS_DIR", M4_BASE "/gvfs", 1);
         pane_navigate(p, M4_SFTP "/srv/da'ta", true);
         st_wait();
         ST_CHECK(st_wait_cond(c_sizes_done, 5000));
@@ -1315,8 +1315,8 @@ static int run_selftest_m4(void) {
         pane_navigate(p, M4_BASE "/gvfs/smb-share:server=nas,share=x", true);
         st_wait();
         ST_CHECK(st_wait_cond(c_sizes_done, 5000) && st_dir_size(p, "d") == 500);
-        unsetenv("FE_GVFS_DIR");
-        unsetenv("FE_SSH");
+        unsetenv("HERMES_GVFS_DIR");
+        unsetenv("HERMES_SSH");
         pane_navigate(p, M4_BASE, true);
         st_wait();
 #undef M4_SFTP
@@ -1527,7 +1527,7 @@ static int run_selftest_m6(void) {
     ST_CHECK(A.npanels == 1 && A.root->kind == NODE_PANEL);
     ST_CHECK(panel_ntabs(p0) == 1 && p0->bar.h == 0 && p0->cur->r.w == 0);
     ST_CHECK(p0->cur->pane[0].ly.header.y == p0->cur->pane[0].ly.toolbar.y + p0->cur->pane[0].ly.toolbar.h);
-    { // tab bar hover states (FE_SHOTS): inactive tab, + button
+    { // tab bar hover states (HERMES_SHOTS): inactive tab, + button
         int nt = A.ntabs;
         st_key(SDLK_T, SDL_KMOD_CTRL); st_wait();
         Tab *t0 = panel_tab(A.ap, 0);
@@ -3834,7 +3834,7 @@ static int st_place_row(int kind, const char *label);
 static void st_setup_m11(void) {
     if (system("rm -rf " M11_BASE " /tmp/fe-selftest-config/foot /tmp/fe-selftest-config/kitty /tmp/fe-selftest-config/xdg-terminals.list")) {}
     mkdir_p(M11_BASE "/cfg", 0755);
-    setenv("FE_TERM_SHELL", "/bin/sh", 1); // a predictable shell
+    setenv("HERMES_TERM_SHELL", "/bin/sh", 1); // a predictable shell
 }
 
 static void st_write_text(const char *path, const char *text) {
@@ -4185,7 +4185,7 @@ static int run_selftest_m11(void) {
         for (int si = 0; si < 3; si++) {
             char sp[PATH_MAX];
             if (!tool_abs(shells[si], sp, sizeof sp)) { printf("(%s not installed: its shell integration not tested)\n", shells[si]); continue; }
-            setenv("FE_TERM_SHELL", sp, 1);
+            setenv("HERMES_TERM_SHELL", sp, 1);
             setenv("HOME", M11_BASE "/home", 1);
             pane_navigate(fp, M11_BASE, true);
             st_wait();
@@ -4218,7 +4218,7 @@ static int run_selftest_m11(void) {
             ST_CHECK(stat(rp, &rst) != 0 && stat(cdf, &rst) != 0); // its files are removed with it
         }
         free(home0);
-        setenv("FE_TERM_SHELL", "/bin/sh", 1);
+        setenv("HERMES_TERM_SHELL", "/bin/sh", 1);
         // Shift+F4: a terminal tab, as F4 used to open
         st_key(SDLK_F4, SDL_KMOD_SHIFT);
         ST_CHECK(A.ntabs == nt + 1 && A.ap->cur->term);
@@ -4276,7 +4276,7 @@ static void st_setup_m10(void) {
     st_write(M10_BASE "/my file.txt", 10);
     st_rmrf("/tmp/fe-m10-run");
     mkdir("/tmp/fe-m10-run", 0700);
-    setenv("FE_IPC_SOCKET", "/tmp/fe-m10-run/file-explorer.sock", 1); // private instance (keep XDG_RUNTIME_DIR: Wayland lives there)
+    setenv("HERMES_IPC_SOCKET", "/tmp/fe-m10-run/file-explorer.sock", 1); // private instance (keep XDG_RUNTIME_DIR: Wayland lives there)
     // fake drive tools: a USB stick (vfat) + hidden EFI/swap partitions; mount/unmount/power-off log what they did
     mkdir(M10_BASE "/tools", 0755);
     mkdir(M10_BASE "/gvfs", 0755);
@@ -4327,9 +4327,9 @@ static void st_setup_m10(void) {
     chmod(M10_BASE "/tools/lsblk", 0755);
     chmod(M10_BASE "/tools/udisksctl", 0755);
     chmod(M10_BASE "/tools/gio", 0755);
-    setenv("FE_LSBLK", M10_BASE "/tools/lsblk", 1);
-    setenv("FE_UDISKSCTL", M10_BASE "/tools/udisksctl", 1);
-    setenv("FE_GIO", M10_BASE "/tools/gio", 1);
+    setenv("HERMES_LSBLK", M10_BASE "/tools/lsblk", 1);
+    setenv("HERMES_UDISKSCTL", M10_BASE "/tools/udisksctl", 1);
+    setenv("HERMES_GIO", M10_BASE "/tools/gio", 1);
     f = fopen(M10_BASE "/tools/secret-tool", "w"); // a keyring in files: secrets/<uri with / -> _>
     fputs("#!/bin/sh\n"
           "echo \"secret $1\" >> " M10_BASE "/tools/log\n"
@@ -4337,7 +4337,7 @@ static void st_setup_m10(void) {
           "case \"$1\" in store) cat > \"$d/$k\" ;; lookup) [ -f \"$d/$k\" ] && cat \"$d/$k\" ;; clear) rm -f \"$d/$k\" ;; esac\n", f);
     fclose(f);
     chmod(M10_BASE "/tools/secret-tool", 0755);
-    setenv("FE_SECRET_TOOL", M10_BASE "/tools/secret-tool", 1);
+    setenv("HERMES_SECRET_TOOL", M10_BASE "/tools/secret-tool", 1);
     f = fopen(M10_BASE "/tools/ssh", "w");
     fputs("#!/bin/sh\n"
           "case \" $* \" in\n" // the shared connection (devices.c): checked, opened with askpass, closed
@@ -4349,8 +4349,8 @@ static void st_setup_m10(void) {
           "echo \"ssh-args: $*\"\nexec cat\n", f);
     fclose(f);
     chmod(M10_BASE "/tools/ssh", 0755);
-    setenv("FE_SSH", M10_BASE "/tools/ssh", 1);
-    setenv("FE_GVFS_DIR", M10_BASE "/gvfs", 1);
+    setenv("HERMES_SSH", M10_BASE "/tools/ssh", 1);
+    setenv("HERMES_GVFS_DIR", M10_BASE "/gvfs", 1);
     // systemd units: systemctl / journalctl stand-ins keeping unit state in files (never the real user manager)
     f = fopen(M10_BASE "/tools/systemctl", "w");
     fputs("#!/bin/sh\n"
@@ -4376,9 +4376,9 @@ static void st_setup_m10(void) {
     f = fopen(M10_BASE "/tools/tcp", "w"); // /proc/net/tcp: port 15432 listening
     fputs("  sl  local_address rem_address   st\n   0: 0100007F:3C48 00000000:0000 0A 00000000:00000000\n", f);
     fclose(f);
-    setenv("FE_SYSTEMCTL", M10_BASE "/tools/systemctl", 1);
-    setenv("FE_JOURNALCTL", M10_BASE "/tools/journalctl", 1);
-    setenv("FE_PROC_NET_TCP", M10_BASE "/tools/tcp", 1);
+    setenv("HERMES_SYSTEMCTL", M10_BASE "/tools/systemctl", 1);
+    setenv("HERMES_JOURNALCTL", M10_BASE "/tools/journalctl", 1);
+    setenv("HERMES_PROC_NET_TCP", M10_BASE "/tools/tcp", 1);
     A.ipc_test = true;
 }
 
@@ -4440,9 +4440,9 @@ static Tab *st_tab_at(const char *path) {
     return NULL;
 }
 
-// A spawned second launch runs a full (non-selftest) startup: its legacy
-// probe/import must never see the user's real home, a running File Explorer,
-// or another suite's state, and a failed hand-off must not open a window.
+// A spawned second launch runs a full (non-selftest) startup: keep it inside a
+// private home and socket so it never touches the user's real state or another
+// suite's instance.
 static char *st_env_save(const char *key) {
     const char *v = getenv(key);
     return v ? strdup(v) : NULL;
@@ -4586,7 +4586,7 @@ static int run_selftest_m10(void) {
                       "nas:/exports/line " M10_BASE "/with\\012line nfs defaults 0 0\n"
                       "nas:/exports/slash " M10_BASE "/literal\\134040 nfs defaults 0 0\n");
         mkdir(M10_BASE "/gvfs/team share", 0755);
-        setenv("FE_FSTAB", M10_BASE "/fstab", 1);
+        setenv("HERMES_FSTAB", M10_BASE "/fstab", 1);
         NetMount listed[16];
         int nl = network_mounts(listed, 16), missing = 0;
         for (int i = 0; i < nl; i++)
@@ -4641,7 +4641,7 @@ static int run_selftest_m10(void) {
         ST_CHECK(st_place_row(PK_LOCALSHARE, "ha-backups (NFS)") >= 0);
         local_shares_refresh();
         init_places();
-        unsetenv("FE_FSTAB");
+        unsetenv("HERMES_FSTAB");
     }
     { // KIO Fuse is selected only with its service and matching worker; its returned path opens directly.
         mkdir(M10_BASE "/kio", 0755);
@@ -4655,9 +4655,9 @@ static int run_selftest_m10(void) {
                       "echo 'method return sender=:1.1 -> destination=:1.2'\n"
                       "echo '   string \"" M10_BASE "/kio/ftp\"'\n");
         chmod(M10_BASE "/tools/dbus-send", 0755);
-        setenv("FE_DBUS_SEND", M10_BASE "/tools/dbus-send", 1);
-        setenv("FE_KIO_SERVICE", M10_BASE "/kio-service", 1);
-        setenv("FE_KIO_WORKER_DIR", M10_BASE "/kio-workers", 1);
+        setenv("HERMES_DBUS_SEND", M10_BASE "/tools/dbus-send", 1);
+        setenv("HERMES_KIO_SERVICE", M10_BASE "/kio-service", 1);
+        setenv("HERMES_KIO_WORKER_DIR", M10_BASE "/kio-workers", 1);
         NetAddr na;
         ST_CHECK(net_parse("ftp://example.test/", &na) && net_method_available(na.proto, NET_METHOD_KIO, &na, NULL, 0));
         ST_CHECK(net_parse("smb://example.test/share", &na) && !net_method_available(na.proto, NET_METHOD_KIO, &na, NULL, 0));
@@ -4690,9 +4690,9 @@ static int run_selftest_m10(void) {
         char sp[PATH_MAX];
         settings_file(sp, sizeof sp, false);
         ST_CHECK(st_file_has(sp, "server=example.test\tftp://example.test/\t\tkio\n"));
-        unsetenv("FE_DBUS_SEND");
-        unsetenv("FE_KIO_SERVICE");
-        unsetenv("FE_KIO_WORKER_DIR");
+        unsetenv("HERMES_DBUS_SEND");
+        unsetenv("HERMES_KIO_SERVICE");
+        unsetenv("HERMES_KIO_WORKER_DIR");
     }
     ST_CHECK(A.devs.n == 1 && !strcmp(A.devs.d[0].dev, "/dev/sdz1") && !strcmp(A.devs.d[0].label, "MY STICK") &&
              A.devs.d[0].removable && !A.devs.d[0].mount[0] && !strcmp(A.devs.d[0].disk, "sdz")); // EFI + swap hidden
@@ -4767,9 +4767,9 @@ static int run_selftest_m10(void) {
             {5, "GVfs WebDAV backend not installed for direct connection. Configured rclone WebDAV remotes still appear in Cloud; add one with rclone config.", "connect-webdavs-unavailable"},
         };
         char gio_path[PATH_MAX];
-        snprintf(gio_path, sizeof gio_path, "%s", identity_env("FE_GIO"));
-        unsetenv("FE_GIO");
-        setenv("FE_GVFS_LIBEXEC", M10_BASE "/missing-libexec", 1);
+        snprintf(gio_path, sizeof gio_path, "%s", identity_env("HERMES_GIO"));
+        unsetenv("HERMES_GIO");
+        setenv("HERMES_GVFS_LIBEXEC", M10_BASE "/missing-libexec", 1);
         for (int k = 0; k < (int)ARRAY_COUNT(missing); k++) {
             connect_open(-1);
             g_sheet.cn_proto = missing[k].proto;
@@ -4779,17 +4779,17 @@ static int run_selftest_m10(void) {
             int starts[8], lens[8], nlines = wrap_text(&A.font_small, msg, g_sheet.cn_body.w - S(4), starts, lens, 8);
             ST_CHECK(nlines >= 2 && nlines <= 3 && starts[nlines - 1] + lens[nlines - 1] == (int)strlen(msg));
             st_shot(missing[k].shot);
-            setenv("FE_GIO", gio_path, 1);
+            setenv("HERMES_GIO", gio_path, 1);
             st_frames(1);
             ST_CHECK(g_sheet.r.h == dialog_h && unavailable_y >= g_sheet.cn_rremember.y + A.font_small.line_h);
             sheet_close();
-            unsetenv("FE_GIO");
+            unsetenv("HERMES_GIO");
         }
-        setenv("FE_GIO", gio_path, 1);
-        unsetenv("FE_GVFS_LIBEXEC");
+        setenv("HERMES_GIO", gio_path, 1);
+        unsetenv("HERMES_GVFS_LIBEXEC");
     }
     { // An unavailable method can still be selected to see why it cannot connect yet.
-        setenv("FE_KIO_SERVICE", M10_BASE "/missing-kio-service", 1);
+        setenv("HERMES_KIO_SERVICE", M10_BASE "/missing-kio-service", 1);
         connect_open(-1);
         g_sheet.cn_proto = 6; // NFS, without a configured matching export in the form
         st_frames(1);
@@ -4807,7 +4807,7 @@ static int run_selftest_m10(void) {
         st_frames(1);
         st_shot("connect-method-unavailable");
         sheet_close();
-        unsetenv("FE_KIO_SERVICE");
+        unsetenv("HERMES_KIO_SERVICE");
     }
     // network: a URI in the path bar opens Connect to server prefilled; Enter mounts it with GVfs and opens it
     connect_open(-1);
@@ -4903,9 +4903,9 @@ static int run_selftest_m10(void) {
         mkdir(M10_BASE "/libexec", 0755);
         FILE *f = fopen(M10_BASE "/usb/1-2/idVendor", "w"); fputs("05ac\n", f); fclose(f);
         f = fopen(M10_BASE "/usb/1-2/idProduct", "w"); fputs("12a8\n", f); fclose(f);
-        setenv("FE_SYS_USB", M10_BASE "/usb", 1);
-        setenv("FE_NO_OWN_PHONES", "1", 1); // GVfs on its own here (ours is below)
-        setenv("FE_GVFS_LIBEXEC", M10_BASE "/libexec", 1);
+        setenv("HERMES_SYS_USB", M10_BASE "/usb", 1);
+        setenv("HERMES_NO_OWN_PHONES", "1", 1); // GVfs on its own here (ours is below)
+        setenv("HERMES_GVFS_LIBEXEC", M10_BASE "/libexec", 1);
         ST_CHECK(!gvfs_backend_installed("afc"));
         f = fopen(M10_BASE "/tools/volumes2", "w"); fputs("Volume(0): Pixel 7\n  activation_root=mtp://Pixel/\n", f); fclose(f);
         rename(M10_BASE "/tools/volumes", M10_BASE "/tools/volumes.off");
@@ -4924,9 +4924,9 @@ static int run_selftest_m10(void) {
         ST_CHECK(L->nph >= 2 && L->ph[0].kind == 'a' && L->ph[1].kind == 'c' && !strcmp(L->ph[1].name, "Photos on iPhone"));
         rename(M10_BASE "/tools/volumes.off", M10_BASE "/tools/volumes");
         free(L);
-        unsetenv("FE_SYS_USB");
-        unsetenv("FE_NO_OWN_PHONES");
-        unsetenv("FE_GVFS_LIBEXEC");
+        unsetenv("HERMES_SYS_USB");
+        unsetenv("HERMES_NO_OWN_PHONES");
+        unsetenv("HERMES_GVFS_LIBEXEC");
         char hint[300];
         phone_error_hint('a', "Unhandled Lockdown error: pairing dialog response pending", hint, sizeof hint);
         ST_CHECK(strstr(hint, "tap Trust") != NULL);
@@ -5013,9 +5013,9 @@ static int run_selftest_m10(void) {
                                                    "case \"$2\" in 1-7) echo 'wait trust'; sleep 0.4; mkdir -p \"$3/Al's iPhone\"; echo \"ok $3/Al's iPhone\";;\n"
                                                    "*) echo 'error busy: another program is using the device';; esac\n");
         chmod(M10_BASE "/tools/devhelper", 0755);
-        setenv("FE_SYS_USB", u, 1);
-        setenv("FE_DEVICE_HELPER", M10_BASE "/tools/devhelper", 1);
-        setenv("FE_DEVICES_DIR", M10_BASE "/devices", 1);
+        setenv("HERMES_SYS_USB", u, 1);
+        setenv("HERMES_DEVICE_HELPER", M10_BASE "/tools/devhelper", 1);
+        setenv("HERMES_DEVICES_DIR", M10_BASE "/devices", 1);
         devices_refresh();
         ST_CHECK(st_wait_cond(c_dev_idle, 5000));
         int ir = st_place_row(PK_PHONE, "iPhone"), pr = st_place_row(PK_PHONE, "Pixel 8");
@@ -5055,9 +5055,9 @@ static int run_selftest_m10(void) {
         st_wait();
         ST_CHECK(st_log_has("helper --device-mount 1-8") && st_log_has("gio mount mtp://Google_Pixel_8_PIXSER123456/") &&
                  !strcmp(active_pane()->path, M10_BASE "/gvfs/mtp:host=Google_Pixel_8_PIXSER123456"));
-        unsetenv("FE_SYS_USB");
-        unsetenv("FE_DEVICE_HELPER");
-        unsetenv("FE_DEVICES_DIR");
+        unsetenv("HERMES_SYS_USB");
+        unsetenv("HERMES_DEVICE_HELPER");
+        unsetenv("HERMES_DEVICES_DIR");
         unlink(M10_BASE "/tools/volumes");
         st_rmrf(M10_BASE "/gvfs/mtp:host=Google_Pixel_8_PIXSER123456");
         pane_navigate(active_pane(), M10_BASE, true);
@@ -5752,10 +5752,10 @@ static int run_selftest_m10(void) {
         fputs("#!/bin/sh\necho \"fusermount $*\" >> " M10_BASE "/rc/log\n: > " M10_BASE "/rc/mounts\n", f);
         fclose(f);
         chmod(M10_BASE "/tools/fusermount", 0755);
-        setenv("FE_RCLONE", M10_BASE "/tools/rclone", 1);
-        setenv("FE_FUSERMOUNT", M10_BASE "/tools/fusermount", 1);
-        setenv("FE_CLOUD_DIR", cdir, 1);
-        setenv("FE_PROC_MOUNTS", M10_BASE "/rc/mounts", 1);
+        setenv("HERMES_RCLONE", M10_BASE "/tools/rclone", 1);
+        setenv("HERMES_FUSERMOUNT", M10_BASE "/tools/fusermount", 1);
+        setenv("HERMES_CLOUD_DIR", cdir, 1);
+        setenv("HERMES_PROC_MOUNTS", M10_BASE "/rc/mounts", 1);
         unlink(M10_BASE "/sd/journal");
         g_ncloud = 0;
         g_rclone = -1;
@@ -5984,8 +5984,8 @@ static int run_selftest_m10(void) {
         g_cloud_relist = true;
         st_cloud_settle();
         ST_CHECK(g_rclone == 0 && st_place_row(PK_NETHDR, NULL) >= 0 && st_place_row(PK_CLOUDHDR, NULL) < 0);
-        unsetenv("FE_RCLONE");
-        unsetenv("FE_PROC_MOUNTS");
+        unsetenv("HERMES_RCLONE");
+        unsetenv("HERMES_PROC_MOUNTS");
         g_ncloud = 0;
         init_places();
     }
@@ -6110,7 +6110,7 @@ static void st_setup_git(void) {
           "*) cat " GIT_BASE "/tools/out ;;\nesac\n", f);
     fclose(f);
     chmod(GIT_BASE "/tools/git", 0755);
-    setenv("FE_GIT", GIT_BASE "/tools/git", 1);
+    setenv("HERMES_GIT", GIT_BASE "/tools/git", 1);
     // repositories in (pretend) GVfs network folders: SMB and SFTP; a stand-in ssh that runs the command here
     static const char *const net[] = {GIT_BASE "/gvfs/smb-share:server=nas,share=x/proj", GIT_BASE "/gvfs/sftp:host=vm,user=me,port=2222/srv/it's/proj"};
     for (int i = 0; i < 2; i++) {
@@ -6128,7 +6128,7 @@ static void st_setup_git(void) {
     fputs("#!/bin/sh\necho \"ssh $*\" >> " GIT_BASE "/tools/log\nfor a; do last=$a; done\nexec sh -c \"$last\"\n", f);
     fclose(f);
     chmod(GIT_BASE "/tools/ssh", 0755);
-    setenv("FE_SSH", GIT_BASE "/tools/ssh", 1);
+    setenv("HERMES_SSH", GIT_BASE "/tools/ssh", 1);
 }
 
 static int st_git_count(const char *what) { // invocations of the stand-in git containing what
@@ -6426,7 +6426,7 @@ static int run_selftest_git(void) {
     ST_CHECK(file_looks_text(GIT_BASE "/repo/.git/HEAD") && !file_looks_text(GIT_BASE "/repo/a.txt") && !file_looks_text(GIT_BASE "/repo"));
 
     // --- SFTP folders: git runs on the server over ssh; other network folders are skipped
-    setenv("FE_GVFS_DIR", GIT_BASE "/gvfs", 1);
+    setenv("HERMES_GVFS_DIR", GIT_BASE "/gvfs", 1);
     st_git_settle();
     runs = st_git_status_runs();
     pane_navigate(p, GIT_BASE "/gvfs/smb-share:server=nas,share=x/proj/sub", true);
@@ -6440,7 +6440,7 @@ static int run_selftest_git(void) {
     st_read_text(GIT_BASE "/tools/log", log, sizeof log);
     ST_CHECK(strstr(log, "ssh -o BatchMode=yes ") && strstr(log, " -p 2222 -- me@vm '" GIT_BASE "/tools/git' '-c' 'core.fsmonitor=false'"));
     ST_CHECK(strstr(log, "-c core.fsmonitor=false --no-optional-locks -C /srv/it's/proj status --porcelain=v2") != NULL);
-    unsetenv("FE_GVFS_DIR");
+    unsetenv("HERMES_GVFS_DIR");
 
     fprintf(stderr, "selftest-git: %s (%d failures)\n", st_fail ? "FAIL" : "ok", st_fail);
     return st_fail ? 1 : 0;
@@ -6518,7 +6518,7 @@ static void st_setup_grep(void) {
     unlink("/tmp/fe-selftest-config/xdg-desktop-portal/fetestdesk-portals.conf.fe-backup");
     unlink("/tmp/fe-selftest-config/xdg-desktop-portal-termfilechooser/config");
     unlink("/tmp/fe-selftest-config/xdg-desktop-portal-termfilechooser/config.fe-backup");
-    setenv("FE_TEST_TERMFILECHOOSER", "1", 1);
+    setenv("HERMES_TEST_TERMFILECHOOSER", "1", 1);
     setenv("XDG_CURRENT_DESKTOP", "FETestDesk", 1);
     setenv("XDG_DATA_HOME", GREP_BASE "/data", 1);
     setenv("XDG_DATA_DIRS", GREP_BASE "/data2", 1);
@@ -6528,7 +6528,7 @@ static void st_setup_grep(void) {
           "printf '%s\\0%s\\n' ./sub/b.txt '2:9:\t\ttabbed needle' ./a.c '3:7:char *needle = 0;' ./a.c '7:10:    find(needle);'\n", f);
     fclose(f);
     chmod(GREP_BASE "/tools/rg", 0755);
-    unsetenv("FE_RG");
+    unsetenv("HERMES_RG");
     unsetenv("VISUAL");
     unsetenv("EDITOR");
 }
@@ -6764,7 +6764,7 @@ static int run_selftest_grep(void) {
     ST_CHECK(!p->cs_view); // navigating away: the folder's own view
 
     // --- ripgrep, when installed: its output parsed, our flags passed
-    setenv("FE_RG", GREP_BASE "/tools/rg", 1);
+    setenv("HERMES_RG", GREP_BASE "/tools/rg", 1);
     A.search_pane = p;
     search_set_contents(p, true);
     st_cs_search("needle");
@@ -6775,7 +6775,7 @@ static int run_selftest_grep(void) {
     st_read_text(GREP_BASE "/tools/rg.log", rlog, sizeof rlog);
     ST_CHECK(strstr(rlog, GREP_BASE "/tree|--null --line-number --column --no-heading --color never --no-messages") &&
              strstr(rlog, "--max-count 100 --ignore-case --fixed-strings --regexp needle -- .\n"));
-    unsetenv("FE_RG");
+    unsetenv("HERMES_RG");
 
     // --- Escape: back to the folder in the view it had (results switched the grid to rows)
     pane_navigate(p, GREP_BASE "/tree", true); // (from a plain folder in the grid)
@@ -6814,10 +6814,10 @@ static int run_selftest_grep(void) {
         console = c && c->terminal;
         ST_CHECK(has_a && !has_removed && !has_other && !has_missing && console);
         char dirs[8][PATH_MAX];
-        setenv("FE_TEST_DIRS", "/a/:relative:/b::/a", 1);
-        int nd = xdg_dirs("FE_TEST_DIRS", "/def", dirs, 8);
+        setenv("HERMES_TEST_DIRS", "/a/:relative:/b::/a", 1);
+        int nd = xdg_dirs("HERMES_TEST_DIRS", "/def", dirs, 8);
         ST_CHECK(nd == 2 && !strcmp(dirs[0], "/a") && !strcmp(dirs[1], "/b")); // trimmed, deduplicated, relative dropped
-        nd = xdg_dirs("FE_TEST_UNSET", "/usr/local/share:/usr/share", dirs, 8);
+        nd = xdg_dirs("HERMES_TEST_UNSET", "/usr/local/share:/usr/share", dirs, 8);
         ST_CHECK(nd == 2 && !strcmp(dirs[1], "/usr/share"));
         // rename without replacing: an existing target stays, a free name works
         st_write_text(GREP_BASE "/rn-a", "a");
@@ -6882,13 +6882,13 @@ static int run_selftest_grep(void) {
         upd_sha_from_line("<html>Not Found</html>", sha);
         ST_CHECK(!sha[0]);
         // how this copy updates: only the AppImage installs by itself; makepkg / source builds get a command to copy
-        setenv("FE_UPDATE_KIND", "appimage", 1);
+        setenv("HERMES_UPDATE_KIND", "appimage", 1);
         ST_CHECK(!upd_can_install() && !upd_how_cmd()); // no channel: an AppImage is never offered an install
-        setenv("FE_UPDATE_KIND", "arch", 1);
+        setenv("HERMES_UPDATE_KIND", "arch", 1);
         ST_CHECK(!upd_can_install() && upd_how_cmd() && strstr(upd_how_cmd(), "makepkg"));
-        setenv("FE_UPDATE_KIND", "deb", 1);
+        setenv("HERMES_UPDATE_KIND", "deb", 1);
         ST_CHECK(!upd_can_install() && !upd_how_cmd());
-        unsetenv("FE_UPDATE_KIND");
+        unsetenv("HERMES_UPDATE_KIND");
     }
     fprintf(stderr, "selftest-grep: %s (%d failures)\n", st_fail ? "FAIL" : "ok", st_fail);
     return st_fail ? 1 : 0;
@@ -7689,12 +7689,12 @@ static void st_setup_admin(void) {
           "esac\nexit 0\n", f);
     fclose(f);
     chmod(ADM_BASE "/tools/snapper", 0755);
-    setenv("FE_SNAPPER", ADM_BASE "/tools/snapper", 1);
-    setenv("FE_SNAPPER_CONFIGS", ADM_BASE "/configs", 1);
-    setenv("FE_MOUNTINFO", ADM_BASE "/mountinfo", 1);
-    setenv("FE_TIMESHIFT", ADM_BASE "/run", 1);
+    setenv("HERMES_SNAPPER", ADM_BASE "/tools/snapper", 1);
+    setenv("HERMES_SNAPPER_CONFIGS", ADM_BASE "/configs", 1);
+    setenv("HERMES_MOUNTINFO", ADM_BASE "/mountinfo", 1);
+    setenv("HERMES_TIMESHIFT", ADM_BASE "/run", 1);
     setenv("XDG_DATA_HOME", ADM_BASE "/xdg", 1);
-    unsetenv("FE_PKEXEC");
+    unsetenv("HERMES_PKEXEC");
 }
 
 static bool st_snap_done(void) { return g_sheet.snap && atomic_load(&g_sheet.snap->done); }
@@ -7723,7 +7723,7 @@ static int run_selftest_admin(void) {
         st_shot("admin-card");
         st_click_rect(A.op_retry[ci]); // tests never run the real pkexec
         ST_CHECK(A.nops == ci + 1 && !op->dismissed);
-        setenv("FE_PKEXEC", ADM_BASE "/tools/pkexec", 1);
+        setenv("HERMES_PKEXEC", ADM_BASE "/tools/pkexec", 1);
         st_click_rect(A.op_retry[ci]); // (the old card is dismissed and freed)
         // the retry is an administrator copy (on a fast machine it may already be done: a card that worked goes away)
         ST_CHECK((st_last_op() && st_last_op()->admin && st_last_op()->kind == OP_COPY) || st_exists(ADM_BASE "/locked/a.txt"));
@@ -8007,11 +8007,11 @@ static int run_selftest_admin(void) {
             A.menu.open = false;
             break;
         }
-    unsetenv("FE_SNAPPER");
-    unsetenv("FE_SNAPPER_CONFIGS");
-    unsetenv("FE_MOUNTINFO");
-    unsetenv("FE_TIMESHIFT");
-    unsetenv("FE_PKEXEC");
+    unsetenv("HERMES_SNAPPER");
+    unsetenv("HERMES_SNAPPER_CONFIGS");
+    unsetenv("HERMES_MOUNTINFO");
+    unsetenv("HERMES_TIMESHIFT");
+    unsetenv("HERMES_PKEXEC");
     chmod(ADM_BASE "/locked", 0755);
     chmod(ADM_BASE "/vol2/.snapshots", 0755);
 
@@ -8627,7 +8627,7 @@ static int run_selftest_devices(void) {
     signal(SIGPIPE, SIG_IGN);
     st_rmrf(DEV_BASE);
     mkdir(DEV_BASE, 0755);
-    setenv("FE_LOCKDOWN_DIR", DEV_BASE "/lockdown", 1); // never the real pairing records
+    setenv("HERMES_LOCKDOWN_DIR", DEV_BASE "/lockdown", 1); // never the real pairing records
     setenv("XDG_CACHE_HOME", DEV_BASE "/cache", 1);
 
     { // plists: XML out and back, binary in
@@ -8698,7 +8698,7 @@ static int run_selftest_devices(void) {
             snprintf(p, sizeof p, "%s/%s/bInterfaceSubClass", u, ifs[i][0]); st_write_text(p, ifs[i][2]);
             snprintf(p, sizeof p, "%s/%s/interface", u, ifs[i][0]); st_write_text(p, ifs[i][3]);
         }
-        setenv("FE_SYS_USB", u, 1);
+        setenv("HERMES_SYS_USB", u, 1);
         UsbDevInfo info[8];
         int n = usb_list_phones(info, 8);
         char kinds[8] = "";
@@ -8709,13 +8709,13 @@ static int run_selftest_devices(void) {
         }
         ST_CHECK(n == 3 && kinds[0] == 'a' && kinds[1] == 'm' && kinds[2] == 'c'); // the keyboard isn't one
         // ours list them, GVfs's entries for the same devices fold in (the iPhone's PTP and Documents, the phone)
-        setenv("FE_GIO", DEV_BASE "/gio", 1);
+        setenv("HERMES_GIO", DEV_BASE "/gio", 1);
         st_write_text(DEV_BASE "/gio", "#!/bin/sh\n[ \"$2\" = -li ] && printf 'Volume(0): Documents on Al\\n  activation_root=afc://00008140-000123C6E0C13001C:3/\\n"
                                        "Volume(1): iPhone\\n  activation_root=gphoto2://Apple_Inc._iPhone_00008140000123C6E0C13001C/\\n"
                                        "Volume(2): Pixel 7\\n  activation_root=mtp://Google_Pixel_7_2A111FDH200ABC/\\n"
                                        "Volume(3): Other\\n  activation_root=mtp://Samsung_SM_X_R58M/\\n'\nexit 0\n");
         chmod(DEV_BASE "/gio", 0755);
-        setenv("FE_GVFS_DIR", DEV_BASE "/gvfs", 1);
+        setenv("HERMES_GVFS_DIR", DEV_BASE "/gvfs", 1);
         mkdir(DEV_BASE "/gvfs", 0755);
         DevList *L = xcalloc(1, sizeof *L);
         phones_scan(L);
@@ -8727,14 +8727,14 @@ static int run_selftest_devices(void) {
         }
         ST_CHECK(L->nph == 4 && own == 3 && other >= 0); // the Samsung (no USB device here) stays GVfs's
         ST_CHECK(pix >= 0 && !strcmp(L->ph[pix].name, "Pixel 7") && !strcmp(L->ph[pix].gvfs_uri, "mtp://Google_Pixel_7_2A111FDH200ABC/"));
-        setenv("FE_NO_OWN_PHONES", "1", 1);
+        setenv("HERMES_NO_OWN_PHONES", "1", 1);
         phones_scan(L);
         ST_CHECK(L->nph == 4 && !L->ph[0].own); // GVfs only: its four
-        unsetenv("FE_NO_OWN_PHONES");
+        unsetenv("HERMES_NO_OWN_PHONES");
         free(L);
-        unsetenv("FE_GIO");
-        unsetenv("FE_GVFS_DIR");
-        unsetenv("FE_SYS_USB");
+        unsetenv("HERMES_GIO");
+        unsetenv("HERMES_GVFS_DIR");
+        unsetenv("HERMES_SYS_USB");
     }
 
     // --- the made-up iPhone: version, pairing (Trust pending once), session, services, AFC ---
@@ -8959,7 +8959,7 @@ static int run_selftest_devices(void) {
     for (int i = 0; i < 128; i++) free(mtp->objs[i].data);
     free(mtp->q.b);
     free(mtp);
-    unsetenv("FE_LOCKDOWN_DIR");
+    unsetenv("HERMES_LOCKDOWN_DIR");
     fprintf(stderr, "selftest-devices: %s (%d failures)\n", st_fail ? "FAIL" : "ok", st_fail);
     return st_fail ? 1 : 0;
 }

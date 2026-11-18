@@ -553,7 +553,7 @@ static bool g_nerd_checked, g_nerd_ready;
 static bool nerd_font_ready(void) {
     if (!g_nerd_checked) {
         g_nerd_checked = true;
-        const char *path = identity_env("FE_NERD_FONT");
+        const char *path = identity_env("HERMES_NERD_FONT");
         if (path && *path && g_nfonts < (int)ARRAY_COUNT(g_fonts))
             g_nerd_ready = font_init(&g_nerd_font, path, 16);
     }

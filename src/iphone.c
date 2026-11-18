@@ -79,9 +79,9 @@ static int mux_send_packet(Mux *m, int proto, const u8 *th, const void *data, si
     }
     if (th) memcpy(b + hl, th, 20);
     if (len) memcpy(b + hl + tl, data, len);
-    if (identity_env("FE_DEVICE_PKT"))
+    if (identity_env("HERMES_DEVICE_PKT"))
         dev_log("-> proto %d len %zu mux tx %u rx %u%s", proto, total, hl == 16 ? get_be16(b + 12) : 0, hl == 16 ? get_be16(b + 14) : 0, "");
-    if (th && identity_env("FE_DEVICE_PKT"))
+    if (th && identity_env("HERMES_DEVICE_PKT"))
         dev_log("   tcp %u->%u seq %u ack %u flags %02x win %u data %zu", get_be16(th), get_be16(th + 2), get_be32(th + 4), get_be32(th + 8), th[13], get_be16(th + 14), len);
     int r = usb_write(m->usb, b, (int)total);
     free(b);
@@ -135,7 +135,7 @@ static void mux_handle(Mux *m, const u8 *p, size_t total) {
     const u8 *pl = p + hl;
     size_t pll = total - hl;
     if (proto != MUX_TCP || pll < 20) { // control packets: device log messages
-        if (identity_env("FE_DEVICE_PKT") || proto == MUX_CONTROL) {
+        if (identity_env("HERMES_DEVICE_PKT") || proto == MUX_CONTROL) {
             char t[200];
             size_t k = 0;
             for (size_t i = proto == MUX_CONTROL ? 1 : 0; i < pll && k + 4 < sizeof t; i++) k += (size_t)snprintf(t + k, sizeof t - k, (pl[i] >= 32 && pl[i] < 127) ? "%c" : "\\x%02x", pl[i]);
@@ -150,7 +150,7 @@ static void mux_handle(Mux *m, const u8 *p, size_t total) {
     u8 flags = pl[13];
     u16 win = get_be16(pl + 14);
     if (off < 20 || off > pll) return;
-    if (identity_env("FE_DEVICE_PKT"))
+    if (identity_env("HERMES_DEVICE_PKT"))
         dev_log("<- tcp %u->%u seq %u ack %u flags %02x win %u data %zu (mux tx %u rx %u)", get_be16(pl), dport, seq, ack, flags, win, pll - off,
                 hl == 16 ? get_be16(p + 12) : 0, hl == 16 ? get_be16(p + 14) : 0);
     pthread_mutex_lock(&m->txm); // (a connection is only freed under txm: it stays valid while its ACK goes out)
@@ -524,15 +524,15 @@ static void pair_free(PairRec *p) {
     memset(p, 0, sizeof *p);
 }
 
-static void lockdown_dir(char *out, size_t cap) { // ours (tests: FE_LOCKDOWN_DIR)
-    const char *ov = identity_env("FE_LOCKDOWN_DIR");
+static void lockdown_dir(char *out, size_t cap) { // ours (tests: HERMES_LOCKDOWN_DIR)
+    const char *ov = identity_env("HERMES_LOCKDOWN_DIR");
     if (ov && ov[0]) { snprintf(out, cap, "%s", ov); return; }
     const char *x = getenv("XDG_DATA_HOME");
     if (x && x[0] == '/') snprintf(out, cap, "%s/hermes/lockdown", x);
     else snprintf(out, cap, "%s/.local/share/hermes/lockdown", getenv("HOME") ? getenv("HOME") : "/tmp");
 }
 
-static const char *sys_lockdown_dir(void) { return identity_env("FE_LOCKDOWN_DIR") ? "/nonexistent" : "/var/lib/lockdown"; }
+static const char *sys_lockdown_dir(void) { return identity_env("HERMES_LOCKDOWN_DIR") ? "/nonexistent" : "/var/lib/lockdown"; }
 
 static Plist *pl_load_file(const char *path) {
     FILE *f = fopen(path, "rb");
@@ -778,8 +778,8 @@ typedef struct {
 typedef void (*ProgressFn)(const char *what); // "trust" (waiting for Trust), "unlock" (locked)
 
 // Send a request (Label added; takes req), return the answer.
-static void ld_debug(const char *what, const Plist *p) { // FE_DEVICE_DEBUG=1: the conversation on stderr
-    if (!identity_env("FE_DEVICE_DEBUG")) return;
+static void ld_debug(const char *what, const Plist *p) { // HERMES_DEVICE_DEBUG=1: the conversation on stderr
+    if (!identity_env("HERMES_DEVICE_DEBUG")) return;
     if (!p) { dev_log("%s (nothing)", what); return; }
     const char *req = pl_get_str(p, "Request"), *e = pl_get_str(p, "Error"), *k = pl_get_str(p, "Key"), *sv = pl_get_str(p, "Service");
     dev_log("%s %s%s%s%s%s%s%s", what, req ? req : "?", k ? " " : "", k ? k : "", sv ? " " : "", sv ? sv : "", e ? " ERROR " : "", e ? e : "");

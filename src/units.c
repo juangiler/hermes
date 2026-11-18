@@ -5,7 +5,7 @@
 
 static bool g_units_systemd = true;
 
-static const char *units_systemctl(void) { return tool("FE_SYSTEMCTL", "systemctl"); }
+static const char *units_systemctl(void) { return tool("HERMES_SYSTEMCTL", "systemctl"); }
 
 static void units_dir(char *out, size_t cap) {
     const char *x = getenv("XDG_CONFIG_HOME"), *h = getenv("HOME");

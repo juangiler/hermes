@@ -62,7 +62,7 @@ static int secret_cmd(char *const argv[], const char *input, char *out, size_t c
   return (int)n;
 }
 static bool secret_available(void) {
-  const char *t = identity_env("FE_SECRET_TOOL");
+  const char *t = identity_env("HERMES_SECRET_TOOL");
   return (t && t[0]) || access("/usr/bin/secret-tool", X_OK) == 0 || access("/usr/local/bin/secret-tool", X_OK) == 0;
 }
 // Private roots are created one component at a time without following symlinks.
@@ -107,7 +107,7 @@ static bool secret_blocked(const char *uri) {
   return blocked;
 }
 static bool secret_lookup_namespace(const char *uri, const char *app, char *out, size_t cap) {
-  char *argv[] = {(char *)tool("FE_SECRET_TOOL", "secret-tool"), "lookup", "application", (char *)app, "uri", (char *)uri, NULL};
+  char *argv[] = {(char *)tool("HERMES_SECRET_TOOL", "secret-tool"), "lookup", "application", (char *)app, "uri", (char *)uri, NULL};
   bool ok = secret_cmd(argv, NULL, out, cap) > 0 && out[0];
   if (ok) out[strcspn(out, "\r\n")] = 0;
   return ok && out[0];
@@ -115,7 +115,7 @@ static bool secret_lookup_namespace(const char *uri, const char *app, char *out,
 static bool secret_store(const char *uri, const char *password) {
   char label[1100];
   snprintf(label, sizeof label, "Hermes: %s", uri);
-  char *argv[] = {(char *)tool("FE_SECRET_TOOL", "secret-tool"), "store", "--label", label, "application", HERMES_SLUG, "uri", (char *)uri, NULL};
+  char *argv[] = {(char *)tool("HERMES_SECRET_TOOL", "secret-tool"), "store", "--label", label, "application", HERMES_SLUG, "uri", (char *)uri, NULL};
   if (secret_cmd(argv, password, NULL, 0) < 0) return false;
   char verified[4096];
   bool ok = secret_lookup_namespace(uri, HERMES_SLUG, verified, sizeof verified) && !strcmp(verified, password);
@@ -144,6 +144,6 @@ static bool secret_clear(const char *uri) {
   if (fd >= 0) close(fd);
   close(d);
   if (!ok) return false;
-  char *argv[] = {(char *)tool("FE_SECRET_TOOL", "secret-tool"), "clear", "application", HERMES_SLUG, "uri", (char *)uri, NULL};
+  char *argv[] = {(char *)tool("HERMES_SECRET_TOOL", "secret-tool"), "clear", "application", HERMES_SLUG, "uri", (char *)uri, NULL};
   return secret_cmd(argv, NULL, NULL, 0) >= 0;
 }

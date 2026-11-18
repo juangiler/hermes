@@ -375,7 +375,7 @@ typedef struct GitJob {
 static void git_job_done(void *arg); // app.c
 
 static void git_details(GitResult *g, const char *host, const char *port, const char *root, const char *gitdir) {
-    const char *gitb = tool("FE_GIT", "git");
+    const char *gitb = tool("HERMES_GIT", "git");
     size_t len;
     if (g->branch[0] || !g->detached) { // last commit (none before the first one)
         char *argv[] = {(char *)gitb, "-c", "core.fsmonitor=false", "--no-optional-locks", "-C", (char *)root, "log", "-1",
@@ -429,7 +429,7 @@ static void git_job_run(void *arg) {
     u64 sig = git_sig(j->gitdir);
     if (j->force || sig != j->sig) {
         // core.fsmonitor could name a program in an untrusted repo's config: never let `status` start it
-        char *argv[] = {(char *)tool("FE_GIT", "git"), "-c", "core.fsmonitor=false", "--no-optional-locks", "-C",
+        char *argv[] = {(char *)tool("HERMES_GIT", "git"), "-c", "core.fsmonitor=false", "--no-optional-locks", "-C",
                         j->host[0] ? j->rroot : j->root, "status", "--porcelain=v2", "-z", "--branch", "--untracked-files=normal", "--ignored=matching", NULL};
         size_t len;
         u64 t0 = now_ns();

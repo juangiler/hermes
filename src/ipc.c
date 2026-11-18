@@ -13,7 +13,7 @@ static char g_ipc_path[108];
 static void (*g_ipc_handler)(char *msg); // runs on the main thread, owns msg
 
 static void ipc_socket_path(char *out, size_t cap) {
-    const char *ov = identity_env("FE_IPC_SOCKET"); // tests: a private instance
+    const char *ov = identity_env("HERMES_IPC_SOCKET"); // tests: a private instance
     if (ov && ov[0] == '/') { snprintf(out, cap, "%s", ov); return; }
     const char *rt = getenv("XDG_RUNTIME_DIR");
     if (rt && rt[0] == '/') snprintf(out, cap, "%s/hermes.sock", rt);
@@ -132,7 +132,7 @@ static bool ipc_listen(void (*handler)(char *msg)) {
     pthread_attr_init(&at);
     pthread_attr_setdetachstate(&at, PTHREAD_CREATE_DETACHED);
     pthread_create(&t, &at, ipc_thread, NULL);
-    pthread_setname_np(t, "fe-ipc");
+    pthread_setname_np(t, "hermes-ipc");
     pthread_attr_destroy(&at);
     return true;
 }

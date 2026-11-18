@@ -1,5 +1,5 @@
 # Maintainer: juangiler <juangiler@users.noreply.github.com>
-# Hermes from git. HERMES_SRC selects a local checkout; FE_SRC is a legacy alias.
+# Hermes from git. HERMES_SRC selects a local checkout.
 # makepkg snapshots committed git state, not uncommitted edits.
 pkgname=hermes-git
 pkgver=r0
@@ -28,7 +28,7 @@ optdepends=('gtk3: GTK look for the libdecor title bar (GNOME)'
 provides=('hermes')
 conflicts=('hermes')
 _src="$url.git"
-if [ -n "${HERMES_SRC:-${FE_SRC:-}}" ]; then _src="file://${HERMES_SRC:-$FE_SRC}"
+if [ -n "${HERMES_SRC:-}" ]; then _src="file://$HERMES_SRC"
 elif [ -d "$startdir/../../.git" ]; then _src="file://$(cd "$startdir/../.." && pwd)"; fi
 source=("hermes::git+$_src#branch=main")
 sha256sums=('SKIP')

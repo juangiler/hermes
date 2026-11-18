@@ -1080,7 +1080,7 @@ static struct {
   bool close_to_tray;   // closing the window hides it (tray icon: open, quit)
   bool ipc_test;        // self-test: listen on a private socket
   int ipc_count;        // messages handled (tests)
-  // HERMES_RECORD=dir (legacy FE_RECORD): frames shown shortly after each click + a state log
+  // HERMES_RECORD=dir: frames shown shortly after each click + a state log
   // (diagnostics)
   const char *rec_dir;
   u64 rec_until;
@@ -1640,7 +1640,7 @@ static void window_close_requested(void);
 
 static bool titlebar_wanted(void) {
   int m = A.title_bar;
-  const char *e = identity_env("FE_TITLE_BAR"); // (tests, screenshots)
+  const char *e = identity_env("HERMES_TITLE_BAR"); // (tests, screenshots)
   if (e && !strcmp(e, "app"))
     m = TITLEBAR_APP;
   else if (e && !strcmp(e, "system"))
@@ -1650,7 +1650,7 @@ static bool titlebar_wanted(void) {
   const char *drv = SDL_GetCurrentVideoDriver();
   return !drv ||
          strcmp(drv, "offscreen"); // (not in self-tests and screenshots:
-                                   // FE_TITLE_BAR=app shows it there)
+                                   // HERMES_TITLE_BAR=app shows it there)
 }
 
 // 0 minimise, 1 maximise / restore, 2 close
@@ -1949,7 +1949,7 @@ static void toplevel_configure(void *data, void *top, i32 w, i32 h,
     if (st == 1 || st == 2)
       full = true; // MAXIMIZED, FULLSCREEN
   }
-  if (identity_env("FE_SHADOW_DEBUG"))
+  if (identity_env("HERMES_SHADOW_DEBUG"))
     fprintf(stderr, "shadow: configure %dx%d%s\n", w, h,
             tiled  ? " tiled"
             : full ? " maximized"
@@ -2400,7 +2400,7 @@ static void x11_tiled_update(void) {
   bool mh = x11_atom_listed(g_x11.dpy, g_x11.win, g_x11.a_state, g_x11.a_max_h);
   if (mv != mh)
     tiled = true;
-  if (identity_env("FE_SHADOW_DEBUG"))
+  if (identity_env("HERMES_SHADOW_DEBUG"))
     fprintf(stderr, "shadow: x11 edge constraints%s, max %d/%d -> %s\n",
             v ? "" : " (none)", mv, mh, tiled ? "tiled" : "floating");
   if (tiled != A.win_tiled) {
@@ -2860,7 +2860,7 @@ static bool path_is_remote(const char *path) {
     if (!strncmp(path, g_remote[i], l) && (path[l] == 0 || path[l] == '/'))
       return true;
   }
-  const char *gv = identity_env("FE_GVFS_DIR"); // tests
+  const char *gv = identity_env("HERMES_GVFS_DIR"); // tests
   return gv && gv[0] && !strncmp(path, gv, strlen(gv));
 }
 
@@ -3556,7 +3556,7 @@ static const NetProto g_net_protos[] = {
 
 // GVfs backend for the protocol installed? (fake tools in tests: yes)
 static bool net_proto_available(int i) {
-  if (identity_env("FE_GIO"))
+  if (identity_env("HERMES_GIO"))
     return true;
   return gvfs_backend_installed(g_net_protos[i].backend);
 }
@@ -3694,8 +3694,8 @@ static bool net_kio_available(int proto) {
   const char *sch = g_net_protos[proto].scheme;
   if (!strcmp(sch, "ftps")) return false; // KIO's FTP worker does not advertise FTPS here
   char bin[PATH_MAX];
-  if (!tool_abs(tool("FE_DBUS_SEND", "dbus-send"), bin, sizeof bin) || access(bin, X_OK)) return false;
-  const char *svc = identity_env("FE_KIO_SERVICE");
+  if (!tool_abs(tool("HERMES_DBUS_SEND", "dbus-send"), bin, sizeof bin) || access(bin, X_OK)) return false;
+  const char *svc = identity_env("HERMES_KIO_SERVICE");
   bool service = svc ? access(svc, R_OK) == 0 : false;
   if (!svc) {
     const char *home = getenv("XDG_DATA_HOME");
@@ -3721,7 +3721,7 @@ static bool net_kio_available(int proto) {
   static const char *dirs[] = {"/usr/lib64/qt6/plugins/kf6/kio", "/usr/lib64/qt5/plugins/kf5/kio",
                                "/usr/lib/qt6/plugins/kf6/kio", "/usr/lib/qt5/plugins/kf5/kio"};
   char path[PATH_MAX];
-  const char *override = identity_env("FE_KIO_WORKER_DIR");
+  const char *override = identity_env("HERMES_KIO_WORKER_DIR");
   if (override) {
     snprintf(path, sizeof path, "%s/kio_%s.so", override, worker);
     return access(path, R_OK) == 0;
@@ -3741,7 +3741,7 @@ static bool net_method_available(int proto, int method, const NetAddr *a, char *
     bool mounted = false;
     if (!net_system_target(a, target, cap, &mounted)) return false;
     char bin[PATH_MAX];
-    return mounted || (tool_abs(tool("FE_MOUNT", "mount"), bin, sizeof bin) && access(bin, X_OK) == 0);
+    return mounted || (tool_abs(tool("HERMES_MOUNT", "mount"), bin, sizeof bin) && access(bin, X_OK) == 0);
   }
   return false;
 }
@@ -6556,7 +6556,7 @@ static bool op_admin_ok(int kind) {
 }
 
 static bool admin_allowed(void) { // tests only ever use a stand-in pkexec
-  if (A.selftest && !identity_env("FE_PKEXEC")) {
+  if (A.selftest && !identity_env("HERMES_PKEXEC")) {
     toast("pkexec is not run in tests");
     return false;
   }
@@ -7582,7 +7582,7 @@ static void ssh_tab_open(const SshTarget *st) {
   sh_quote(qp, sizeof qp, st->path[0] ? st->path : ".");
   snprintf(rcmd, sizeof rcmd,
            "cd %s 2>/dev/null || cd; exec \"${SHELL:-/bin/sh}\" -l", qp);
-  const char *ssh = identity_env("FE_SSH"); // tests: a stand-in
+  const char *ssh = identity_env("HERMES_SSH"); // tests: a stand-in
   char *argv[8];
   int n = 0;
   argv[n++] = (char *)(ssh && ssh[0] ? ssh : "ssh");
@@ -10352,7 +10352,7 @@ static Listing *content_listing_new(Pane *p, const char *q) {
   cq_init(L->cq, text, A.cs_case, A.cs_word, A.cs_regex);
   bool use_rg =
       !A.selftest ||
-      identity_env("FE_RG"); // tests: the built-in search, or a stand-in ripgrep
+      identity_env("HERMES_RG"); // tests: the built-in search, or a stand-in ripgrep
   content_start(L, p->path, text, glob, A.cs_case, A.cs_word, A.cs_regex,
                 A.show_hidden, A.search_recursive, use_rg);
   return L;
@@ -10945,7 +10945,7 @@ static bool git_pane_eligible(Pane *p) {
   if (t && t->term)
     return false;
   return !A.selftest ||
-         identity_env("FE_GIT"); // tests use a stand-in git, never the real one
+         identity_env("HERMES_GIT"); // tests use a stand-in git, never the real one
 }
 
 static struct GitRepo *git_repo(const char *root, bool create) {
@@ -13252,7 +13252,7 @@ static void snap_cmd(Pane *p, int kind, const char *const *argv, size_t cap) {
   SnapView *v = p->sv;
   if (!v || v->cmd)
     return;
-  if (A.selftest && !identity_env("FE_SNAPPER")) {
+  if (A.selftest && !identity_env("HERMES_SNAPPER")) {
     toast("snapper is not run in tests");
     return;
   }
@@ -15543,7 +15543,7 @@ static void app_icon_sync(void) {
   app_taskbar_icon_write();
 }
 
-#ifdef FE_DEMO
+#ifdef HERMES_DEMO
 static const char *g_demo_out; // --demo OUT.mp4: the intro video (demo.c; only
                                // in builds made with ./build.sh demo)
 static void demo_capture(void);
@@ -15576,7 +15576,7 @@ static void frame(void) {
   SDL_Rect window_viewport;
   SDL_GetRenderViewport(A.ren, &window_viewport);
   const char *renderer_name = SDL_GetRendererName(A.ren);
-  const char *vk_target = identity_env("FE_VK_TARGET");
+  const char *vk_target = identity_env("HERMES_VK_TARGET");
   if ((!vk_target || strcmp(vk_target, "0")) && renderer_name &&
       (!strcmp(renderer_name, "vulkan") || !strcmp(renderer_name, "gpu"))) {
     int width = 0, height = 0;
@@ -15683,7 +15683,7 @@ static void frame(void) {
   }
   A.frame_ms = (f32)((now_ns() - t0) / 1e6);
 
-#ifdef FE_DEMO
+#ifdef HERMES_DEMO
   if (g_demo_out)
     demo_capture(); // (runs as a screenshot that doesn't stop: every frame goes
                     // to the video)
@@ -15871,11 +15871,11 @@ static int run_bench(const char *path, const char *query) {
 }
 
 #include "selftest.c"
-#ifdef FE_DEMO
+#ifdef HERMES_DEMO
 #include "demo.c" // the intro video (./build.sh demo)
 #endif
 
-#ifdef FE_ADDON
+#ifdef HERMES_ADDON
 #include "addon.c" // compiled-in add-ons (addons.c)
 #endif
 
@@ -15990,7 +15990,7 @@ static void restart_if_updated(const char *msg) {
 }
 
 static void ipc_handle(char *msg) {
-  if (identity_env("FE_IPC_DEBUG"))
+  if (identity_env("HERMES_IPC_DEBUG"))
     fprintf(stderr, "IPC[%s]\n", msg);
   restart_if_updated(msg);
   bool first = true, paths = false;
@@ -16051,7 +16051,7 @@ int main(int argc, char **argv) {
   // The UI and filesystem paths use UTF-8; libarchive converts entry names
   // through LC_CTYPE when writing ZIP and tar headers.
   if (!setlocale(LC_CTYPE, "C.UTF-8")) setlocale(LC_CTYPE, "");
-  if (argc == 2 && identity_env("FE_ASKPASS_FILE"))
+  if (argc == 2 && identity_env("HERMES_ASKPASS_FILE"))
     return askpass_main(argv[1]); // ssh wants a password (devices.c)
   if (argc == 4 && !strcmp(argv[1], "--admin-op") &&
       !strcmp(argv[2], "versions"))
@@ -16086,7 +16086,7 @@ int main(int argc, char **argv) {
       return run_bench(argv[i + 1], i + 2 < argc ? argv[i + 2] : NULL);
     else if (!strcmp(argv[i], "--screenshot") && i + 1 < argc)
       A.screenshot = argv[++i];
-#ifdef FE_DEMO
+#ifdef HERMES_DEMO
     else if (!strcmp(argv[i], "--demo") && i + 1 < argc) {
       A.screenshot = g_demo_out = argv[++i];
       start = demo_setup();
@@ -16180,7 +16180,7 @@ int main(int argc, char **argv) {
       extra_tabs[nextra++] = paths[i];
   }
   signal(SIGCHLD, SIG_IGN); // reap xdg-open children automatically
-  A.rec_dir = identity_env("FE_RECORD");
+  A.rec_dir = identity_env("HERMES_RECORD");
   if (A.rec_dir && !A.rec_dir[0])
     A.rec_dir = NULL;
   bool any_selftest = selftest || selftest_ops || selftest_m4 || selftest_m5 ||
@@ -16282,7 +16282,7 @@ int main(int argc, char **argv) {
   // rounded corners need an alpha channel, which only a new window can get
   // (turning them on takes a restart)
   A.win_alpha = A.csd && A.round_corners && !headless &&
-                !identity_env("FE_SQUARE_CORNERS");
+                !identity_env("HERMES_SQUARE_CORNERS");
   const char *vdrv = SDL_GetCurrentVideoDriver();
   A.win_x11 = vdrv && !strcmp(vdrv, "x11");
   bool x11_comp = false, x11_ext = false;
@@ -16292,7 +16292,7 @@ int main(int argc, char **argv) {
     A.win_alpha = false; // (no compositor: the corners would be black)
   A.win_shadow = A.win_alpha && vdrv &&
                  (!strcmp(vdrv, "wayland") || (A.win_x11 && x11_ext)) &&
-                 !identity_env("FE_NO_SHADOW");
+                 !identity_env("HERMES_NO_SHADOW");
   // X11 with alpha: shown only once the frame extents and the resize sync
   // counter are set, as GTK does (the window manager reads them when it takes
   // the window on: set later, it keeps the size without the shadow and grows
@@ -16342,7 +16342,7 @@ int main(int argc, char **argv) {
   SDL_SetRenderVSync(A.ren, any_selftest || A.screenshot ? 0 : 1);
   g_ren = A.ren;
   dragout_init(); // (after the renderer: SDL may make the window again for it)
-  if (identity_env("FE_SHADOW_DEBUG"))
+  if (identity_env("HERMES_SHADOW_DEBUG"))
     fprintf(stderr, "shadow: driver %s, renderer %s, alpha %d, shadow %d\n",
             SDL_GetCurrentVideoDriver(), SDL_GetRendererName(A.ren),
             A.win_alpha, A.win_shadow);
@@ -16410,8 +16410,8 @@ int main(int argc, char **argv) {
   init_places();
   trash_size_refresh();
   watch_init();
-  addon_start((!any_selftest || identity_env("FE_SYSTEMCTL")) && !A.screenshot);
-  A.devs_enabled = !any_selftest || identity_env("FE_LSBLK");
+  addon_start((!any_selftest || identity_env("HERMES_SYSTEMCTL")) && !A.screenshot);
+  A.devs_enabled = !any_selftest || identity_env("HERMES_LSBLK");
   if (A.devs_enabled) {
     if (!any_selftest)
       devices_watch_start();
@@ -16448,30 +16448,30 @@ int main(int argc, char **argv) {
   A.settings_dirty = false;
   for (int i = 0; i < nextra; i++)
     open_target(extra_tabs[i], false, false);
-  if (A.screenshot && identity_env("FE_SHOT_OPTIONS"))
+  if (A.screenshot && identity_env("HERMES_SHOT_OPTIONS"))
     options_open_page(OC_UPDATES); // visual checks of the Updates page
-  if (A.screenshot && identity_env("FE_SHOT_TERMINAL"))
+  if (A.screenshot && identity_env("HERMES_SHOT_TERMINAL"))
     open_terminal(active_pane()->path); // visual checks of terminal tabs
-  if (A.screenshot && identity_env("FE_SHOT_DOCK"))
+  if (A.screenshot && identity_env("HERMES_SHOT_DOCK"))
     dock_toggle(); // visual checks of the terminal panel
   if (A.screenshot &&
-      identity_env("FE_SHOT_CONNECT")) { // visual checks: Edit server (first saved
+      identity_env("HERMES_SHOT_CONNECT")) { // visual checks: Edit server (first saved
                                    // one), "pick" opens the icon picker
     connect_open(A.nservers ? 0 : -1);
-    if (!strcmp(identity_env("FE_SHOT_CONNECT"), "pick"))
+    if (!strcmp(identity_env("HERMES_SHOT_CONNECT"), "pick"))
       g_sheet.cn_pick = true;
   }
-  if (A.screenshot && identity_env("FE_SHOT_DU")) { // visual checks of the disk usage
+  if (A.screenshot && identity_env("HERMES_SHOT_DU")) { // visual checks of the disk usage
                                               // map ("sunburst" for that style)
     active_pane()->du = true;
-    A.du_style = !strcmp(identity_env("FE_SHOT_DU"), "sunburst");
+    A.du_style = !strcmp(identity_env("HERMES_SHOT_DU"), "sunburst");
   }
   if (split_path)
     open_target(split_path, true, true);
-  if (A.screenshot && identity_env("FE_SHOT_CMP") &&
+  if (A.screenshot && identity_env("HERMES_SHOT_CMP") &&
       A.npanels >
           1) { // visual checks of folder compare ("diff": differences only)
-    g_cmp.diff_only = !strcmp(identity_env("FE_SHOT_CMP"), "diff");
+    g_cmp.diff_only = !strcmp(identity_env("HERMES_SHOT_CMP"), "diff");
     cmp_start(A.panels[0]->cur, A.panels[1]->cur);
   }
   if (A.single_instance && !A.screenshot && (!any_selftest || A.ipc_test))
@@ -16517,7 +16517,7 @@ int main(int argc, char **argv) {
     return run_selftest_cmp();
   if (selftest_admin)
     return run_selftest_admin();
-#ifdef FE_DEMO
+#ifdef HERMES_DEMO
   if (g_demo_out)
     return demo_run();
 #endif

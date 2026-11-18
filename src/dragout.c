@@ -9,7 +9,7 @@
 
 #include <sys/mman.h> // memfd_create, mmap (the drag icon)
 
-// FE_DEBUG_DND=1: what the drag-out protocols do, on stderr (for drags that misbehave on some desktop)
+// HERMES_DEBUG_DND=1: what the drag-out protocols do, on stderr (for drags that misbehave on some desktop)
 static bool g_do_debug;
 #define DO_LOG(...) do { if (g_do_debug) { fprintf(stderr, "dnd: " __VA_ARGS__); fputc('\n', stderr); } } while (0)
 
@@ -761,7 +761,7 @@ static void w_src_free(void) {
 // After the window exists: what this session can drag out with.
 static void dragout_init(void) {
     if (A.selftest || A.screenshot) return;
-    g_do_debug = identity_env("FE_DEBUG_DND") && identity_env("FE_DEBUG_DND")[0] == '1';
+    g_do_debug = identity_env("HERMES_DEBUG_DND") && identity_env("HERMES_DEBUG_DND")[0] == '1';
     if (w_init()) g_do.sys = DOS_WAYLAND;
     else if (x_init()) g_do.sys = DOS_X11;
     DO_LOG("drag out: %s", g_do.sys == DOS_WAYLAND ? "wayland" : g_do.sys == DOS_X11 ? "x11" : "not available");

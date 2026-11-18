@@ -34,8 +34,8 @@ Do not infer support for older Ubuntu/Debian releases that lack SDL3.
 ```
 
 Modes no longer overwrite one executable. `HERMES_OUT` chooses an explicit
-output; `FE_OUT` remains a legacy alias. `HERMES_ADDON_SRC`/`FE_ADDON_SRC` select
-optional add-on sources. `CC`, `CFLAGS_PKG`, and `LDFLAGS_PKG` remain supported.
+output and `HERMES_ADDON_SRC` selects optional add-on sources. Legacy aliases
+are not accepted. `CC`, `CFLAGS_PKG`, and `LDFLAGS_PKG` remain supported.
 Use package mode for distribution packages; `-march=native` is release-only.
 
 `hermes --version` prints the application and SDL versions. Files open their
@@ -138,8 +138,7 @@ sh tools/check-release-version.sh
 - `sh tools/demo.sh [OUT_DIR]`: record the scripted demo with a made-up home;
   needs ffmpeg, ImageMagick, zip, and user/mount namespaces. No real home is shown.
 
-Legacy `FE_*` runtime overrides remain accepted during migration; prefer
-`HERMES_*` for new commands.
+Runtime overrides use `HERMES_*` names only; legacy aliases have no effect.
 
 ## Third-party credits
 

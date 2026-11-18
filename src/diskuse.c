@@ -384,7 +384,7 @@ static void du_setup(DuScan *s) {
         if (sx.stx_mask & STATX_MNT_ID) s->mnt_id = sx.stx_mnt_id;
         atomic_store(&s->root.size, (u64)sx.stx_blocks * 512);
     }
-    const char *mi = identity_env("FE_MOUNTINFO"); // tests: a made-up mount table
+    const char *mi = identity_env("HERMES_MOUNTINFO"); // tests: a made-up mount table
     int fd = open(mi ? mi : "/proc/self/mountinfo", O_RDONLY | O_CLOEXEC);
     if (fd >= 0) {
         size_t cap = 1 << 16, len = 0;

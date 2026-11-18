@@ -21,7 +21,7 @@ typedef struct {
     bool unit;            // our unit file exists
     char mount[PATH_MAX]; // where it's mounted ("" = not)
     bool ours;            // mounted by our unit (else by something else: unmounted with fusermount)
-    int ownership;        // CLOUD_*: legacy-generated services remain deferred
+    int ownership;        // CLOUD_HERMES or CLOUD_EXTERNAL
     char err[240];        // last problem, in plain words
     int open_after;       // once connected: 1 open where the user is, 2 in a new tab
     u64 asked;            // when the user asked to connect (ns)
@@ -38,10 +38,10 @@ static bool g_cloud_relist = true; // ask rclone for its remotes on the next pol
 static i64 g_cloud_conf_mtime = -1;
 static char g_cloud_term_cmd[600]; // self-tests: the terminal command that would have opened
 
-static const char *cloud_rclone(void) { return tool("FE_RCLONE", "rclone"); }
+static const char *cloud_rclone(void) { return tool("HERMES_RCLONE", "rclone"); }
 
 static void cloud_base(char *out, size_t cap) {
-    const char *ov = identity_env("FE_CLOUD_DIR"), *x = getenv("XDG_DATA_HOME"), *h = getenv("HOME");
+    const char *ov = identity_env("HERMES_CLOUD_DIR"), *x = getenv("XDG_DATA_HOME"), *h = getenv("HOME");
     if (ov && ov[0] == '/') snprintf(out, cap, "%s", ov);
     else if (x && x[0] == '/') snprintf(out, cap, "%s/hermes/cloud", x);
     else snprintf(out, cap, "%s/.local/share/hermes/cloud", h ? h : "/tmp");
@@ -212,7 +212,7 @@ static void cloud_op_job(void *arg) {
     case COP_STOP: o->rc = units_ctl((char *[]){"stop", o->unit, NULL}, o->out, sizeof o->out); break;
     case COP_FUSE_UNMOUNT: { // someone else's rclone mount
         char fum[PATH_MAX];
-        if (!tool_abs(tool("FE_FUSERMOUNT", "fusermount3"), fum, sizeof fum)) snprintf(fum, sizeof fum, "fusermount");
+        if (!tool_abs(tool("HERMES_FUSERMOUNT", "fusermount3"), fum, sizeof fum)) snprintf(fum, sizeof fum, "fusermount");
         o->rc = run_capture((char *[]){fum, "-u", o->dir, NULL}, o->out, sizeof o->out);
         break;
     }
@@ -333,7 +333,7 @@ static void cloud_reconnect_terminal(const char *name) {
 static void cloud_log_terminal(const char *name) {
     char unit[160];
     cloud_unit_name(name, unit, sizeof unit);
-    cloud_terminal((char *[]){(char *)tool("FE_JOURNALCTL", "journalctl"), "--user", "-u", unit, "-n", "200", "-f", "-o", "short-iso", NULL});
+    cloud_terminal((char *[]){(char *)tool("HERMES_JOURNALCTL", "journalctl"), "--user", "-u", unit, "-n", "200", "-f", "-o", "short-iso", NULL});
 }
 
 // --- status (worker: the remotes, the mounts, systemctl show, the journal of failing units) --------------------
@@ -360,7 +360,7 @@ static void cloud_status_done(void *arg);
 
 // Where remote name is mounted (fuse.rclone, source "name:" or "name:sub/path"); ours preferred. false: nowhere.
 static bool cloud_mount_lookup(const char *name, char *out, size_t cap, bool *ours) {
-    const char *ov = identity_env("FE_PROC_MOUNTS"); // tests
+    const char *ov = identity_env("HERMES_PROC_MOUNTS"); // tests
     FILE *f = fopen(ov ? ov : "/proc/self/mounts", "r");
     if (!f) return false;
     char line[PATH_MAX * 2 + 200], src[PATH_MAX], mp[PATH_MAX], type[64], mine[PATH_MAX];
@@ -546,7 +546,7 @@ static void cloud_status_job(void *arg) {
         s->err[i][0] = 0;
         if (s->state[i] != CS_RETRY && s->state[i] != CS_FAILED) continue;
         char log[6000];
-        char *jv[] = {(char *)tool("FE_JOURNALCTL", "journalctl"), "--user", "-u", s->unit[i], "-n", "15", "-o", "cat", "--no-pager", NULL};
+        char *jv[] = {(char *)tool("HERMES_JOURNALCTL", "journalctl"), "--user", "-u", s->unit[i], "-n", "15", "-o", "cat", "--no-pager", NULL};
         if (run_capture(jv, log, sizeof log) == 0) cloud_explain(log, s->err[i], sizeof s->err[i]);
     }
     main_post(cloud_status_done, s);
@@ -640,7 +640,7 @@ static void cloud_tick(void) {
     // (the picker too: a file can be opened from / saved to a cloud folder; the mount outlives the picker, so the app
     // that asked can still read or write the path it got)
     if (A.screenshot || atomic_load(&g_cloud_job) > 0) return;
-    if (A.selftest && !identity_env("FE_RCLONE")) return; // tests only ever run a stand-in rclone
+    if (A.selftest && !identity_env("HERMES_RCLONE")) return; // tests only ever run a stand-in rclone
     u64 now = now_ns();
     u64 every = g_rclone == 0 ? 30000000000ull : now < g_cloud_fast_until || cloud_pending() ? 700000000ull : A.win_hidden ? 10000000000ull : 2500000000ull;
     if (g_cloud_polled && now - g_cloud_polled < every) return;

@@ -1,6 +1,6 @@
 // addons.c - hooks for features compiled in from another source folder (included from app.c, before units.c)
 //
-// A build with FE_ADDON_SRC=<dir> (build.sh) adds -DFE_ADDON -I<dir> and includes <dir>/addon.c at the end of app.c,
+// A build with HERMES_ADDON_SRC=<dir> (build.sh) adds -DHERMES_ADDON -I<dir> and includes <dir>/addon.c at the end of app.c,
 // after selftest.c, so add-on code can use anything in the app; it must define every hook declared here. A normal
 // build gets the empty defaults below.
 //
@@ -37,7 +37,7 @@ static const char *addon_sheet_icon(void);             // the icon picker's defa
 // self-tests
 static void addon_selftest_m10(void);                  // inside --selftest-m10, with its stand-ins (systemctl, journalctl, ssh)
 
-#ifndef FE_ADDON
+#ifndef HERMES_ADDON
 static int addon_main(int argc, char **argv) { return -1; }
 static void addon_start(bool sync) {}
 static void addon_tick(void) {}

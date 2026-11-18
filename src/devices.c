@@ -195,7 +195,7 @@ static int run_capture(char *const argv[], char *out, size_t cap) {
 }
 
 static const char *tool(const char *env, const char *def) { // tests swap in fake tools
-    const char *v = identity_env(env); // HERMES_* first, FE_* legacy alias
+    const char *v = identity_env(env); // a present value wins even when empty
     return v && v[0] ? v : def;
 }
 
@@ -204,7 +204,7 @@ static void phones_scan(DevList *L);
 // Drives only (lsblk, a few ms); phones_scan fills in the rest (`gio mount -li` can take half a second).
 static void drives_scan(DevList *L) {
     char *out = xmalloc(65536);
-    char *argv[] = {(char *)tool("FE_LSBLK", "lsblk"), "-P", "-b", "-o",
+    char *argv[] = {(char *)tool("HERMES_LSBLK", "lsblk"), "-P", "-b", "-o",
                     "PATH,PKNAME,TYPE,RM,HOTPLUG,MAJ:MIN,LABEL,FSTYPE,SIZE,PARTTYPE,UUID", NULL};
     L->n = 0;
     if (run_capture(argv, out, 65536) == 0) devices_parse(out, L);
@@ -252,13 +252,13 @@ static void gvfs_label(const char *name, char *out, size_t cap) {
 
 // Where GVfs's FUSE bridge shows its mounts as plain folders.
 static void gvfs_dir(char *out, size_t cap) {
-    const char *ov = identity_env("FE_GVFS_DIR");
+    const char *ov = identity_env("HERMES_GVFS_DIR");
     if (ov && ov[0]) snprintf(out, cap, "%s", ov);
     else snprintf(out, cap, "%s/gvfs", getenv("XDG_RUNTIME_DIR") ? getenv("XDG_RUNTIME_DIR") : "/run/user/0");
 }
 
 static bool gvfs_fuse_running(void) {
-    if (identity_env("FE_GVFS_DIR")) return true; // tests: a plain folder stands in
+    if (identity_env("HERMES_GVFS_DIR")) return true; // tests: a plain folder stands in
     char gdir[PATH_MAX], line[PATH_MAX * 2], src[PATH_MAX], mp[PATH_MAX], type[64];
     gvfs_dir(gdir, sizeof gdir);
     FILE *f = fopen("/proc/self/mounts", "r");
@@ -375,7 +375,7 @@ static int network_mounts(NetMount *out, int max) {
         fclose(f);
     }
     // Keep configured NFS/SMB mounts available for reconnection after unmount.
-    f = fopen(identity_env("FE_FSTAB") ? identity_env("FE_FSTAB") : "/etc/fstab", "r");
+    f = fopen(identity_env("HERMES_FSTAB") ? identity_env("HERMES_FSTAB") : "/etc/fstab", "r");
     if (f) {
         char line[PATH_MAX * 2], src[PATH_MAX], mp[PATH_MAX], type[64];
         while (n < max && fgets(line, sizeof line, f)) {
@@ -399,9 +399,9 @@ static int network_mounts(NetMount *out, int max) {
 
 // --- phones and cameras on a USB cable (GVfs: MTP for Android, AFC for iPhone / iPad, gphoto2 for cameras) ------
 
-// GVfs backend daemon installed? (gvfsd-mtp, gvfsd-afc...; FE_GVFS_LIBEXEC: tests)
+// GVfs backend daemon installed? (gvfsd-mtp, gvfsd-afc...; HERMES_GVFS_LIBEXEC: tests)
 static bool gvfs_backend_installed(const char *backend) {
-    const char *ov = identity_env("FE_GVFS_LIBEXEC");
+    const char *ov = identity_env("HERMES_GVFS_LIBEXEC");
     char p[PATH_MAX], name[64];
     snprintf(name, sizeof name, "gvfsd-%s", backend);
     if (!ov) return gvfs_helper_path(name, p, sizeof p);
@@ -511,7 +511,7 @@ static void phones_parse(const char *text, DevList *L) {
 
 // An iPhone / iPad on the USB bus (Apple's vendor id, their product id range), whatever GVfs makes of it.
 static bool usb_has_iphone(void) {
-    const char *dir = identity_env("FE_SYS_USB") ? identity_env("FE_SYS_USB") : "/sys/bus/usb/devices";
+    const char *dir = identity_env("HERMES_SYS_USB") ? identity_env("HERMES_SYS_USB") : "/sys/bus/usb/devices";
     DIR *d = opendir(dir);
     if (!d) return false;
     bool found = false;
@@ -538,7 +538,7 @@ static bool usb_has_iphone(void) {
 // gvfs-afc isn't installed.
 static void phones_scan_gvfs(DevList *L, bool hint) {
     char *out = xmalloc(65536);
-    char *argv[] = {(char *)tool("FE_GIO", "gio"), "mount", "-li", NULL};
+    char *argv[] = {(char *)tool("HERMES_GIO", "gio"), "mount", "-li", NULL};
     L->nph = 0;
     if (run_capture(argv, out, 65536) == 0) phones_parse(out, L);
     free(out);
@@ -592,8 +592,8 @@ static void phones_scan_gvfs(DevList *L, bool hint) {
 }
 
 // Our own connector (usb.c + iphone.c / mtp.c, served by devfs.c) for what it can talk to, GVfs for the rest.
-// FE_NO_OWN_PHONES turns ours off; self-tests use it only with a made-up USB bus.
-static bool own_phones_enabled(void) { return !identity_env("FE_NO_OWN_PHONES") && (!identity_env("FE_GIO") || identity_env("FE_SYS_USB")); }
+// HERMES_NO_OWN_PHONES turns ours off; self-tests use it only with a made-up USB bus.
+static bool own_phones_enabled(void) { return !identity_env("HERMES_NO_OWN_PHONES") && (!identity_env("HERMES_GIO") || identity_env("HERMES_SYS_USB")); }
 
 // Where our helper mounted a device: its /proc/self/mounts line reads "fe-device:<id> <mount point> fuse.fe-device".
 static bool own_mount_of(const char *id, char *out, size_t cap) {
@@ -780,7 +780,7 @@ static void ssh_control_path(char *out, size_t cap) { // "ControlPath=..." (%C: 
 // on the connection opened at connect time, else needs an agent or a key without a passphrase.
 static void ssh_argv(char **a, char *ctl, size_t ccap, const char *host, const char *port, char *cmd) {
     ssh_control_path(ctl, ccap);
-    char *opts[] = {(char *)tool("FE_SSH", "ssh"), "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "ServerAliveInterval=5",
+    char *opts[] = {(char *)tool("HERMES_SSH", "ssh"), "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "ServerAliveInterval=5",
                     "-o", "ServerAliveCountMax=2", "-o", "ControlMaster=auto", "-o", ctl, "-o", "ControlPersist=60"};
     int n = 0;
     for (; n < (int)ARRAY_COUNT(opts); n++) a[n] = opts[n];
@@ -824,7 +824,7 @@ static void ssh_dest(const SshTarget *t, char *out, size_t cap) {
 // `hermes <prompt>` with HERMES_ASKPASS_FILE set: ssh asking for a password or passphrase (anything else, like
 // an unknown host key, is refused). Called from main() before anything else.
 static int askpass_main(const char *prompt) {
-    const char *file = identity_env("FE_ASKPASS_FILE");
+    const char *file = identity_env("HERMES_ASKPASS_FILE");
     if (!str_has_ci(prompt, "password") && !str_has_ci(prompt, "passphrase")) return 1;
     int fd = open(file, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
     if (fd < 0) return 1;
@@ -845,7 +845,7 @@ static void ssh_master_job(void *arg) {
     char dest[400], ctl[PATH_MAX], out[512];
     ssh_dest(&o->t, dest, sizeof dest);
     ssh_control_path(ctl, sizeof ctl);
-    const char *sshb = tool("FE_SSH", "ssh");
+    const char *sshb = tool("HERMES_SSH", "ssh");
     char *check[] = {(char *)sshb, "-o", ctl, "-O", "check", "--", dest, NULL};
     if (run_capture(check, out, sizeof out) == 0) goto done; // connected already (an earlier connect)
     char file[PATH_MAX] = "", exe[PATH_MAX], ev_ask[PATH_MAX + 16], ev_file[PATH_MAX + 20];
@@ -884,7 +884,7 @@ done:
 // After `uri` (sftp://...) connected with secret (may be ""): open the shared connection in the background.
 static void ssh_master_open(const char *uri, const char *secret) {
     SshTarget t;
-    if (!ssh_target_uri(uri, &t) || (app_selftest() && !identity_env("FE_SSH"))) return;
+    if (!ssh_target_uri(uri, &t) || (app_selftest() && !identity_env("HERMES_SSH"))) return;
     SshOpen *o = xcalloc(1, sizeof *o);
     o->t = t;
     snprintf(o->secret, sizeof o->secret, "%s", secret ? secret : "");
@@ -894,11 +894,11 @@ static void ssh_master_open(const char *uri, const char *secret) {
 // The SFTP folder (GVfs) was disconnected: close its shared connection too.
 static void ssh_master_close(const char *mount) {
     SshTarget t;
-    if (!ssh_target_gvfs(mount, &t) || (app_selftest() && !identity_env("FE_SSH"))) return;
+    if (!ssh_target_gvfs(mount, &t) || (app_selftest() && !identity_env("HERMES_SSH"))) return;
     char dest[400], ctl[PATH_MAX], out[256];
     ssh_dest(&t, dest, sizeof dest);
     ssh_control_path(ctl, sizeof ctl);
-    char *av[12] = {(char *)tool("FE_SSH", "ssh"), "-o", ctl, "-O", "exit"};
+    char *av[12] = {(char *)tool("HERMES_SSH", "ssh"), "-o", ctl, "-O", "exit"};
     int n = 5;
     if (t.port[0]) { av[n++] = "-p"; av[n++] = t.port; }
     av[n++] = "--";
@@ -926,7 +926,7 @@ static int net_mount_run(DevJob *j) {
     int in[2], out[2];
     if (pipe2(in, O_CLOEXEC)) return -1;
     if (pipe2(out, O_CLOEXEC)) { close(in[0]); close(in[1]); return -1; }
-    char *av[] = {"sh", "-c", SH_ENGLISH "\"$@\"; printf '\\n@rc=%d\\n' $?", "sh", (char *)tool("FE_GIO", "gio"), "mount", j->target, NULL};
+    char *av[] = {"sh", "-c", SH_ENGLISH "\"$@\"; printf '\\n@rc=%d\\n' $?", "sh", (char *)tool("HERMES_GIO", "gio"), "mount", j->target, NULL};
     posix_spawn_file_actions_t fa;
     posix_spawn_file_actions_init(&fa);
     posix_spawn_file_actions_adddup2(&fa, in[0], 0);
@@ -1076,9 +1076,9 @@ static int net_mount_run(DevJob *j) {
     return status == 127 ? -1 : status;
 }
 
-// Where our helper puts its folders (tests: FE_DEVICES_DIR).
+// Where our helper puts its folders (tests: HERMES_DEVICES_DIR).
 static void own_devices_dir(char *out, size_t cap) {
-    const char *ov = identity_env("FE_DEVICES_DIR");
+    const char *ov = identity_env("HERMES_DEVICES_DIR");
     if (ov && ov[0]) snprintf(out, cap, "%s", ov);
     else {
         const char *rt = getenv("XDG_RUNTIME_DIR");
@@ -1092,7 +1092,7 @@ static void own_devices_dir(char *out, size_t cap) {
 // "kind: text".
 static int own_mount_run(DevJob *j) {
     char exe[PATH_MAX], dir[PATH_MAX];
-    const char *helper = identity_env("FE_DEVICE_HELPER"); // tests: a stand-in
+    const char *helper = identity_env("HERMES_DEVICE_HELPER"); // tests: a stand-in
     ssize_t el = helper ? 0 : readlink("/proc/self/exe", exe, sizeof exe - 1);
     if (helper) snprintf(exe, sizeof exe, "%s", helper);
     else if (el > 0) exe[el] = 0;
@@ -1146,7 +1146,7 @@ static int own_mount_run(DevJob *j) {
 
 static void dev_job(void *arg) {
     DevJob *j = arg;
-    const char *ud = tool("FE_UDISKSCTL", "udisksctl");
+    const char *ud = tool("HERMES_UDISKSCTL", "udisksctl");
     switch (j->kind) {
     case DEV_MOUNT: {
         char *argv[] = {(char *)ud, "mount", "-b", j->target, j->opts[0] ? "-o" : NULL, j->opts, NULL};
@@ -1175,7 +1175,7 @@ static void dev_job(void *arg) {
         break;
     }
     case DEV_NET_SYSTEM_MOUNT: {
-        char *argv[] = {(char *)tool("FE_MOUNT", "mount"), j->target, NULL};
+        char *argv[] = {(char *)tool("HERMES_MOUNT", "mount"), j->target, NULL};
         j->rc = run_capture(argv, j->out, sizeof j->out);
         if (!j->rc) snprintf(j->mount, sizeof j->mount, "%s", j->target);
         break;
@@ -1189,7 +1189,7 @@ static void dev_job(void *arg) {
         if (prefix) snprintf(url, sizeof url, "%s%s", prefix, strstr(j->target, "://") + 3);
         else snprintf(url, sizeof url, "%s", j->target);
         snprintf(arg, sizeof arg, "string:%s", url);
-        char *argv[] = {(char *)tool("FE_DBUS_SEND", "dbus-send"), "--session", "--print-reply", "--type=method_call",
+        char *argv[] = {(char *)tool("HERMES_DBUS_SEND", "dbus-send"), "--session", "--print-reply", "--type=method_call",
                         "--reply-timeout=30000", "--dest=org.kde.KIOFuse", "/org/kde/KIOFuse",
                         "org.kde.KIOFuse.VFS.mountUrl", arg, NULL};
         j->rc = run_capture(argv, j->out, sizeof j->out);
@@ -1223,7 +1223,7 @@ static void dev_job(void *arg) {
     case DEV_NET_UNMOUNT: {
         bool gvfs = strstr(j->target, "/gvfs/") != NULL;
         if (gvfs) {
-            char *argv[] = {(char *)tool("FE_GIO", "gio"), "mount", "-u", j->target, NULL};
+            char *argv[] = {(char *)tool("HERMES_GIO", "gio"), "mount", "-u", j->target, NULL};
             j->rc = run_capture(argv, j->out, sizeof j->out);
             if (j->rc == 0) ssh_master_close(j->target);
         } else {
@@ -1258,7 +1258,7 @@ static u64 dir_signature(const char *dir) {
 static void *dev_watch_thread(void *arg) {
     (void)arg;
     int fd = open("/proc/self/mounts", O_RDONLY | O_CLOEXEC);
-    const char *usb = identity_env("FE_SYS_USB") ? identity_env("FE_SYS_USB") : "/sys/bus/usb/devices";
+    const char *usb = identity_env("HERMES_SYS_USB") ? identity_env("HERMES_SYS_USB") : "/sys/bus/usb/devices";
     char gdir[PATH_MAX];
     gvfs_dir(gdir, sizeof gdir);
     u64 sig = dir_signature("/sys/class/block"), usig = dir_signature(usb), gsig = dir_signature(gdir);

@@ -18,12 +18,8 @@ FORBIDDEN = (
     "ig_identity_adopt",
     "identity_legacy_desktop",
     "HERMES_LEGACY_APP_ID",
+    "FE_",
 )
-
-# Task 5 removes these definitions from identity.h; allow them there until then.
-TEMP_ALLOWED = {
-    "src/identity.h": {"HERMES_LEGACY_SLUG", "HERMES_LEGACY_APP_ID"},
-}
 
 
 
@@ -31,6 +27,7 @@ def active_files():
     files = sorted((ROOT / "src").glob("*.c"))
     files += sorted((ROOT / "src").glob("*.h"))
     files += sorted((ROOT / "tools").glob("*.c"))
+    files += sorted((ROOT / "tools").glob("*.py"))
     files += [ROOT / "build.sh"]
     files += sorted(p for p in (ROOT / "packaging").rglob("*") if p.is_file())
     return [p for p in files if p.resolve() != SELF]
@@ -41,7 +38,7 @@ def test_no_migration_symbols_in_active_code(errors):
         text = path.read_text(encoding="utf-8", errors="replace")
         rel = path.relative_to(ROOT).as_posix()
         for needle in FORBIDDEN:
-            if needle in text and needle not in TEMP_ALLOWED.get(rel, set()):
+            if needle in text:
                 errors.append(f"{rel} contains {needle}")
     main = (ROOT / "src/main.c").read_text(encoding="utf-8")
     if 'include "migration.c"' in main:

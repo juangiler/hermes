@@ -380,7 +380,7 @@ static int font_fallback(Font *f, u32 cp) {
     if (f->nfaces >= FONT_MAX_FACES) return -1;
     int result = -1;
     bool private_use = (cp >= 0xe000 && cp <= 0xf8ff) || (cp >= 0xf0000 && cp <= 0x10ffff);
-    const char *override = private_use ? identity_env("FE_NERD_FONT") : NULL;
+    const char *override = private_use ? identity_env("HERMES_NERD_FONT") : NULL;
     if (override && *override) {
         bool loaded = false;
         for (int i = 0; i < f->nfaces; i++) loaded |= !strcmp(f->paths[i], override);

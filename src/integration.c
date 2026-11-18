@@ -183,7 +183,7 @@ static bool upd_sha256_file(const char *path, char out[65]) {
 
 // How this copy got here, so it can say how it updates. Packages are found by their database knowing about us.
 static int upd_kind(void) {
-    const char *k = identity_env("FE_UPDATE_KIND"); // (tests, screenshots: appimage, arch, deb, rpm, source)
+    const char *k = identity_env("HERMES_UPDATE_KIND"); // (tests, screenshots: appimage, arch, deb, rpm, source)
     if (k) return !strcmp(k, "appimage") ? UK_APPIMAGE : !strcmp(k, "arch") ? UK_ARCH : !strcmp(k, "deb") ? UK_DEB
                  : !strcmp(k, "rpm") ? UK_RPM : UK_SOURCE;
     static int kind = -1;
@@ -596,9 +596,9 @@ static bool upd_card_click(f32 x, f32 y) {
     return true;
 }
 
-// Visual checks (--screenshot): FE_SHOT_UPDATE=available|downloading|ready|failed puts up the card for 0.99.0.
+// Visual checks (--screenshot): HERMES_SHOT_UPDATE=available|downloading|ready|failed puts up the card for 0.99.0.
 static void upd_shot(void) {
-    const char *s = identity_env("FE_SHOT_UPDATE");
+    const char *s = identity_env("HERMES_SHOT_UPDATE");
     if (!A.screenshot || !s) return;
     snprintf(g_upd.tag, sizeof g_upd.tag, "v0.99.0");
     g_upd.size = 46 << 20;

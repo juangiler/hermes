@@ -36,7 +36,7 @@ class BuildInstallTest(unittest.TestCase):
         fakebin.mkdir()
         self.env = dict(os.environ)
         for key in list(self.env):
-            if key.startswith(("HERMES_", "FE_", "CFLAGS_PKG", "LDFLAGS_PKG")):
+            if key.startswith(("HERMES_", "CFLAGS_PKG", "LDFLAGS_PKG")):
                 self.env.pop(key)
         self.env["PATH"] = str(fakebin) + os.pathsep + self.env["PATH"]
         self.env["CC"] = str(fakebin / "cc")
@@ -83,12 +83,9 @@ class BuildInstallTest(unittest.TestCase):
         self.run_script("build.sh", "package", ok=False)
         self.assertFalse((self.root / "build/package/hermes").exists())
 
-    def test_output_override_precedence_and_legacy_alias(self):
-        self.run_script("build.sh", "package", HERMES_OUT="chosen/hermes", FE_OUT="old/ignored")
+    def test_output_override(self):
+        self.run_script("build.sh", "package", HERMES_OUT="chosen/hermes")
         self.assertTrue((self.root / "chosen/hermes").is_file())
-        self.assertFalse((self.root / "old/ignored").exists())
-        self.run_script("build.sh", "package", FE_OUT="old/hermes")
-        self.assertTrue((self.root / "old/hermes").is_file())
 
     def test_staged_install_uses_package_build(self):
         self.run_script("build.sh", "package")

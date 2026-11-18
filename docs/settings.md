@@ -37,7 +37,7 @@ space back to tabs/navigation and leaves header dragging, edge resizing, shortcu
 Desktop-provided controls are configured by the window manager. App-drawn controls use the desktop icon theme's
 window-action shapes when available, with built-in vector fallbacks, independently of the selected file-icon set.
 Older `title_bar=auto` settings remain readable; the UI no longer exposes Automatic or "Explorer's own" choices.
-`FE_TITLE_BAR=app|system` still overrides the mode for one run.
+`HERMES_TITLE_BAR=app|system` still overrides the mode for one run.
 
 **Header label** chooses File-Explorer (default), Hostname, Custom or Hidden. Hidden gives the label row's height to
 the sidebar. **Custom header text** applies a custom single-line label; Default restores File-Explorer. Hostname uses
@@ -52,7 +52,7 @@ without a shadow when maximized or snapped.
 On X11 this needs a compositor and the OpenGL renderer; the shadow needs a window manager that reads
 `_GTK_FRAME_EXTENTS`. Changing this setting takes a restart in either direction: disabling it then creates an
 opaque, square window without an app-drawn shadow or shadow margin, leaving window effects to the desktop.
-`FE_SQUARE_CORNERS=1` disables both corners and the shadow for one run; `FE_NO_SHADOW=1` disables only the shadow.
+`HERMES_SQUARE_CORNERS=1` disables both corners and the shadow for one run; `HERMES_NO_SHADOW=1` disables only the shadow.
 
 With a desktop corner effect, leave Rounded corners off so the desktop owns the window edge. On KDE Wayland,
 the integrated header uses a borderless window, which has no native KWin frame or shadow. If a KWin effect leaves
@@ -88,7 +88,7 @@ selects that theme explicitly. Themes are discovered from `~/.local/share/icons`
 locations. Distrobox also checks `/run/host/usr/share/icons` when available. PNG/SVG files, sizes/scales and theme
 inheritance are supported; missing icons use hicolor, then bundled icons. XPM is unsupported. Install Reversal in the
 container or the shared `~/.local/share/icons` if it is not visible. Restart or open "Icon themes folder" to rescan.
-System icon choices take precedence over `FE_NERD_FONT`. See [Custom icons](custom-icons.md) for customization details.
+System icon choices take precedence over `HERMES_NERD_FONT`. See [Custom icons](custom-icons.md) for customization details.
 
 Options > Appearance > Tabs offers **Tab position** (Above navigation / Below navigation) and **Tab style**
 (Classic Explorer / Pills). Defaults are below + pills. Pills center inside a shared rounded enclosure made from
@@ -196,7 +196,7 @@ folder, but they have no trash (deleting asks first) and keep no permissions; MT
 changed file is sent again whole. Opening a device needs USB access for your user (the udev rule
 `70-hermes-phones.rules`, installed by `install.sh`). A device the app can't have (another program is using it)
 is opened through GVfs instead when GVfs knows it; GVfs also handles anything else it lists. While the app has an
-iPhone, usbmuxd (and the tools using it) can't reach it until it's plugged in again. `FE_NO_OWN_PHONES=1` leaves
+iPhone, usbmuxd (and the tools using it) can't reach it until it's plugged in again. `HERMES_NO_OWN_PHONES=1` leaves
 everything to GVfs.
 
 Each saved server can have a display name and a display icon (generic server/VM/NAS/cloud shapes, cloud providers
@@ -237,7 +237,7 @@ copy and paste, Shift+PageUp/PageDown scroll back, Ctrl+Shift+W closes, Ctrl+Tab
 Terminal tabs and panels use the same font family and size as Explorer. Programming ligatures (liga, calt and
 dlig) are enabled when supported by that font. JetBrainsMono Nerd Font and its Mono variant retain programming
 ligatures through `calt`; the NL (no-ligatures) variant does not provide them. Install a Nerd Font or Symbols Nerd Font for private-use icons;
-fontconfig supplies fallback symbols, or set `FE_NERD_FONT` to a font file for an explicit override.
+fontconfig supplies fallback symbols, or set `HERMES_NERD_FONT` to a font file for an explicit override.
 Context menus show Nerd Font action icons beside their labels, with separate checkmarks for toggles. The external
 terminal uses U+E795, the filter uses U+EAF1, and sort uses U+F04BA. Apply and Default buttons highlight in the
 accent colour on hover.
@@ -315,7 +315,7 @@ sets use their bundled Trash artwork, and a custom theme can supply `trash.svg` 
 use `user-trash-full` (or `user-trash-full-symbolic`) when Trash contains items, and `user-trash` when empty. A theme
 without a full variant uses its normal bin. Zero-byte files and empty folders count as contents. The system icon's
 full/empty state updates after trashing, restoring or emptying; the Empty Trash confirmation shows the full version.
-An optional `FE_NERD_FONT` can override built-in and custom theme artwork, but a selected system theme takes precedence.
+An optional `HERMES_NERD_FONT` can override built-in and custom theme artwork, but a selected system theme takes precedence.
 
 Terminal ligatures can span foreground-colour changes in Fish syntax highlighting. Shaping keeps operators
 together and paints each part in its cell colour; font-weight changes still start a separate shaping run.

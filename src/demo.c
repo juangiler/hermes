@@ -42,18 +42,18 @@ static void dm_write(const char *path, const char *text) {
 // Returns the folder to start in.
 static const char *demo_setup(void) {
     static char home[PATH_MAX], path[PATH_MAX + 64];
-    const char *base = identity_env("FE_DEMO_DIR") ? identity_env("FE_DEMO_DIR") : "/tmp/fe-demo";
-    snprintf(home, sizeof home, "%s", identity_env("FE_DEMO_HOME") ? identity_env("FE_DEMO_HOME") : "/tmp/fe-demo/home");
+    const char *base = identity_env("HERMES_DEMO_DIR") ? identity_env("HERMES_DEMO_DIR") : "/tmp/fe-demo";
+    snprintf(home, sizeof home, "%s", identity_env("HERMES_DEMO_HOME") ? identity_env("HERMES_DEMO_HOME") : "/tmp/fe-demo/home");
     setenv("HOME", home, 1);
 #define DM_ENV(var, sub) do { snprintf(path, sizeof path, "%s/" sub, base); mkdir_p(path, 0755); setenv(var, path, 1); } while (0)
     DM_ENV("XDG_CONFIG_HOME", "config");
     DM_ENV("XDG_DATA_HOME", "data");
     DM_ENV("XDG_CACHE_HOME", "cache");
-    DM_ENV("FE_GVFS_DIR", "gvfs"); // (none of this machine's network mounts)
+    DM_ENV("HERMES_GVFS_DIR", "gvfs"); // (none of this machine's network mounts)
     snprintf(path, sizeof path, "%s/bin/lsblk", base);
-    setenv("FE_LSBLK", path, 1);
+    setenv("HERMES_LSBLK", path, 1);
     setenv("SHELL", "/bin/bash", 1); // its prompt comes from the demo home's .bashrc
-    setenv("FE_TITLE_BAR", "app", 1); // our own title bar, as on a desktop
+    setenv("HERMES_TITLE_BAR", "app", 1); // our own title bar, as on a desktop
     snprintf(path, sizeof path, "%s/config/hermes", base);
     mkdir_p(path, 0755);
     snprintf(path, sizeof path, "%s/config/hermes/settings.conf", base);
@@ -646,7 +646,7 @@ static int demo_run(void) {
     dm_fade(&D.win, 1, 0.7f);
     D.cursor = true;
 
-    const char *only = identity_env("FE_DEMO_SCENES"); // while working on it: "1,3" runs just those (from the start state)
+    const char *only = identity_env("HERMES_DEMO_SCENES"); // while working on it: "1,3" runs just those (from the start state)
     void (*scenes[])(void) = {scene_huge, scene_filter, scene_goto, scene_preview, scene_panels, scene_git, scene_terminal,
                               scene_grep, scene_du, scene_compare, scene_archive, scene_themes};
     for (int i = 0; i < (int)ARRAY_COUNT(scenes); i++) {
