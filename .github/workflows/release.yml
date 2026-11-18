@@ -40,4 +40,5 @@ jobs:
             "dist/hermes-$version.tar.gz.sha256" \
             --title "Hermes $version" \
             --notes-file dist/release-notes.md \
-            --verify-tag
+            --verify-tag \
+            --draft
