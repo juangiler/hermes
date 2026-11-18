@@ -1,5 +1,6 @@
 <RCC>
   <qresource prefix="/qtui">
     <file alias="qml/main.qml">qml/main.qml</file>
+    <file alias="qml/DirectoryPage.qml">qml/DirectoryPage.qml</file>
   </qresource>
 </RCC>

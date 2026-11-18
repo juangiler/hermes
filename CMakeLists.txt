@@ -53,7 +53,7 @@ if(HERMES_BUILD_QT_UI)
   find_package(KF6Kirigami REQUIRED)
   include(GNUInstallDirs)
 
-  add_library(hermes-kirigami-ui STATIC qtui/hermes-qt.qrc)
+  add_library(hermes-kirigami-ui STATIC qtui/hermes-qt.qrc qtui/directory_model.cpp)
   set_target_properties(hermes-kirigami-ui PROPERTIES AUTOMOC ON)
   target_compile_features(hermes-kirigami-ui PUBLIC cxx_std_17)
   target_compile_options(hermes-kirigami-ui PRIVATE -Wall -Wextra -Werror)
@@ -63,7 +63,7 @@ if(HERMES_BUILD_QT_UI)
              hermes_core hermes-portals)
   # BASE strips the qtui/ directory so the runtime path is qrc:/qtui/qml/main.qml.
   qt_add_resources(hermes-kirigami-ui "hermes-qml"
-      PREFIX "/qtui" BASE qtui FILES qtui/qml/main.qml)
+      PREFIX "/qtui" BASE qtui FILES qtui/qml/main.qml qtui/qml/DirectoryPage.qml)
 
   add_executable(hermes-qt qtui/main.cpp)
   target_link_libraries(hermes-qt PRIVATE hermes-kirigami-ui)

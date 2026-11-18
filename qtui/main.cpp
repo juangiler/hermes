@@ -1,11 +1,16 @@
+#include "directory_model.h"
+
 #include <QCoreApplication>
 #include <QDebug>
 #include <QGuiApplication>
 #include <QObject>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QString>
 #include <QTextStream>
 #include <QUrl>
+#include <QVariantMap>
+#include <memory>
 
 int main(int argc, char *argv[])
 {
@@ -20,9 +25,13 @@ int main(int argc, char *argv[])
     return 0;
   }
 
-  QObject hermes_placeholder;
+  std::unique_ptr<HermesCore, decltype(&hermes_core_destroy)> core(
+      hermes_core_create([](void *) {}, nullptr), &hermes_core_destroy);
+  DirectoryModel directory(core.get());
   QQmlApplicationEngine engine;
-  engine.rootContext()->setContextProperty(QStringLiteral("hermes"), &hermes_placeholder);
+  // Task 4 replaces this placeholder with the full controller.
+  engine.rootContext()->setContextProperty(QStringLiteral("hermes"),
+      QVariantMap{{QStringLiteral("directory"), QVariant::fromValue<QObject *>(&directory)}});
   engine.load(QUrl(QStringLiteral("qrc:/qtui/qml/main.qml")));
   if (engine.rootObjects().isEmpty()) {
     qCritical() << QStringLiteral("failed to load qrc:/qtui/qml/main.qml");
