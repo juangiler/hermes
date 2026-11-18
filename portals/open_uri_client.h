@@ -8,6 +8,26 @@
 #include <QString>
 #include <QVariantMap>
 
+namespace PortalDetail {
+
+// One relay per request keeps overlapping Response signals independent.
+class OpenUriRequestRelay : public QObject
+{
+    Q_OBJECT
+
+public:
+    explicit OpenUriRequestRelay(QObject *parent = nullptr)
+        : QObject(parent) {}
+
+public slots:
+    void onResponse(uint response, const QVariantMap &results);
+
+signals:
+    void responded(uint response, const QVariantMap &results);
+};
+
+} // namespace PortalDetail
+
 class OpenUriClient : public QObject
 {
     Q_OBJECT
@@ -20,10 +40,6 @@ public:
 signals:
     void finished(const PortalReply &reply);
 
-private slots:
-    void onRequestResponse(uint response, const QVariantMap &results);
-
 private:
     QDBusInterface *m_iface;
-    QString m_requestPath;
 };

@@ -23,6 +23,4 @@ signals:
 
 private:
     QDBusInterface *m_iface;
-    QString m_namespace;
-    QString m_key;
 };

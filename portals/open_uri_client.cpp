@@ -13,7 +13,31 @@ const QString kPath = QStringLiteral("/org/freedesktop/portal/desktop");
 const QString kInterface = QStringLiteral("org.freedesktop.portal.OpenURI");
 const QString kRequestInterface = QStringLiteral("org.freedesktop.portal.Request");
 const QString kResponseSignal = QStringLiteral("Response");
-const QByteArray kResponseSlot = SLOT(onRequestResponse(uint,QVariantMap));
+const QByteArray kResponseSlot = SLOT(onResponse(uint,QVariantMap));
+
+PortalReply replyFromResponse(uint response, const QVariantMap &results)
+{
+    PortalReply reply;
+    reply.results = results;
+    switch (response) {
+    case 0:
+        reply.status = PortalReply::Status::Ok;
+        break;
+    case 1:
+        reply.status = PortalReply::Status::Cancelled;
+        break;
+    default:
+        reply.status = PortalReply::Status::Error;
+        reply.errorName = results.value(QLatin1String("error")).toString();
+        break;
+    }
+    return reply;
+}
+}
+
+void PortalDetail::OpenUriRequestRelay::onResponse(uint response, const QVariantMap &results)
+{
+    emit responded(response, results);
 }
 
 OpenUriClient::OpenUriClient(QObject *parent)
@@ -47,42 +71,21 @@ void OpenUriClient::openFile(const QString &path, const QString &parentWindow)
             return;
         }
 
+        auto *relay = new PortalDetail::OpenUriRequestRelay(this);
+        connect(relay, &PortalDetail::OpenUriRequestRelay::responded, this,
+                [this, relay](uint response, const QVariantMap &results) {
+                    relay->deleteLater();
+                    emit finished(replyFromResponse(response, results));
+                });
+
         QDBusConnection bus = QDBusConnection::sessionBus();
-        if (!m_requestPath.isEmpty()) {
-            bus.disconnect(kService, m_requestPath, kRequestInterface,
-                           kResponseSignal, this, kResponseSlot.constData());
-        }
-        m_requestPath = handle.path();
-        if (!bus.connect(kService, m_requestPath, kRequestInterface,
-                         kResponseSignal, this, kResponseSlot.constData())) {
-            m_requestPath.clear();
+        if (!bus.connect(kService, handle.path(), kRequestInterface,
+                         kResponseSignal, relay, kResponseSlot.constData())) {
+            relay->deleteLater();
             PortalReply reply;
             reply.status = PortalReply::Status::Error;
             reply.errorName = QStringLiteral("RequestSubscribeFailed");
             emit finished(reply);
         }
     });
-}
-
-void OpenUriClient::onRequestResponse(uint response, const QVariantMap &results)
-{
-    QDBusConnection::sessionBus().disconnect(kService, m_requestPath, kRequestInterface,
-                                             kResponseSignal, this, kResponseSlot.constData());
-    m_requestPath.clear();
-
-    PortalReply reply;
-    reply.results = results;
-    switch (response) {
-    case 0:
-        reply.status = PortalReply::Status::Ok;
-        break;
-    case 1:
-        reply.status = PortalReply::Status::Cancelled;
-        break;
-    default:
-        reply.status = PortalReply::Status::Error;
-        reply.errorName = results.value(QLatin1String("error")).toString();
-        break;
-    }
-    emit finished(reply);
 }
