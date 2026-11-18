@@ -11,9 +11,13 @@
 The user asked for "more proper badges about the build, CI pass status" and a badge
 showing the project was built with AI, specifically OpenCode. They chose the
 **Hybrid** approach: live workflow status for the technical badges, a static badge
-for OpenCode. They later decided to keep CI and Build live, drop the separate
+for OpenCode. They later decided to keep the live CI badge, drop the separate
 `Release preparation` workflow badge, and keep exactly one dynamic latest-release
 badge even though it currently shows a red "no releases or repo not found" state.
+The separate Build badge was then removed: GitHub's workflow badge endpoint
+ignores the `job=` query parameter, so both URLs rendered the identical
+`CI - passing` badge rather than one CI and one build status. One live CI badge
+now reflects the latest `main` push.
 
 Constraint: `juangiler/hermes` is a private repository. GitHub documents that
 workflow badges in private repos "are not accessible externally", so live badges
@@ -26,7 +30,7 @@ static OpenCode badge renders everywhere.
 | --- | --- |
 | All static | Renders for everyone, but "build passing" is a manual claim that can go stale. |
 | All live | Accurate, but an AI/tooling badge has no live source; also private-repo visibility caveat. |
-| **Hybrid (chosen)** | Live CI + build status where it can be sourced, static OpenCode badge. Best fit for "proper" status while keeping the AI badge always visible. |
+| **Hybrid (chosen)** | One live CI workflow status, one live latest-release version, static OpenCode badge. Best fit for "proper" status while keeping the AI badge always visible. |
 
 ## Chosen design
 
@@ -42,22 +46,7 @@ dynamic status/tooling badges first, existing static identity badges second.
    [![CI](https://github.com/juangiler/hermes/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/juangiler/hermes/actions/workflows/ci.yml)
    ```
 
-2. **Build** — the `build` job status from the same workflow, pinned to `main`,
-   linked to the workflow's branch run list:
-
-   ```markdown
-   [![Build](https://github.com/juangiler/hermes/actions/workflows/ci.yml/badge.svg?branch=main&job=build)](https://github.com/juangiler/hermes/actions/workflows/ci.yml?query=branch%3Amain)
-   ```
-
-   Caveat: GitHub officially documents `branch` and `event` query parameters but
-   not `job`. The `job` parameter is widely used in practice and degrades
-   gracefully — if GitHub ignores it, the badge shows the whole workflow status
-   instead of just the `build` job. This is acceptable: it can never show a
-   *better* status than the overall workflow. The `build` job is a fail-fast=false
-   matrix across Arch, Fedora, Debian and Ubuntu, so its badge represents the
-   aggregate portable-build result.
-
-3. **Last Release** — a dynamic Shields badge reading GitHub's latest release,
+2. **Last Release** — a dynamic Shields badge reading GitHub's latest release,
    linked to the releases page:
 
    ```markdown
@@ -71,7 +60,7 @@ dynamic status/tooling badges first, existing static identity badges second.
    release exists and the repo is public (or Shields is given a token). This is
    recorded so the expected empty state is not mistaken for a broken URL.
 
-4. **Built with OpenCode** — static Shields badge using the palette already used
+3. **Built with OpenCode** — static Shields badge using the palette already used
    by the existing badges (Tokyo Night blue `7aa2f7`), linked to the project site:
 
    ```markdown

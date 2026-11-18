@@ -194,3 +194,35 @@ Expected: no whitespace errors.
 git add README.md docs/superpowers/specs/2026-11-18-readme-badges-design.md docs/superpowers/plans/2026-11-18-readme-badges.md
 git commit -m "docs(readme): show one live Last Release badge"
 ```
+
+---
+
+### Task 5: Remove the duplicate Build badge
+
+**Root cause (diagnosed 2026-11-18):** GitHub's workflow badge endpoint accepts
+`branch` and `event`, but ignores the undocumented `job` query parameter. Both
+`ci.yml/badge.svg?branch=main` and `ci.yml/badge.svg?branch=main&job=build` were
+fetched with repo auth and both returned `<title>CI - passing</title>`. The
+"Build" badge was therefore a second CI badge, not a build-job badge.
+
+**Files:**
+- Modify: `README.md` (first badge row only)
+- Modify: `docs/superpowers/specs/2026-11-18-readme-badges-design.md` (record the diagnosis and corrected layout)
+
+- [x] **Step 1: Delete only the Build badge line**
+
+Remove the `[![Build](...)](...)` line. Keep the CI badge, the `Last Release`
+badge and the OpenCode badge unchanged.
+
+- [x] **Step 2: Verify**
+
+Expected final first row: CI, Last Release, Built with OpenCode.
+Authenticated fetch of the remaining workflow badge still returns
+`<title>CI - passing</title>` and reflects the latest `main` CI run.
+
+- [x] **Step 3: Commit**
+
+```bash
+git add README.md docs/superpowers/specs/2026-11-18-readme-badges-design.md docs/superpowers/plans/2026-11-18-readme-badges.md
+git commit -m "docs(readme): drop duplicate build badge"
+```
