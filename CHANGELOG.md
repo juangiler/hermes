@@ -70,6 +70,8 @@ will be listed above that history.
   and entry names keep their accents and spaces.
 
 **Fixed**
+- `tools/gen_logo.py --check` compares decoded PNG pixels instead of zlib-compressed
+  bytes, so a different zlib version in CI no longer reports valid logo assets as stale.
 - Sidebar network and WebDAV rows without a custom icon now follow the system
   icon theme (`folder-remote`), like the Cloud WebDAV row.
 - Network entries from fstab decode escaped whitespace and backslashes before

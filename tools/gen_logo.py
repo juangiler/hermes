@@ -53,6 +53,33 @@ def png(rows, size):
             + chunk(b"IDAT", zlib.compress(bytes(raw), 9)) + chunk(b"IEND", b""))
 
 
+def png_content(data):
+    if data[:8] != b"\x89PNG\r\n\x1a\n":
+        raise ValueError("not a PNG")
+    pos, header, packed = 8, b"", bytearray()
+    while pos < len(data):
+        length = struct.unpack(">I", data[pos:pos + 4])[0]
+        kind = data[pos + 4:pos + 8]
+        if kind == b"IHDR":
+            header = data[pos + 8:pos + 8 + length]
+        elif kind == b"IDAT":
+            packed.extend(data[pos + 8:pos + 8 + length])
+        pos += 12 + length
+    return header, zlib.decompress(bytes(packed))
+
+
+def matches(path, data):
+    if not path.exists():
+        return False
+    if path.suffix != ".png":
+        return path.read_bytes() == data
+    # The IDAT stream depends on the host's zlib version; compare the pixels instead.
+    try:
+        return png_content(path.read_bytes()) == png_content(data)
+    except (ValueError, struct.error, zlib.error):
+        return False
+
+
 def outputs():
     rows = sprite()
     artwork = svg(rows)
@@ -77,7 +104,7 @@ def main():
     stale = []
     for path, data in outputs().items():
         if args.check:
-            if not path.exists() or path.read_bytes() != data:
+            if not matches(path, data):
                 stale.append(str(path.relative_to(ROOT)))
         else:
             path.parent.mkdir(parents=True, exist_ok=True)

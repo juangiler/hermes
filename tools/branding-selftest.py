@@ -3,6 +3,7 @@
 from pathlib import Path
 import struct
 import subprocess
+import sys
 import unittest
 import xml.etree.ElementTree as ET
 import zlib
@@ -13,6 +14,29 @@ ROOT = Path(__file__).resolve().parent.parent
 class BrandingTest(unittest.TestCase):
     def test_generated_art_is_current(self):
         subprocess.run(["python3", "tools/gen_logo.py", "--check"], cwd=ROOT, check=True)
+
+    def test_check_tolerates_different_zlib_encoding(self):
+        # CI uses a different zlib than the developer machine; equivalent PNG pixels
+        # must not be reported as stale just because the IDAT stream differs.
+        sys.path.insert(0, str(ROOT / "tools"))
+        import gen_logo
+        real_compress = gen_logo.zlib.compress
+        argv = sys.argv
+        try:
+            gen_logo.zlib.compress = lambda data, level: real_compress(data, 6)
+            sys.argv = ["gen_logo.py", "--check"]
+            gen_logo.main()
+        finally:
+            gen_logo.zlib.compress = real_compress
+            sys.argv = argv
+
+    def test_check_detects_changed_pixels(self):
+        sys.path.insert(0, str(ROOT / "tools"))
+        import gen_logo
+        rows = gen_logo.sprite()
+        rows[0] = ("." if rows[0][0] != "." else "O") + rows[0][1:]
+        altered = gen_logo.png(rows, 16)
+        self.assertFalse(gen_logo.matches(ROOT / "assets/branding/hermes-16.png", altered))
 
     def test_svg_pixel_geometry(self):
         svg = ET.parse(ROOT / "assets/branding/hermes.svg").getroot()
