@@ -39,9 +39,9 @@ window-action shapes when available, with built-in vector fallbacks, independent
 Older `title_bar=auto` settings remain readable; the UI no longer exposes Automatic or "Explorer's own" choices.
 `HERMES_TITLE_BAR=app|system` still overrides the mode for one run.
 
-**Header label** chooses File-Explorer (default), Hostname, Custom or Hidden. Hidden gives the label row's height to
-the sidebar. **Custom header text** applies a custom single-line label; Default restores File-Explorer. Hostname uses
-the machine/container hostname visible to the running app. **Show header icon** places the original File-Explorer
+**Header label** chooses Hermes (default), Hostname, Custom or Hidden. Hidden gives the label row's height to
+the sidebar. **Custom header text** applies a custom single-line label; Default restores Hermes. Hostname uses
+the machine/container hostname visible to the running app. **Show header icon** places the original Hermes
 logo beside any visible label, tinted by the active accent colour. It can be hidden independently. Saved keys are
 `header_label=app|hostname|custom|hidden`, `header_text=...`, `show_header_icon=1|0`, and
 `show_window_controls=1|0`.

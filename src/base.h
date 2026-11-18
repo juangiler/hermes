@@ -26,7 +26,7 @@
 #include <sys/syscall.h>
 #include <sys/statvfs.h>
 #include "identity.h"
-// All runtime override reads share new-name-first compatibility semantics.
+// All runtime overrides use Hermes-only names; there are no legacy aliases.
 #define getenv(name) identity_env(name)
 #ifdef __GLIBC__
 #include <malloc.h> // mallopt

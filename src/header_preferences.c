@@ -1,6 +1,6 @@
 // Header label preferences; plain settings data, independent of SDL rendering.
 enum { HEADER_APP, HEADER_HOSTNAME, HEADER_CUSTOM, HEADER_HIDDEN };
-#define HEADER_APP_NAME "File-Explorer"
+#define HEADER_APP_NAME "Hermes"
 static int g_header_label = HEADER_APP;
 static char g_header_custom[96];
 static bool g_show_window_controls = true;

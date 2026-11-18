@@ -597,33 +597,33 @@ enum { SHINT_NONE, SHINT_BASH, SHINT_ZSH, SHINT_FISH };
 static const char g_shint_bash[] =
     "# Hermes terminal panel: follows the folder without typing cd. Runs ~/.bashrc first.\n"
     "[ -f ~/.bashrc ] && . ~/.bashrc\n"
-    "__fe_cd1() {\n"
-    "    __fe_line=$READLINE_LINE __fe_point=$READLINE_POINT\n"
+    "__hermes_cd1() {\n"
+    "    __hermes_line=$READLINE_LINE __hermes_point=$READLINE_POINT\n"
     "    READLINE_LINE= READLINE_POINT=0\n"
-    "    local p=${PS1@P}; p=${p//[^$'\\n']/}; __fe_k=$(( ${#p} + 1 ))\n"
+    "    local p=${PS1@P}; p=${p//[^$'\\n']/}; __hermes_k=$(( ${#p} + 1 ))\n"
     "    builtin cd -- \"$(< \"$HERMES_CD_FILE\")\" 2>/dev/null\n"
     "}\n"
-    "__fe_cd2() {\n"
+    "__hermes_cd2() {\n"
     "    local p=${PS1@P}; p=${p//[^$'\\n']/}\n"
-    "    printf '\\e[%dA\\e[%dM' $(( __fe_k + ${#p} )) \"$__fe_k\"; (( ${#p} )) && printf '\\e[%dB' \"${#p}\"\n"
-    "    READLINE_LINE=$__fe_line READLINE_POINT=$__fe_point\n"
+    "    printf '\\e[%dA\\e[%dM' $(( __hermes_k + ${#p} )) \"$__hermes_k\"; (( ${#p} )) && printf '\\e[%dB' \"${#p}\"\n"
+    "    READLINE_LINE=$__hermes_line READLINE_POINT=$__hermes_point\n"
     "}\n"
-    "for __fe_m in emacs vi-insert vi-command; do\n"
-    "    bind -m $__fe_m -x '\"\\e[9872~\": __fe_cd1'\n"
-    "    bind -m $__fe_m -x '\"\\e[9873~\": __fe_cd2'\n"
-    "    bind -m $__fe_m '\"\\e[9871~\": \"\\e[9872~\\C-m\\e[9873~\"'\n"
+    "for __hermes_m in emacs vi-insert vi-command; do\n"
+    "    bind -m $__hermes_m -x '\"\\e[9872~\": __hermes_cd1'\n"
+    "    bind -m $__hermes_m -x '\"\\e[9873~\": __hermes_cd2'\n"
+    "    bind -m $__hermes_m '\"\\e[9871~\": \"\\e[9872~\\C-m\\e[9873~\"'\n"
     "done\n"
-    "unset __fe_m\n"
+    "unset __hermes_m\n"
     ": > \"$HERMES_CD_FILE.ready\"\n";
 
 static const char g_shint_zshenv[] =
     "# Hermes terminal panel: the user's own zsh files run as usual (ours: .zshrc here, after theirs)\n"
-    "__fe_zdot=$ZDOTDIR\n"
+    "__hermes_zdot=$ZDOTDIR\n"
     "ZDOTDIR=${HERMES_USER_ZDOTDIR:-$HOME}\n"
     "[[ -r $ZDOTDIR/.zshenv ]] && . $ZDOTDIR/.zshenv\n"
     "HERMES_USER_ZDOTDIR=$ZDOTDIR\n"
-    "ZDOTDIR=$__fe_zdot\n"
-    "unset __fe_zdot\n";
+    "ZDOTDIR=$__hermes_zdot\n"
+    "unset __hermes_zdot\n";
 
 static const char g_shint_zshrc[] =
     "ZDOTDIR=$HERMES_USER_ZDOTDIR\n"
@@ -639,7 +639,7 @@ static const char g_shint_zshrc[] =
 
 static const char g_shint_fish[] =
     "# Hermes terminal panel: follows the folder without typing cd\n"
-    "function __fe_cd --on-signal SIGUSR1\n"
+    "function __hermes_cd --on-signal SIGUSR1\n"
     "    builtin cd -- (string collect < $HERMES_CD_FILE) 2>/dev/null; and commandline -f repaint\n"
     "end\n"
     "true > \"$HERMES_CD_FILE.ready\"\n";
@@ -656,9 +656,9 @@ static bool shint_dir(char *out, size_t cap) {
     snprintf(p, sizeof p, "%s/zsh", out);
     mkdir_p(p, 0700);
     bool ok = true;
-    snprintf(p, sizeof p, "%s/fe.bash", out);
+    snprintf(p, sizeof p, "%s/hermes.bash", out);
     ok &= write_file_atomic(p, g_shint_bash);
-    snprintf(p, sizeof p, "%s/fe.fish", out);
+    snprintf(p, sizeof p, "%s/hermes.fish", out);
     ok &= write_file_atomic(p, g_shint_fish);
     snprintf(p, sizeof p, "%s/zsh/.zshenv", out);
     ok &= write_file_atomic(p, g_shint_zshenv);
@@ -719,13 +719,13 @@ static Term *term_new(const char *dir, char *const argv[], int rows, int cols, b
         snprintf(cdf, sizeof cdf, "%s/cd-%d-%u", sdir, (int)getpid(), ++shint_n);
         snprintf(e_cdf, sizeof e_cdf, "HERMES_CD_FILE=%s", cdf);
         if (shint == SHINT_BASH) {
-            snprintf(a1, sizeof a1, "%s/fe.bash", sdir);
+            snprintf(a1, sizeof a1, "%s/hermes.bash", sdir);
             sh_argv[1] = "--rcfile";
             sh_argv[2] = a1;
         } else if (shint == SHINT_FISH) {
             char q[PATH_MAX + 8];
             sh_quote(q, sizeof q, sdir);
-            snprintf(a1, sizeof a1, "source %s/fe.fish", q);
+            snprintf(a1, sizeof a1, "source %s/hermes.fish", q);
             sh_argv[1] = "-C";
             sh_argv[2] = a1;
         } else if (shint == SHINT_ZSH) {

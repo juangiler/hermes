@@ -3114,7 +3114,7 @@ static int run_selftest_m9(void) {
     settings_save(); settings_load();
     ST_CHECK(g_header_label == HEADER_CUSTOM && !strcmp(g_header_custom, "Workstation files"));
     st_frames(1); st_opt_click(st_opt_hit(HP_EDIT_RESET, OPT_HEADER_TEXT, 0));
-    ST_CHECK(g_header_label == HEADER_APP && !strcmp(header_label_text(), "File-Explorer"));
+    ST_CHECK(g_header_label == HEADER_APP && !strcmp(header_label_text(), "Hermes"));
     sheet_close();
 
     f32 brand_h = A.r_brand.h, sidebar_h = A.r_sidebar.h;

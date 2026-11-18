@@ -11,6 +11,7 @@ jobs:
       - uses: actions/checkout@v4
       - run: python3 tools/build-install-selftest.py
       - run: python3 tools/branding-selftest.py
+      - run: python3 tools/legacy-purge-selftest.py
       - run: git diff --exit-code
 
   package-versions:

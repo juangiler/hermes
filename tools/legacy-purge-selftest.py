@@ -19,6 +19,9 @@ FORBIDDEN = (
     "identity_legacy_desktop",
     "HERMES_LEGACY_APP_ID",
     "FE_",
+    "__fe_",
+    "fe.bash",
+    "fe.fish",
 )
 
 
@@ -51,6 +54,26 @@ def test_no_migration_symbols_in_active_code(errors):
 def test_legacy_directory_not_referenced(errors):
     if (ROOT / "src/migration.c").exists():
         errors.append("src/migration.c still exists")
+
+
+def test_no_legacy_app_name_in_ui(errors):
+    for rel in ("src/header_preferences.c", "src/options.c", "tools/appearance-selftest.c"):
+        text = (ROOT / rel).read_text(encoding="utf-8")
+        if "File-Explorer" in text:
+            errors.append(f"{rel} still shows the legacy app name")
+
+
+def test_checker_is_wired_into_ci_and_docs(errors):
+    command = "python3 tools/legacy-purge-selftest.py"
+    ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    if command not in ci:
+        errors.append("ci.yml does not run the legacy purge checker")
+    docs = (ROOT / "docs/building.md").read_text(encoding="utf-8")
+    if command not in docs:
+        errors.append("docs/building.md does not list the legacy purge checker")
+    for suite in ("tools/credentials-selftest.c", "tools/cloud-identity-selftest.c"):
+        if suite not in docs:
+            errors.append(f"docs/building.md does not list {suite}")
 
 
 HISTORICAL_DOCS = (

@@ -39,9 +39,9 @@ static const OptDef g_opts[] = {
     {OC_APPEARANCE, OK_BOOL, OPT_SMOOTH, "Smooth scrolling", "Animate scrolling instead of jumping"},
     {OC_APPEARANCE, OK_CHOICE, OPT_TITLE_BAR, "Title bar", "Integrated header shares the first row with tabs/navigation; Desktop title bar uses native decorations"},
     {OC_APPEARANCE, OK_BOOL, OPT_WINDOW_CONTROLS, "Show window controls", "Minimize, maximize and close in the integrated header; hiding them frees the row"},
-    {OC_APPEARANCE, OK_BOOL, OPT_HEADER_ICON, "Show header icon", "Show the original File-Explorer logo in the accent colour beside the header label"},
-    {OC_APPEARANCE, OK_CHOICE, OPT_HEADER_LABEL, "Header label", "Show File-Explorer, hostname, custom text, or hide the header and use its space for the sidebar"},
-    {OC_APPEARANCE, OK_TEXT, OPT_HEADER_TEXT, "Custom header text", "Apply a custom label on the left; Default restores File-Explorer"},
+    {OC_APPEARANCE, OK_BOOL, OPT_HEADER_ICON, "Show header icon", "Show the original Hermes logo in the accent colour beside the header label"},
+    {OC_APPEARANCE, OK_CHOICE, OPT_HEADER_LABEL, "Header label", "Show Hermes, hostname, custom text, or hide the header and use its space for the sidebar"},
+    {OC_APPEARANCE, OK_TEXT, OPT_HEADER_TEXT, "Custom header text", "Apply a custom label on the left; Default restores Hermes"},
     {OC_APPEARANCE, OK_BOOL, OPT_ROUND_CORNERS, "Rounded corners", "Round the window's corners with a drop shadow"},
     {OC_APPEARANCE, OK_CHOICE, OPT_TERM_LOOK, "Terminal appearance", "Colours, padding and cursor of terminal tabs; font always follows Explorer"},
     {OC_APPEARANCE, OK_BUTTON, OPT_THEME_NEW, "Create theme from current colours", "Writes a JSON scheme you can edit"},
@@ -219,7 +219,7 @@ static const char *opt_choice_label(int id, int i) {
     case OPT_RENDERER: return g_renderer_labels[i];
     case OPT_TITLE_BAR: return g_title_bar_labels[i];
     case OPT_HEADER_LABEL: {
-        static const char *labels[] = {"File-Explorer", "Hostname", "Custom", "Hidden"};
+        static const char *labels[] = {"Hermes", "Hostname", "Custom", "Hidden"};
         return labels[i];
     }
     case OPT_TRANSFERS: return g_transfer_labels[i];

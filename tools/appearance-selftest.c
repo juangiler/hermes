@@ -306,7 +306,7 @@ static void test_tab_preferences(void) {
 
 static void test_integrated_header(void) {
     header_preferences_defaults();
-    assert(!strcmp(header_label_text(), "File-Explorer") && g_show_window_controls);
+    assert(!strcmp(header_label_text(), "Hermes") && g_show_window_controls);
     assert(header_preferences_read("show_window_controls", "0") && !g_show_window_controls);
     assert(header_preferences_read("header_label", "hostname"));
     assert(*header_label_text());
@@ -328,7 +328,7 @@ static void test_integrated_header(void) {
     free(text);
     assert(g_header_label == HEADER_CUSTOM && !strcmp(header_label_text(), "Workstation files") && !g_show_window_controls);
     header_label_defaults(); // resetting only the label must not re-enable window controls
-    assert(!g_show_window_controls && !strcmp(header_label_text(), "File-Explorer"));
+    assert(!g_show_window_controls && !strcmp(header_label_text(), "Hermes"));
     assert(header_preferences_read("header_label", "hidden") && !*header_label_text());
     header_preferences_defaults();
     const float scales[] = {1.f, 1.25f, 2.f};

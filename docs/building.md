@@ -109,6 +109,8 @@ enabled. Report that limitation, and do not disable leak detection in normal CI.
 These need no SDL display. Each C source starts with its exact compiler command:
 
 - `tools/appearance-selftest.c`
+- `tools/credentials-selftest.c`
+- `tools/cloud-identity-selftest.c`
 - `tools/system-icons-selftest.c`
 - `tools/app-desktop-icon-selftest.c`
 - `tools/local-shares-selftest.c`
@@ -123,6 +125,7 @@ Build/install and branding tests use Python's standard library:
 ```sh
 python3 tools/build-install-selftest.py
 python3 tools/branding-selftest.py
+python3 tools/legacy-purge-selftest.py
 python3 tools/gen_logo.py --check
 sh tools/check-release-version.sh
 ```

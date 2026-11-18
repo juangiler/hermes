@@ -1,5 +1,5 @@
 // Secret Service adapter: never export or enumerate credentials. A durable
-// deletion intent blocks both namespaces until a verified explicit store.
+// deletion intent blocks Hermes-only reads until a verified explicit store.
 static int secret_cmd(char *const argv[], const char *input, char *out, size_t cap) {
   int in[2], o[2], result[2];
   if (out && cap) out[0] = 0;
