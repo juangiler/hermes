@@ -13,10 +13,17 @@ FORBIDDEN = (
     "migration_private_dir",
     "startup.lock",
     "HERMES_MIGRATION_RETRY",
+    "HERMES_LEGACY_SLUG",
 )
 
-# Task 2 replaces this helper with a credentials-local one; allow it here until then.
-TEMP_ALLOWED = {"src/credentials.c": {"migration_private_dir"}}
+# Tasks 3-5 remove these owners; allow the token only in those files until then.
+TEMP_ALLOWED = {
+    "src/cloud_identity.c": {"HERMES_LEGACY_SLUG"},
+    "src/integration_identity.c": {"HERMES_LEGACY_SLUG"},
+    "src/rclone.c": {"HERMES_LEGACY_SLUG"},
+    "src/identity.h": {"HERMES_LEGACY_SLUG"},
+}
+
 
 
 def active_files():

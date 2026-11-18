@@ -65,10 +65,30 @@ static bool secret_available(void) {
   const char *t = identity_env("FE_SECRET_TOOL");
   return (t && t[0]) || access("/usr/bin/secret-tool", X_OK) == 0 || access("/usr/local/bin/secret-tool", X_OK) == 0;
 }
+// Private roots are created one component at a time without following symlinks.
+static int secret_private_dir(const char *path) {
+  if (path[0] != '/') return -1;
+  int fd = open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+  char copy[PATH_MAX];
+  snprintf(copy, sizeof copy, "%s", path);
+  char *p = copy, *part;
+  while (fd >= 0 && (part = strsep(&p, "/"))) {
+    if (!*part) continue;
+    if (!strcmp(part, ".") || !strcmp(part, "..")) { close(fd); return -1; }
+    if (mkdirat(fd, part, 0700) && errno != EEXIST) { close(fd); return -1; }
+    int next = openat(fd, part, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    close(fd); fd = next;
+  }
+  struct stat st;
+  if (fd >= 0 && (fstat(fd, &st) || st.st_uid != getuid() || (st.st_mode & 0077))) {
+    close(fd); return -1;
+  }
+  return fd;
+}
 static int secret_intent_dir(void) {
   char path[PATH_MAX];
   identity_xdg("XDG_STATE_HOME", ".local/state", HERMES_SLUG "/credential-deletions", path, sizeof path);
-  return migration_private_dir(path);
+  return secret_private_dir(path);
 }
 static void secret_intent_name(const char *uri, char *name, size_t cap) {
   // The marker is not a secret or a URI export. Two independent hashes avoid
@@ -113,11 +133,7 @@ static bool secret_store(const char *uri, const char *password) {
 static bool secret_lookup(const char *uri, char *out, size_t cap) {
   if (cap) out[0] = 0;
   if (secret_blocked(uri)) return false;
-  if (secret_lookup_namespace(uri, HERMES_SLUG, out, cap)) return true;
-  if (!secret_lookup_namespace(uri, HERMES_LEGACY_SLUG, out, cap)) return false;
-  // A failed/locked new store does not delete or invalidate the legacy record.
-  if (!secret_store(uri, out)) fprintf(stderr, "Hermes: credential namespace migration deferred (keyring write/verification failed).\n");
-  return true;
+  return secret_lookup_namespace(uri, HERMES_SLUG, out, cap);
 }
 static bool secret_clear(const char *uri) {
   int d = secret_intent_dir();
@@ -129,9 +145,5 @@ static bool secret_clear(const char *uri) {
   close(d);
   if (!ok) return false;
   char *argv[] = {(char *)tool("FE_SECRET_TOOL", "secret-tool"), "clear", "application", HERMES_SLUG, "uri", (char *)uri, NULL};
-  bool current = secret_cmd(argv, NULL, NULL, 0) >= 0;
-  argv[3] = HERMES_LEGACY_SLUG;
-  bool legacy = secret_cmd(argv, NULL, NULL, 0) >= 0;
-  // Keep the marker even on success; unavailable legacy storage cannot revive it.
-  return current && legacy;
+  return secret_cmd(argv, NULL, NULL, 0) >= 0;
 }

@@ -1,6 +1,5 @@
 // cc -std=gnu11 -Wall -Wextra -Werror -Wno-unused-function -Wno-format-truncation tools/credentials-selftest.c -o /tmp/opencode/hermes-credentials-test -pthread -lm
 #include "../src/base.h"
-#include "../src/migration.c"
 extern char **environ;
 static const char *tool(const char *key, const char *fallback) {
   const char *v = getenv(key);
@@ -8,13 +7,10 @@ static const char *tool(const char *key, const char *fallback) {
 }
 #include "../src/credentials.c"
 #include <assert.h>
-int main(void) {
-  char root[] = "/tmp/opencode/hermes-credentials-XXXXXX";
-  assert(mkdtemp(root));
-  setenv("XDG_STATE_HOME", root, 1);
-  setenv("CREDENTIAL_FIXTURE", root, 1);
+
+static void fake_secret_tool(const char *dir) {
   char path[PATH_MAX];
-  snprintf(path, sizeof path, "%s/secret-tool", root);
+  snprintf(path, sizeof path, "%s/secret-tool", dir);
   FILE *f = fopen(path, "w");
   assert(f);
   fputs("#!/bin/sh\n"
@@ -27,15 +23,40 @@ int main(void) {
         "store) test -z \"$FAIL_STORE\" || exit 1; cat > \"$file\";;\n"
         "clear) test -z \"$FAIL_CLEAR\" || exit 1; rm -f \"$file\";;\n"
         "esac\n", f);
-  fclose(f); chmod(path, 0700);
-  setenv("HERMES_SECRET_TOOL", path, 1);
-  snprintf(path, sizeof path, "%s/file-explorer.secret", root);
-  f = fopen(path, "w"); assert(f); fputs("private-test-secret", f); fclose(f);
+  fclose(f);
+  chmod(path, 0700);
+  char toolpath[PATH_MAX];
+  snprintf(toolpath, sizeof toolpath, "%s/secret-tool", dir);
+  setenv("HERMES_SECRET_TOOL", toolpath, 1);
+  setenv("CREDENTIAL_FIXTURE", dir, 1);
+  setenv("XDG_STATE_HOME", dir, 1);
+}
+
+int main(void) {
+  // Legacy-only data is ignored: no import and no fallback lookup.
+  char legacy_root[] = "/tmp/opencode/hermes-credentials-legacy-XXXXXX";
+  assert(mkdtemp(legacy_root));
+  fake_secret_tool(legacy_root);
+  char path[PATH_MAX];
+  snprintf(path, sizeof path, "%s/file-explorer.secret", legacy_root);
+  FILE *f = fopen(path, "w");
+  assert(f);
+  fputs("private-test-secret", f);
+  fclose(f);
   char out[128];
+  assert(!secret_lookup("sftp://fixture", out, sizeof out));
+
+  char root[] = "/tmp/opencode/hermes-credentials-XXXXXX";
+  assert(mkdtemp(root));
+  fake_secret_tool(root);
+  snprintf(path, sizeof path, "%s/hermes.secret", root);
+  f = fopen(path, "w");
+  assert(f);
+  fputs("private-test-secret", f);
+  fclose(f);
   assert(secret_lookup("sftp://fixture", out, sizeof out));
   assert(!strcmp(out, "private-test-secret"));
-  snprintf(path, sizeof path, "%s/hermes.secret", root);
-  assert(access(path, F_OK) == 0);
+
   setenv("FAIL_CLEAR", "1", 1);
   assert(!secret_clear("sftp://fixture"));
   assert(!secret_lookup("sftp://fixture", out, sizeof out));
