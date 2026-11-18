@@ -45,14 +45,14 @@ static void settings_defaults(void) {
     A.title_bar = TITLEBAR_AUTO;
     A.round_corners = false;
     A.ig_prev_fm[0] = 0;
-    A.ig_fm1 = A.ig_asked = false;
+    A.ig_asked = false;
     A.ig_check_updates = true;
     A.ig_update_checked = 0;
     A.upd_auto = false;
     A.upd_seen[0] = 0;
     for (int i = 0; i < A.ndev_names; i++) { free(A.dev_names[i].key); free(A.dev_names[i].name); }
     A.ndev_names = 0;
-    A.devs_collapsed = A.nets_collapsed = false;
+    A.devs_collapsed = A.nets_collapsed = A.clouds_collapsed = false;
     g_term_look_setting = 0;
     g_external_terminal[0] = 0;
     A.nservers = 0;
@@ -286,7 +286,6 @@ static void settings_load(void) {
         else if (!strcmp(k, "status_brightness")) g_surface_brightness[SURFACE_STATUS] = CLAMP(atoi(v), -30, 30);
         else if (!strcmp(k, "settings_version")) g_settings_file_version = atoi(v);
         else if (!strcmp(k, "integration_prev_folder_app")) snprintf(A.ig_prev_fm, sizeof A.ig_prev_fm, "%s", v);
-        else if (!strcmp(k, "integration_show_in_folder")) A.ig_fm1 = atoi(v);
         else if (!strcmp(k, "integration_asked")) A.ig_asked = atoi(v);
         else if (!strcmp(k, "check_updates")) A.ig_check_updates = atoi(v);
         else if (!strcmp(k, "update_checked")) A.ig_update_checked = atoll(v);
@@ -547,8 +546,7 @@ static void settings_write(FILE *f) {
             A.def_view == VIEW_GRID ? "grid" : A.def_view == VIEW_LIST ? "list" : "details", A.def_icon, A.def_list_icon, A.def_listv_icon, A.view_per_folder,
             A.def_group);
     fprintf(f, "verify_copies=%d\ntransfers_at_once=%d\n", A.verify_copies, A.transfers_at_once);
-    fprintf(f, "integration_prev_folder_app=%s\nintegration_show_in_folder=%d\nintegration_asked=%d\n", A.ig_prev_fm, A.ig_fm1,
-            A.ig_asked);
+    fprintf(f, "integration_prev_folder_app=%s\nintegration_asked=%d\n", A.ig_prev_fm, A.ig_asked);
     fprintf(f, "check_updates=%d\nupdate_checked=%lld\nupdate_auto_install=%d\nupdate_seen=%s\n", A.ig_check_updates,
             (long long)A.ig_update_checked, A.upd_auto, A.upd_seen);
     fprintf(f, "title_bar=%s\n", A.title_bar == TITLEBAR_SYSTEM ? "system" : A.title_bar == TITLEBAR_APP ? "app" : "auto");
@@ -585,7 +583,6 @@ static void settings_snapshot(void) {
 }
 
 static void settings_save(void) {
-    if (picker_active()) return; // a file chooser window never changes the settings or the session
     char dir[PATH_MAX], path[PATH_MAX], tmp[PATH_MAX + 8];
     settings_file(dir, sizeof dir, true);
     settings_file(path, sizeof path, false);

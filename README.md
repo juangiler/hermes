@@ -1,79 +1,124 @@
 <div align="center">
 
-<img src="packaging/dev.fileexplorer.svg" width="84" alt="File Explorer logo">
+<img src="assets/branding/hermes.svg" width="112" alt="Hermes pixel-art winged helmet">
 
-# File Explorer
+# Hermes
 
-**Just another file explorer.** Fast, keyboard-first, for Linux.
+**A fast, keyboard-first file manager for Linux.**
 
-[![CI](https://img.shields.io/github/actions/workflow/status/AlexMedela/file-explorer/ci.yml?branch=main&style=flat&label=CI&logo=githubactions&logoColor=white)](https://github.com/AlexMedela/file-explorer/actions)
-[![Release](https://img.shields.io/github/v/release/AlexMedela/file-explorer?style=flat&color=7aa2f7&logo=github)](https://github.com/AlexMedela/file-explorer/releases/latest)
-[![License: MIT](https://img.shields.io/badge/license-MIT-9ece6a?style=flat)](LICENSE)
-![Linux](https://img.shields.io/badge/Linux-Wayland%20%7C%20X11-bb9af7?style=flat&logo=linux&logoColor=white)
-![C11 + SDL3](https://img.shields.io/badge/C11-SDL3-e0af68?style=flat&logo=c&logoColor=white)
-![Made with Claude](https://img.shields.io/badge/made_with-Claude-D97757?style=flat&logo=claude&logoColor=white)
+Split panels, cloud folders, an integrated terminal, and a GPU-drawn interface.
 
-<img src="docs/img/hero.png" alt="File Explorer: a Git repository and an image folder side by side" width="900">
+[![License: MIT](https://img.shields.io/badge/license-MIT-9ece6a)](LICENSE)
+![Linux](https://img.shields.io/badge/Linux-Wayland%20%7C%20X11-bb9af7)
+![C11 + SDL3](https://img.shields.io/badge/C11-SDL3-e0af68)
 
 </div>
 
-https://github.com/user-attachments/assets/fbfe88ff-015f-431b-87c6-2704839d9ee3
+Hermes is **forked from and inspired by
+[File Explorer](https://github.com/AlexMedela/file-explorer)** by AlexMedela
+(amedela). It preserves the original project's MIT licence and attribution,
+while developing its own identity and desktop experience.
 
 ## Features
-- **Instant on huge folders**: 200,000 files listed with sizes and dates in under 0.1 s; the UI never waits on the disk.
-- **Keyboard-first**: `Ctrl+P` jumps to any folder or file, typing finds one, and every shortcut can be rebound.
-- **Split panels and tabs**: split any way you like, each panel with its own tabs; save layouts and switch between them.
-- **Built-in terminal**: a panel under your files that follows the folder (`F4`), or a terminal tab (`Shift+F4`), using Explorer's font with programming ligatures.
-- **Search and sorting**: filter as you type, sort beside the navigation bar, search subfolders, or search inside files (ripgrep when installed).
-- **Disk usage map**: see what takes the space as a treemap or sunburst, and clean it up right there.
-- **Git status**: changed, new and ignored files marked in repositories, with the branch in the path bar.
-- **Compare and sync**: compare two folders side by side and sync them one way or both.
-- **Phones and cameras**: iPhones and Android phones on a cable, no GVfs needed.
-- **Archives as folders**: browse zip, tar, 7z, rar and iso like folders; extract or compress from the menu.
-- **Snapshots**: previous versions of files from Snapper, Timeshift or ZFS, browse and restore.
-- **Drives and network**: mount USB drives, SMB/SFTP shares and cloud storage (rclone) from the sidebar.
-- **Looks the same everywhere**: GPU-drawn with its own title bar on GNOME, KDE, Xfce, Hyprland, Sway; themes and icon sets.
 
-## Install
-| Distro | How | |
-|---|---|---|
-| Debian 13, Ubuntu 25.10+, Mint, Pop!_OS | add the repo once, then `sudo apt install file-explorer` ([commands](docs/install.md#debian-13-ubuntu-2510--2604--2610-mint-pop_os)) | ![ready](https://img.shields.io/badge/ready-apt%20repo-9ece6a?style=flat) |
-| Fedora 43 / 44 | add the repo once, then `sudo dnf install file-explorer` ([commands](docs/install.md#fedora-43--44)) | ![ready](https://img.shields.io/badge/ready-rpm%20repo-9ece6a?style=flat) |
-| openSUSE Tumbleweed / Leap 16 | add the repo once, then `sudo zypper install file-explorer` ([commands](docs/install.md#opensuse-tumbleweed--leap-160)) | ![ready](https://img.shields.io/badge/ready-rpm%20repo-9ece6a?style=flat) |
-| Arch, CachyOS, Manjaro, EndeavourOS | `makepkg -si` in `packaging/arch` of a clone ([commands](docs/install.md#arch-cachyos-manjaro-endeavouros)) | ![ready](https://img.shields.io/badge/ready-PKGBUILD-9ece6a?style=flat) |
-| Any distro (Ubuntu 22.04+, Debian 12+...) | AppImage from [Releases](https://github.com/AlexMedela/file-explorer/releases/latest) ([how](docs/install.md#any-other-distro-appimage)) | ![ready](https://img.shields.io/badge/ready-AppImage-9ece6a?style=flat) |
+- **Keyboard-first navigation:** jump with `Ctrl+P`, filter with `Ctrl+F`, and rebind shortcuts.
+- **Panels and tabs:** split the workspace, move tabs, and save layouts.
+- **Integrated terminal:** a folder-following panel (`F4`) or terminal tab (`Shift+F4`).
+- **Files and previews:** list/grid views, thumbnails, archives as folders, and batch rename.
+- **Search and analysis:** recursive/content search, disk usage maps, folder compare and sync.
+- **Git integration:** repository badges, branches, and changed-file indicators.
+- **Devices and connections:** removable drives, phones, cameras, SMB, SFTP, NFS, and WebDAV.
+- **Separate Network and Cloud:** native connections stay in Network; rclone remotes, including WebDAV, live in Cloud.
+- **Appearance:** themes, installed/custom file icons, folder badges, and configurable headers.
 
-All packages, x86_64 and ARM64, update with your system. Details and other distros: [docs/install.md](docs/install.md).
+## Built for KDE Plasma
 
-Installing never replaces your current file manager or file picker: switch those on in **Options > Integration**
-(default file manager, "Show in folder", file chooser for other apps). See [Integration](docs/integration.md).
+Hermes is developed **for KDE Plasma 6.x first** — the 6.6, 6.7 and 6.8
+series. It fits Plasma's keyboard-driven workflow and speaks the desktop's
+integration points directly: freedesktop icon themes, the XDG Settings
+portal for the system accent colour, autostart and systemd user services for
+cloud mounts. It does not claim the FileManager1 role or provide a system
+file chooser. It runs natively on Wayland and X11. Other desktops work through
+the same open standards, but they are not a development focus.
+
+### Compatibility status
+
+"Verified" means it actually ran here; "target" means it is intended but not
+yet run. Headless self-tests render offscreen and do **not** by themselves
+prove live desktop behavior.
+
+| Environment | Status |
+| --- | --- |
+| Fedora 45, Plasma 6.8.3 (Wayland) | **Verified (build + headless tests):** debug/release/package builds and all 15 self-test suites pass on this development host. Live Plasma session checks are still pending. |
+| Plasma 6.6 / 6.7 / 6.8 | **Target.** The primary desktop; manual session verification is planned, not yet recorded. |
+| Ubuntu / Debian and Arch Linux | **Target.** Recipes exist under `packaging/`; only the Fedora spec is parse-checked here, .deb and `makepkg` builds are untested. |
+| AppImage | **Target.** Opt-in container recipe (`packaging/appimage/`), not built by default. |
+| GNOME and other desktops | **Not a focus.** Standards-based integration only, no active testing. |
+
+## Build and run
+
+This fork is in development. **There is no configured public Hermes package
+repository or automatic-update channel.** Upstream File Explorer packages are
+not Hermes packages.
+
+From a checkout with the [build dependencies](docs/building.md) installed:
+
+```sh
+./build.sh
+./build/release/hermes
+
+./build.sh debug       # build/debug/hermes, ASan + UBSan
+./build.sh package     # build/package/hermes, portable CPU flags
+```
+
+| Distribution | Packaging path |
+| --- | --- |
+| Ubuntu / Debian | Shared debhelper recipe: `packaging/debian/` |
+| Fedora | RPM spec: `packaging/rpm/hermes.spec` |
+| Arch Linux | Development package: `packaging/arch/PKGBUILD` |
+| Portable bundle | Opt-in AppImage recipe: `packaging/appimage/` |
+
+See [installation](docs/install.md) for local builds, package commands, and
+distribution/version limits. Package recipes are not a claim of official
+distribution inclusion. Installation does not make Hermes your default manager
+or file chooser.
+
+## Moving from File Explorer
+
+Hermes uses its own `hermes` configuration/data namespace and
+`io.github.juangiler.hermes` desktop identity. The migration preserves original
+data, does not overwrite existing Hermes files, and treats active cloud mounts
+separately: a cloud folder connected through File Explorer's own service stays
+there until Hermes takes it over, and says so instead of touching it. See
+[migration and recovery](docs/migration.md) before switching.
 
 ## First steps
-| Key | |
-|---|---|
-| `Ctrl+P` | Go to any folder or file |
-| Type a name | Jump to it, `Ctrl+F` to filter or search below |
-| `Ctrl+\` | Split the panel (each has its own tabs) |
+
+| Shortcut | Action |
+| --- | --- |
+| `Ctrl+P` | Jump to a folder or file |
 | `Ctrl+T` / `Ctrl+W` | New tab / close tab |
+| `Ctrl+\` | Split the panel |
 | `Space` | Preview panel |
-| `F4` | Terminal panel under this folder (`Shift+F4`: a terminal tab) |
+| `F4` / `Shift+F4` | Terminal panel / terminal tab |
 | `Ctrl+Shift+U` | Disk usage map |
-| `Ctrl+,` | Options: themes, keys, views, title bar |
+| `Ctrl+,` | Options |
 
-All keys: [docs/keys.md](docs/keys.md)
+## Documentation
 
-## Docs
-[Install](docs/install.md) · [Keys](docs/keys.md) · [Settings](docs/settings.md) · [Integration](docs/integration.md) · [Building](docs/building.md) · [Maintenance](MAINTENANCE.md) · [Architecture](docs/architecture.md)
+[Install](docs/install.md) · [Build and test](docs/building.md) ·
+[Migration](docs/migration.md) · [Keys](docs/keys.md) ·
+[Settings](docs/settings.md) · [Integration](docs/integration.md) ·
+[Custom icons](docs/custom-icons.md) · [Architecture](docs/architecture.md) ·
+[Maintenance](MAINTENANCE.md)
 
-## Thanks
-To everyone who sent code, reported bugs or asked for features:
+Historical screenshots and demo recordings inherited from File Explorer may
+still show its former name; they are not evidence of a newly captured Hermes release.
 
-<a href="https://github.com/zeropaulsy"><img src="https://github.com/zeropaulsy.png?size=96" width="48" height="48" alt="@zeropaulsy" title="@zeropaulsy"></a>
-<a href="https://github.com/juangiler"><img src="https://github.com/juangiler.png?size=96" width="48" height="48" alt="@juangiler" title="@juangiler"></a>
-<a href="https://github.com/pr83-glitch"><img src="https://github.com/pr83-glitch.png?size=96" width="48" height="48" alt="@pr83-glitch" title="@pr83-glitch"></a>
+## Licence and credits
 
-## Licence
-[MIT](LICENSE). Bundled icon sets and libraries keep their own licences, listed in [Building](docs/building.md#tools-and-self-tests).
-
-Custom file themes and share/symlink/Git badge overrides are documented in
-[Custom icons and folder badges](docs/custom-icons.md).
+[MIT](LICENSE). Original copyright notices are retained. Bundled libraries and
+file icon themes keep their respective licences; see
+[third-party credits](docs/building.md#third-party-credits).
+The pixel-art winged helmet is Hermes's application logo, separate from file
+and folder icon themes.

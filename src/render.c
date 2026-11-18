@@ -2646,7 +2646,6 @@ static void draw_status(void) {
     Listing *L = p->L;
     Rect s = A.r_status;
     A.r_xfer = A.r_size = (Rect){0, 0, 0, 0};
-    if (picker_active()) { draw_picker_bar(s); return; } // Open / Save / Choose folder bar
     if (active_term()) { draw_status_term(active_term()); return; }
     draw_rect(s.x, s.y, s.w, s.h, C(COL_STATUS));
     if (g_show_separators) draw_rect(s.x, s.y, s.w, 1, C(COL_BORDER));

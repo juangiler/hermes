@@ -84,7 +84,6 @@ static void on_key(SDL_KeyboardEvent *k) {
     if (A.menu.open) { menu_key(k->key); return; }
     if (A.q_open && !A.ren_pane && !A.search_pane && !A.edit_pane && A.qa_edit_g < 0 && !active_term() && queue_key(k->key, k->mod)) return;
     if (A.drag != DRAG_NONE && k->key == SDLK_ESCAPE) { dragout_cancel(); drag_cancel(); return; }
-    if (!A.ren_pane && A.qa_edit_g < 0 && picker_key(k->key, k->mod)) return;
     if (active_term()) { // the terminal has the keyboard; the app keeps tab switching, closing and its menus
         Term *tt = active_term();
         if (tt == A.ap->cur->dock && (key_is(k, ACT_TERM_PANEL) || key_is(k, ACT_TERM_FOCUS))) {
@@ -226,7 +225,6 @@ static void on_key(SDL_KeyboardEvent *k) {
 static void on_text(const char *text) {
     if (A.dlg.open || A.menu.open) return;
     if (sheet_open()) { sheet_text(text); return; }
-    if (!A.pal_open && picker_text(text)) { A.redraw = true; return; }
     if (A.pal_open) {
         te_insert(&A.pal_te, text);
         pal_changed();
@@ -709,7 +707,6 @@ static void on_mouse_down(SDL_MouseButtonEvent *b) {
         A.term_mouse_btn = b->button;
         return;
     }
-    if (b->button == SDL_BUTTON_LEFT && picker_mouse(x, y)) return;
     if (in_rect(A.r_status, x, y) && b->button == SDL_BUTTON_LEFT) {
         if (in_rect(A.r_gear, x, y)) { options_open(); return; }
         if (in_rect(A.r_feat, x, y)) { menu_open_features(active_pane(), 0, 0); return; }

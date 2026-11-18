@@ -29,21 +29,21 @@ static u32 system_accent_rgb(const double rgb[3]) {
 static u32 system_accent_value(IgDBusIter *value) {
     IgDBusIter it = *value;
     // ReadOne returns one variant; older Read implementations wrap twice.
-    for (int depth = 0; depth < 4 && g_fm1.iter_get_arg_type(&it) == 'v'; depth++) {
+    for (int depth = 0; depth < 4 && g_dbus.iter_get_arg_type(&it) == 'v'; depth++) {
         IgDBusIter child;
-        g_fm1.iter_recurse(&it, &child);
+        g_dbus.iter_recurse(&it, &child);
         it = child;
     }
-    if (g_fm1.iter_get_arg_type(&it) != 'r') return 0; // DBUS_TYPE_STRUCT
+    if (g_dbus.iter_get_arg_type(&it) != 'r') return 0; // DBUS_TYPE_STRUCT
     IgDBusIter channels;
-    g_fm1.iter_recurse(&it, &channels);
+    g_dbus.iter_recurse(&it, &channels);
     double rgb[3];
     for (int i = 0; i < 3; i++) {
-        if (g_fm1.iter_get_arg_type(&channels) != 'd') return 0;
-        g_fm1.iter_get_basic(&channels, &rgb[i]);
-        if (i < 2 && !g_fm1.iter_next(&channels)) return 0;
+        if (g_dbus.iter_get_arg_type(&channels) != 'd') return 0;
+        g_dbus.iter_get_basic(&channels, &rgb[i]);
+        if (i < 2 && !g_dbus.iter_next(&channels)) return 0;
     }
-    if (g_fm1.iter_next(&channels)) return 0;
+    if (g_dbus.iter_next(&channels)) return 0;
     return system_accent_rgb(rgb);
 }
 
@@ -88,25 +88,25 @@ static void *system_setting_reply(void *conn, const char *ns, const char *key) {
     for (int i = legacy ? 1 : 0; i < 2 && !atomic_load(&g_system_appearance.stop); i++) {
         void *msg = g_system_appearance.new_call(AP_DEST, AP_PATH, AP_IFACE, methods[i]);
         if (!msg) return NULL;
-        if (!g_fm1.append_args(msg, 's', &ns, 's', &key, 0)) {
-            g_fm1.message_unref(msg);
+        if (!g_dbus.append_args(msg, 's', &ns, 's', &key, 0)) {
+            g_dbus.message_unref(msg);
             return NULL;
         }
         IgDBusError error;
-        g_fm1.error_init(&error);
+        g_dbus.error_init(&error);
         void *reply = g_system_appearance.call_block(conn, msg, 1000, &error);
-        g_fm1.message_unref(msg);
-        g_fm1.error_free(&error);
+        g_dbus.message_unref(msg);
+        g_dbus.error_free(&error);
         if (reply) return reply;
         if (i == 0) legacy = true; // Read works with both old and new portals
     }
     return NULL;
 }
 static bool system_setting_iter(void *reply, IgDBusIter *it) {
-    if (!reply || !g_fm1.iter_init(reply, it)) return false;
-    for (int depth = 0; depth < 4 && g_fm1.iter_get_arg_type(it) == 'v'; depth++) {
+    if (!reply || !g_dbus.iter_init(reply, it)) return false;
+    for (int depth = 0; depth < 4 && g_dbus.iter_get_arg_type(it) == 'v'; depth++) {
         IgDBusIter child;
-        g_fm1.iter_recurse(it, &child);
+        g_dbus.iter_recurse(it, &child);
         *it = child;
     }
     return true;
@@ -114,13 +114,13 @@ static bool system_setting_iter(void *reply, IgDBusIter *it) {
 static bool system_setting_string(void *conn, const char *ns, const char *key, char *out, size_t cap) {
     void *reply = system_setting_reply(conn, ns, key);
     IgDBusIter it;
-    bool ok = system_setting_iter(reply, &it) && g_fm1.iter_get_arg_type(&it) == 's';
+    bool ok = system_setting_iter(reply, &it) && g_dbus.iter_get_arg_type(&it) == 's';
     if (ok) {
         const char *value;
-        g_fm1.iter_get_basic(&it, &value);
+        g_dbus.iter_get_basic(&it, &value);
         snprintf(out, cap, "%s", value);
     }
-    if (reply) g_fm1.message_unref(reply);
+    if (reply) g_dbus.message_unref(reply);
     return ok;
 }
 static bool system_setting_color(void *conn, const char *group, const char *key, u32 *color) {
@@ -135,16 +135,16 @@ static SystemAppearance system_appearance_read(void *conn) {
     void *reply = system_setting_reply(conn, "org.freedesktop.appearance", "accent-color");
     IgDBusIter it;
     if (reply) {
-        if (g_fm1.iter_init(reply, &it)) state.accent = system_accent_value(&it);
-        g_fm1.message_unref(reply);
+        if (g_dbus.iter_init(reply, &it)) state.accent = system_accent_value(&it);
+        g_dbus.message_unref(reply);
     }
     reply = system_setting_reply(conn, "org.freedesktop.appearance", "color-scheme");
-    if (system_setting_iter(reply, &it) && g_fm1.iter_get_arg_type(&it) == 'u') {
+    if (system_setting_iter(reply, &it) && g_dbus.iter_get_arg_type(&it) == 'u') {
         unsigned scheme;
-        g_fm1.iter_get_basic(&it, &scheme);
+        g_dbus.iter_get_basic(&it, &scheme);
         if (scheme <= 2) state.scheme = (int)scheme;
     }
-    if (reply) g_fm1.message_unref(reply);
+    if (reply) g_dbus.message_unref(reply);
     char icon[64] = "";
     bool kde = system_setting_string(conn, "org.kde.kdeglobals.Icons", "Theme", icon, sizeof icon);
     if (!kde) system_setting_string(conn, "org.gnome.desktop.interface", "icon-theme", icon, sizeof icon);
@@ -183,43 +183,43 @@ static u64 system_style_stamp(void) {
 static void *system_accent_worker(void *unused) {
     (void)unused;
     IgDBusError error;
-    g_fm1.error_init(&error);
-    void *conn = g_fm1.bus_get_private(0 /* DBUS_BUS_SESSION */, &error);
-    g_fm1.error_free(&error);
+    g_dbus.error_init(&error);
+    void *conn = g_dbus.bus_get_private(0 /* DBUS_BUS_SESSION */, &error);
+    g_dbus.error_free(&error);
     if (conn) {
         g_system_appearance.set_exit(conn, 0);
-        g_fm1.error_init(&error);
+        g_dbus.error_init(&error);
         g_system_appearance.add_match(conn,
             "type='signal',sender='org.freedesktop.portal.Desktop',"
             "interface='org.freedesktop.portal.Settings',member='SettingChanged',"
             "path='/org/freedesktop/portal/desktop'", &error);
-        g_fm1.error_free(&error);
-        g_fm1.error_init(&error);
+        g_dbus.error_free(&error);
+        g_dbus.error_init(&error);
         g_system_appearance.add_match(conn,
             "type='signal',sender='org.freedesktop.DBus',interface='org.freedesktop.DBus',"
             "member='NameOwnerChanged',arg0='org.freedesktop.portal.Desktop'", &error);
-        g_fm1.error_free(&error);
+        g_dbus.error_free(&error);
     }
     SystemAppearance state = system_appearance_read(conn);
     system_appearance_post(&state);
     u64 stamp = system_style_stamp(), next = now_ns() + 2000000000ull;
     while (!atomic_load(&g_system_appearance.stop)) {
         bool refresh = false;
-        if (conn && !g_fm1.read_write(conn, 150)) break;
+        if (conn && !g_dbus.read_write(conn, 150)) break;
         if (!conn) usleep(150000);
         void *msg;
-        while (conn && (msg = g_fm1.pop_message(conn))) {
+        while (conn && (msg = g_dbus.pop_message(conn))) {
             if (g_system_appearance.is_signal(msg, AP_IFACE, "SettingChanged")) {
                 IgDBusIter it;
                 const char *ns;
-                if (g_fm1.iter_init(msg, &it) && g_fm1.iter_get_arg_type(&it) == 's') {
-                    g_fm1.iter_get_basic(&it, &ns);
+                if (g_dbus.iter_init(msg, &it) && g_dbus.iter_get_arg_type(&it) == 's') {
+                    g_dbus.iter_get_basic(&it, &ns);
                     refresh |= !strcmp(ns, "org.freedesktop.appearance") ||
                                !strncmp(ns, "org.kde.kdeglobals.", 19) || !strcmp(ns, "org.gnome.desktop.interface");
                 }
             }
             if (g_system_appearance.is_signal(msg, "org.freedesktop.DBus", "NameOwnerChanged")) refresh = true;
-            g_fm1.message_unref(msg);
+            g_dbus.message_unref(msg);
         }
         if (now_ns() >= next) {
             u64 changed = system_style_stamp();
@@ -233,7 +233,7 @@ static void *system_accent_worker(void *unused) {
             state = updated;
         }
     }
-    if (conn) { g_fm1.connection_close(conn); g_fm1.connection_unref(conn); }
+    if (conn) { g_dbus.connection_close(conn); g_dbus.connection_unref(conn); }
     if (!atomic_load(&g_system_appearance.stop)) {
         SystemAppearance fallback = system_appearance_read(NULL);
         if (!system_appearance_equal(&state, &fallback)) system_appearance_post(&fallback);
@@ -258,7 +258,7 @@ static void system_accent_start(void) {
     }
     if (!ig_dbus_load()) return;
 #define AP_SYM(field, symbol) \
-    *(void **)&g_system_appearance.field = dlsym(g_fm1.lib, symbol); \
+    *(void **)&g_system_appearance.field = dlsym(g_dbus.lib, symbol); \
     if (!g_system_appearance.field) return;
     AP_SYM(new_call, "dbus_message_new_method_call")
     AP_SYM(call_block, "dbus_connection_send_with_reply_and_block")

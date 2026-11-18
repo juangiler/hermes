@@ -1,4 +1,4 @@
-// dbus.c - optional libdbus loader shared by desktop integrations
+// dbus.c - optional libdbus loader shared with the system accent reader
 
 typedef struct { const char *name, *message; unsigned dummy; void *pad; void *more[4]; } IgDBusError;
 typedef struct { void *p[16]; } IgDBusIter; // (libdbus's DBusMessageIter is smaller; it only writes its own part)
@@ -26,16 +26,13 @@ static struct {
     void (*connection_close)(void *);
     void (*connection_unref)(void *);
     atomic_bool stop, running;
-    int state; // IG_FM1_*
-} g_fm1;
-
-enum { IG_FM1_OFF, IG_FM1_SERVING, IG_FM1_TAKEN, IG_FM1_NO_DBUS };
+} g_dbus;
 
 static bool ig_dbus_load(void) {
-    if (g_fm1.lib) return true;
+    if (g_dbus.lib) return true;
     void *l = dlopen("libdbus-1.so.3", RTLD_NOW | RTLD_LOCAL);
     if (!l) return false;
-    #define IG_SYM(field, name) *(void **)&g_fm1.field = dlsym(l, name); if (!g_fm1.field) { dlclose(l); return false; }
+    #define IG_SYM(field, name) *(void **)&g_dbus.field = dlsym(l, name); if (!g_dbus.field) { dlclose(l); return false; }
     IG_SYM(error_init, "dbus_error_init")
     IG_SYM(error_free, "dbus_error_free")
     IG_SYM(bus_get_private, "dbus_bus_get_private")
@@ -57,6 +54,6 @@ static bool ig_dbus_load(void) {
     IG_SYM(connection_close, "dbus_connection_close")
     IG_SYM(connection_unref, "dbus_connection_unref")
     #undef IG_SYM
-    g_fm1.lib = l;
+    g_dbus.lib = l;
     return true;
 }

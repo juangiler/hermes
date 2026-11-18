@@ -203,18 +203,22 @@ Each saved server can have a display name and a display icon (generic server/VM/
 such as AWS, Azure, Google Cloud, Hetzner, and operating systems), plus your own: `net-<name>.svg` in any folder of
 the icon themes folder.
 
-The system file chooser, default file manager and phone access are in [Integration](integration.md).
+The default file manager and phone access are in [Integration](integration.md).
 
-Cloud (sidebar → Network, shown when [rclone](https://rclone.org) is installed): every remote `rclone listremotes`
-reports - Google Drive, OneDrive, Dropbox, S3, WebDAV... - is a place. Right-click Network to run `rclone config` in a
-terminal tab or refresh remotes; each remote also has an edit button beside its disconnect button that opens the
+Cloud (its own sidebar section, shown when [rclone](https://rclone.org) is installed): every remote `rclone listremotes`
+reports - Google Drive, OneDrive, Dropbox, S3, WebDAV... - is a place. Cloud's **+** runs `rclone config` in a
+terminal tab. Right-click Cloud to configure or refresh remotes; each remote also has an edit button beside its disconnect button that opens the
 interactive rclone configuration in a terminal tab. The list follows rclone's configuration by itself. A click connects
 and opens it: `rclone mount` runs as a
-systemd user service (`~/.config/systemd/user/file-explorer-cloud-*.service`, `--vfs-cache-mode full`) mounted at
-`~/.local/share/file-explorer/cloud/<remote>`, so it stays mounted when the app is closed and, with "Connect at login"
+systemd user service (`~/.config/systemd/user/hermes-cloud-*.service`, `--vfs-cache-mode full`) mounted at
+`~/.local/share/hermes/cloud/<remote>`, so it stays mounted when the app is closed and, with "Connect at login"
 (right-click), comes up without the app. The eject button disconnects; the dot shows connecting / retrying. When a
 sign-in has expired the app offers `rclone config reconnect` in a terminal. A remote you mounted yourself shows up
 here as connected, at its own folder. Needs FUSE (`fuse3`).
+
+Cloud collapses independently of Network. Its expanded/collapsed state is saved as `cloud_collapsed`
+(`0` = expanded, the default; `1` = collapsed). Native connections, including direct WebDAV, stay in Network;
+rclone remotes, including rclone WebDAV, stay in Cloud whether connected or disconnected.
 
 Options → Behaviour has "Start Explorer at login" (XDG autostart, starts in the background) and "Keep running in
 the tray when closed" (needs a tray in your panel).
@@ -222,7 +226,7 @@ the tray when closed" (needs a tray in your panel).
 Terminal panel: F4 shows a shell under the folder, one per tab, that follows the folder both ways while it waits at
 its prompt (Ctrl+Shift+F4 moves the keyboard between the two). bash, zsh and fish move quietly: the panel's shell loads
 a few lines of shell integration after your own startup files (bash: `--rcfile` that runs `~/.bashrc` first; zsh:
-`ZDOTDIR` pointing at files that run yours; fish: `-C`), kept in `$XDG_RUNTIME_DIR/file-explorer/shell`, so the prompt
+`ZDOTDIR` pointing at files that run yours; fish: `-C`), kept in `$XDG_RUNTIME_DIR/hermes/shell`, so the prompt
 just updates and what you typed stays. Other shells, or one whose startup files fail before that, get a `cd` typed. Tabs that had it open get it back after a restart, with
 a new shell; `terminal_panel_height` is its height. Terminal tabs: Shift+F4 opens a terminal tab in the current
 folder (an SSH session in the same remote folder for SFTP connections); right-click for a local or an external terminal. It runs your shell and looks like your default

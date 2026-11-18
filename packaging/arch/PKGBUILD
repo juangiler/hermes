@@ -1,22 +1,20 @@
-# Maintainer: amedela
-# File Explorer from git. Inside a checkout of the repo it builds that checkout (your changes included);
-# on its own (e.g. copied elsewhere) it clones GitHub. FE_SRC=<dir> builds another checkout.
-#   git clone https://github.com/AlexMedela/file-explorer && cd file-explorer/packaging/arch && makepkg -si
-pkgname=file-explorer-git
+# Maintainer: juangiler <juangiler@users.noreply.github.com>
+# Hermes from git. HERMES_SRC selects a local checkout; FE_SRC is a legacy alias.
+# makepkg snapshots committed git state, not uncommitted edits.
+pkgname=hermes-git
 pkgver=r0
 pkgrel=1
-pkgdesc="File Explorer - Just another file explorer: fast, keyboard-first, GPU-rendered (C, SDL3)"
+pkgdesc="Hermes - fast, keyboard-first file manager (C, SDL3)"
 arch=('x86_64' 'aarch64')
-url="https://github.com/AlexMedela/file-explorer"
+url="https://github.com/juangiler/hermes"
 license=('MIT')
-depends=('sdl3' 'freetype2' 'harfbuzz' 'fontconfig' 'libarchive' 'glibc' 'libvterm' 'fuse3' 'openssl'
+depends=('sdl3>=3.2' 'freetype2' 'harfbuzz' 'fontconfig' 'libarchive' 'glibc' 'libvterm>=0.3' 'fuse3' 'openssl>=3.0'
          'libdecor')  # title bar on GNOME Wayland (no server-side decorations there)
 makedepends=('git' 'gcc' 'pkgconf')
 optdepends=('gtk3: GTK look for the libdecor title bar (GNOME)'
             'polkit: retry as administrator (needs an authentication agent running)'
             'xdg-utils: open files with their default app'
-            'dbus: "Show in folder" from browsers and other apps (Options > Integration)'
-            'xdg-desktop-portal-termfilechooser: be the file chooser of other apps (Options > Integration)'
+            'dbus: read the KDE Plasma system accent colour'
             'ffmpegthumbnailer: video previews'
             'evince: PDF previews (thumbnailer)'
             'glycin: previews for HEIF, JXL, SVG and more (thumbnailers)'

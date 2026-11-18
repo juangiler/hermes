@@ -9,7 +9,7 @@ enum {
     OPT_ALT_ROWS, OPT_SIZE_BARS, OPT_LOAD_TIMES, OPT_SMOOTH, OPT_THEME_NEW, OPT_THEME_FOLDER, OPT_ICON_FOLDER, OPT_TERM_LOOK,
     OPT_HIDDEN, OPT_FOLDER_SIZES, OPT_GIT_STATUS, OPT_SEARCH_SUB, OPT_RESTORE, OPT_PREVIEW, OPT_SINGLE_CLICK, OPT_DBLCLICK_UP, OPT_DROP_ASK, OPT_TRANSFERS, OPT_VERIFY, OPT_KEYS_RESET, OPT_SINGLE_INSTANCE, OPT_AUTOSTART, OPT_TRAY,
     OPT_DEF_VIEW, OPT_VIEW_PER_FOLDER, OPT_DEF_SORT, OPT_SORT_DESC, OPT_DEF_GROUP,
-    OPT_RENDERER, OPT_SETTINGS_FILE, OPT_REINDEX, OPT_TITLE_BAR, OPT_ROUND_CORNERS, OPT_IG_DEFAULT_FM, OPT_IG_FM1, OPT_IG_PICKER, OPT_IG_UPDATES,
+    OPT_RENDERER, OPT_SETTINGS_FILE, OPT_REINDEX, OPT_TITLE_BAR, OPT_ROUND_CORNERS, OPT_IG_DEFAULT_FM, OPT_IG_UPDATES,
     OPT_UPD_NOW, OPT_UPD_HOW, OPT_UPD_NOTES, OPT_UPD_AUTO,
     OPT_SYSTEM_ACCENT, OPT_SYSTEM_BACKGROUND, OPT_UNIFIED_SURFACES, OPT_SEPARATORS,
     OPT_SIDEBAR_BRIGHTNESS, OPT_HEADER_BRIGHTNESS, OPT_MAIN_BRIGHTNESS, OPT_STATUS_BRIGHTNESS, OPT_PREVIEW_BRIGHTNESS,
@@ -79,8 +79,6 @@ static const OptDef g_opts[] = {
     {OC_VIEWS, OK_CHOICE, OPT_DEF_GROUP, "Default grouping", "Group items in the details view"},
     {OC_INTEGRATION, OK_TEXT, OPT_TERMINAL_PATH, "Terminal executable", "Executable name or absolute path, without arguments; its name appears in the Open in menu"},
     {OC_INTEGRATION, OK_BOOL, OPT_IG_DEFAULT_FM, "Default file manager", "Folders from other apps open here"},
-    {OC_INTEGRATION, OK_BOOL, OPT_IG_FM1, "\"Show in folder\" opens here", "From browsers and other apps"},
-    {OC_INTEGRATION, OK_BOOL, OPT_IG_PICKER, "File chooser for other apps", "Their Open and Save dialogs open here"},
     {OC_UPDATES, OK_BUTTON, OPT_UPD_NOW, APP_LABEL " " APP_VERSION, "How this copy updates"},
     {OC_UPDATES, OK_BUTTON, OPT_UPD_HOW, "How it updates", "Where new versions come from"},
     {OC_UPDATES, OK_BUTTON, OPT_UPD_NOTES, "What's new", "Release notes of every version, on GitHub"},
@@ -163,12 +161,6 @@ static const char *opt_desc(const OptDef *o) {
         if (!ig_default_fm_on()) { snprintf(buf, sizeof buf, "Folders open in %s now", a ? a->name : "no app"); return buf; }
         break;
     }
-    case OPT_IG_FM1:
-        if (A.ig_fm1 && g_fm1.state == IG_FM1_TAKEN) return "Another file manager has it now";
-        break;
-    case OPT_IG_PICKER:
-        if (!ig_picker_portal_installed()) return "Needs the termfilechooser portal";
-        break;
     case OPT_UPD_NOW: return upd_status();
     case OPT_UPD_HOW: return upd_how();
     }
@@ -342,8 +334,6 @@ static bool opt_bool_get(int id) {
     case OPT_TRAY: return A.close_to_tray;
     case OPT_VERIFY: return A.verify_copies;
     case OPT_IG_DEFAULT_FM: return ig_default_fm_on();
-    case OPT_IG_FM1: return A.ig_fm1;
-    case OPT_IG_PICKER: return ig_picker_on();
     case OPT_IG_UPDATES: return A.ig_check_updates;
     case OPT_UPD_AUTO: return A.upd_auto;
     }
@@ -396,12 +386,6 @@ static void opt_bool_toggle(int id) {
     case OPT_AUTOSTART: autostart_set(!autostart_enabled()); break;
     case OPT_VERIFY: A.verify_copies = !A.verify_copies; break;
     case OPT_IG_DEFAULT_FM: ig_default_fm_set(!ig_default_fm_on()); break;
-    case OPT_IG_FM1:
-        ig_fm1_set(!A.ig_fm1);
-        if (g_fm1.state == IG_FM1_TAKEN) toast("Another file manager is answering now; this one takes over when it isn't running");
-        else if (g_fm1.state == IG_FM1_NO_DBUS) toast("No D-Bus session bus (libdbus-1) found");
-        break;
-    case OPT_IG_PICKER: ig_picker_set(!ig_picker_on()); break;
     case OPT_IG_UPDATES: A.ig_check_updates = !A.ig_check_updates; break;
     case OPT_UPD_AUTO: A.upd_auto = !A.upd_auto; break;
     case OPT_TRAY:

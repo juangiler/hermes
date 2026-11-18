@@ -995,7 +995,6 @@ static struct {
                   // shadow, like tiled GTK windows
   char ig_prev_fm[256]; // integration.c: the folder handler before we became
                         // the default (put back when turned off)
-  bool ig_fm1;   // answer "Show in folder" (org.freedesktop.FileManager1)
   bool ig_asked; // the first-run "use for folders?" question was shown
   bool ig_check_updates; // AppImage: look for a new release once a day
   i64 ig_update_checked; // when it last looked (unix time)
@@ -1081,8 +1080,7 @@ static struct {
   bool close_to_tray;   // closing the window hides it (tray icon: open, quit)
   bool ipc_test;        // self-test: listen on a private socket
   int ipc_count;        // messages handled (tests)
-  int pick_done;        // picker (tests): 1 chose, -1 cancelled
-  // FE_RECORD=dir: save the frames shown shortly after each click + a state log
+  // HERMES_RECORD=dir (legacy FE_RECORD): frames shown shortly after each click + a state log
   // (diagnostics)
   const char *rec_dir;
   u64 rec_until;
@@ -1591,30 +1589,16 @@ static Node *node_div_at(Node *n, f32 x, f32 y) {
 static void trash_dirs(char *files, char *info, size_t cap);
 static void places_layout(void);
 
-// picker.c (the app as the system file chooser)
-static bool picker_active(void);
-static f32 picker_bar_h(void);
-static f32 picker_tab_h(void);
-static void draw_picker_bar(Rect s);
-static bool picker_mouse(f32 x, f32 y);
-static bool picker_key(SDL_Keycode k, SDL_Keymod mod);
-static bool picker_text(const char *text);
-static bool picker_open_file(struct Pane *p, const char *full);
-static void picker_cancel(void);
-static const char *picker_title(void);
-
 static void layout(void) {
   f32 W = (f32)A.W, H = (f32)A.H;
   // the sidebar keeps >= 520 px for the panels when the window is narrow
-  f32 st = picker_active() ? picker_bar_h() : roundf(S(28));
+  f32 st = roundf(S(28));
   f32 sb =
       roundf(MIN(S(CLAMP(A.side_w, 150.f, 480.f)), MAX(S(150), W - S(520))));
   f32 title_row = roundf(S(46));
   f32 header = g_header_label == HEADER_HIDDEN ? 0 : title_row;
   A.r_brand = (Rect){0, 0, sb, header};
   A.r_sidebar = (Rect){0, header, sb, H - st - header};
-  if (picker_active())
-    A.r_sidebar.h -= picker_tab_h();
   A.r_sdiv = (Rect){sb - roundf(S(5)), 0, roundf(S(5)) + 1, H - st};
   A.r_content = (Rect){sb, 0, W - sb, H - st};
   if (A.preview_on) {
@@ -4427,10 +4411,7 @@ static void update_title(void) {
   char t[PATH_MAX + 64];
   char dnb[NAME_MAX + 1];
   const char *base = disp_name(p->path, dnb, sizeof dnb);
-  if (picker_active())
-    snprintf(t, sizeof t, "%s \xE2\x80\x94 %s", picker_title(), base);
-  else
-    snprintf(t, sizeof t, "%s \xE2\x80\x94 " APP_NAME, base);
+  snprintf(t, sizeof t, "%s \xE2\x80\x94 " APP_NAME, base);
   SDL_SetWindowTitle(A.win, t);
   x11_set_net_wm_name(t);
 }
@@ -5825,8 +5806,6 @@ static void open_entry(Pane *p, i64 pos, bool new_tab) {
   } // a matching line: the editor at that line
   char full[PATH_MAX];
   path_join(full, sizeof full, p->path, e->name);
-  if (!(e->flags & ENT_DIR) && picker_open_file(p, full))
-    return; // picking: the file is the answer
   if (!(e->flags & ENT_DIR) && pane_is_archive(p)) {
     arc_extract_open(p, e->name);
     return;
@@ -9327,8 +9306,7 @@ static void menu_open_place(int idx, f32 x, f32 y) {
                ACT_CLOUD_CONNECT_TAB, g_units_systemd);
     }
     menu_add_check("Connect at login", ACT_CLOUD_LOGIN, c->login,
-                   g_units_systemd &&
-                       !picker_active()); // (the picker saves no settings)
+                   g_units_systemd);
     menu_sep();
     menu_add("Reconnect account\xE2\x80\xA6", "", ACT_CLOUD_RECONNECT, true);
     menu_add("Show log", "", ACT_CLOUD_LOG, g_units_systemd && c->unit);
@@ -15263,10 +15241,6 @@ static void tray_update(void) {
 // The window's close button: hide to the tray when that's on (and there is a
 // tray), else quit.
 static void window_close_requested(void) {
-  if (picker_active()) {
-    picker_cancel();
-    return;
-  }
   if (A.close_to_tray && g_tray) {
     settings_save();
     SDL_HideWindow(A.win);
@@ -15277,7 +15251,6 @@ static void window_close_requested(void) {
 }
 
 #include "integration.c"
-#include "picker.c"
 #include "system_appearance.c"
 #include "term.c"
 #include "ui_tools.c"
@@ -15976,9 +15949,9 @@ static bool exe_link_replaced(char *link) {
 // A later launch handed us its folders but we're the old version: save, then
 // become the new binary with those folders (tabs come back through the session,
 // or as arguments without it). Not while it would lose something: transfers
-// running, terminal sessions, the picker. Returns only if it didn't restart.
+// running, terminal sessions. Returns only if it didn't restart.
 static void restart_if_updated(const char *msg) {
-  if (A.selftest || picker_active() || A.nops > 0)
+  if (A.selftest || A.nops > 0)
     return;
   for (int i = 0; i < A.ntabs;
        i++) // (an idle terminal panel comes back with the session)
@@ -16103,8 +16076,6 @@ int main(int argc, char **argv) {
   const char *paths[MAX_TABS];
   int npaths = 0;
   bool force_new_window = false;
-  const char *pick_mode = NULL;
-  static char pick_start[PATH_MAX];
   bool selftest = false, selftest_ops = false, selftest_m4 = false,
        selftest_m5 = false, selftest_m6 = false, selftest_m7 = false,
        selftest_m8 = false, selftest_m9 = false, selftest_m10 = false,
@@ -16199,10 +16170,6 @@ int main(int argc, char **argv) {
       force_new_window = true;
     else if (!strcmp(argv[i], "--background"))
       g_bg_start = true; // started at login: no window until opened
-    else if (!strcmp(argv[i], "--pick") && i + 1 < argc)
-      pick_mode = argv[++i]; // file chooser (picker.c)
-    else if (!strcmp(argv[i], "--out") && i + 1 < argc)
-      snprintf(g_pick_out, sizeof g_pick_out, "%s", argv[++i]);
     else if (npaths < MAX_TABS - 1)
       paths[npaths++] = argv[i];
   }
@@ -16212,15 +16179,8 @@ int main(int argc, char **argv) {
     for (int i = 1; i < npaths && nextra < MAX_TABS - 1; i++)
       extra_tabs[nextra++] = paths[i];
   }
-  if (pick_mode) { // file chooser: its own window, one folder, nothing
-                   // remembered
-    picker_setup(pick_mode, &start, pick_start, sizeof pick_start);
-    force_new_window = true;
-    nextra = 0;
-    split_path = NULL;
-  }
   signal(SIGCHLD, SIG_IGN); // reap xdg-open children automatically
-  A.rec_dir = getenv("FE_RECORD");
+  A.rec_dir = identity_env("FE_RECORD");
   if (A.rec_dir && !A.rec_dir[0])
     A.rec_dir = NULL;
   bool any_selftest = selftest || selftest_ops || selftest_m4 || selftest_m5 ||
@@ -16257,7 +16217,13 @@ int main(int argc, char **argv) {
 #endif
   if (!getenv("MESA_VK_IGNORE_CONFORMANCE_WARNING"))
     setenv("MESA_VK_IGNORE_CONFORMANCE_WARNING", "1", 1);
+  if (!any_selftest && !A.screenshot && !migration_startup()) {
+    fprintf(stderr, "Hermes: migration/startup unavailable; retained legacy data. Resolve permissions or close the other instance and retry.\n");
+    return 1;
+  }
   settings_load();
+  ig_identity_adopt();
+  migration_finish();
   // Single instance: hand the arguments to a running window and quit (before
   // SDL starts: instant).
   if (!any_selftest && !A.screenshot && !force_new_window &&
@@ -16292,28 +16258,18 @@ int main(int argc, char **argv) {
     settings_defaults();
     A.restore_session = false;
   }
-  if (picker_active()) {
-    A.restore_session = false;
-    A.maximized = false;
-    A.win_w = MIN(A.win_w, 1100);
-    A.win_h = MIN(A.win_h, 720);
-  }
   themes_scan();
   theme_restore_selection(A.theme_name);
   theme_apply();
 
-  if (!picker_active() && !getenv("SDL_APP_ID")) {
+  if (!getenv("SDL_APP_ID")) {
     char dh[PATH_MAX];
     AppDesktop desktop;
     data_home(dh, sizeof dh);
     if (app_desktop_find(dh, &desktop))
       SDL_SetHint(SDL_HINT_APP_ID, desktop.id);
   }
-  SDL_SetAppMetadata(
-      APP_NAME, APP_VERSION,
-      picker_active()
-          ? "dev.fileexplorer.picker"
-          : "dev.fileexplorer"); // (picker: floated by the compositor)
+  SDL_SetAppMetadata(APP_NAME, APP_VERSION, HERMES_APP_ID);
   SDL_SetHint(SDL_HINT_QUIT_ON_LAST_WINDOW_CLOSE,
               "0"); // the close button is ours (window_close_requested)
   // SDL asks X11 compositors (picom, KWin, xfwm4) to stop compositing its
@@ -16331,8 +16287,8 @@ int main(int argc, char **argv) {
                              // flashing up first)
   // rounded corners need an alpha channel, which only a new window can get
   // (turning them on takes a restart)
-  A.win_alpha = A.csd && A.round_corners && !headless && !picker_active() &&
-                !getenv("FE_SQUARE_CORNERS");
+  A.win_alpha = A.csd && A.round_corners && !headless &&
+                !identity_env("FE_SQUARE_CORNERS");
   const char *vdrv = SDL_GetCurrentVideoDriver();
   A.win_x11 = vdrv && !strcmp(vdrv, "x11");
   bool x11_comp = false, x11_ext = false;
@@ -16460,9 +16416,8 @@ int main(int argc, char **argv) {
   init_places();
   trash_size_refresh();
   watch_init();
-  addon_start((!any_selftest || getenv("FE_SYSTEMCTL")) && !A.screenshot &&
-              !picker_active());
-  A.devs_enabled = !any_selftest || getenv("FE_LSBLK");
+  addon_start((!any_selftest || identity_env("FE_SYSTEMCTL")) && !A.screenshot);
+  A.devs_enabled = !any_selftest || identity_env("FE_LSBLK");
   if (A.devs_enabled) {
     if (!any_selftest)
       devices_watch_start();
@@ -16499,43 +16454,40 @@ int main(int argc, char **argv) {
   A.settings_dirty = false;
   for (int i = 0; i < nextra; i++)
     open_target(extra_tabs[i], false, false);
-  if (A.screenshot && getenv("FE_SHOT_OPTIONS"))
+  if (A.screenshot && identity_env("FE_SHOT_OPTIONS"))
     options_open_page(OC_UPDATES); // visual checks of the Updates page
-  if (A.screenshot && getenv("FE_SHOT_TERMINAL"))
+  if (A.screenshot && identity_env("FE_SHOT_TERMINAL"))
     open_terminal(active_pane()->path); // visual checks of terminal tabs
-  if (A.screenshot && getenv("FE_SHOT_DOCK"))
+  if (A.screenshot && identity_env("FE_SHOT_DOCK"))
     dock_toggle(); // visual checks of the terminal panel
   if (A.screenshot &&
-      getenv("FE_SHOT_CONNECT")) { // visual checks: Edit server (first saved
+      identity_env("FE_SHOT_CONNECT")) { // visual checks: Edit server (first saved
                                    // one), "pick" opens the icon picker
     connect_open(A.nservers ? 0 : -1);
-    if (!strcmp(getenv("FE_SHOT_CONNECT"), "pick"))
+    if (!strcmp(identity_env("FE_SHOT_CONNECT"), "pick"))
       g_sheet.cn_pick = true;
   }
-  if (A.screenshot && getenv("FE_SHOT_DU")) { // visual checks of the disk usage
+  if (A.screenshot && identity_env("FE_SHOT_DU")) { // visual checks of the disk usage
                                               // map ("sunburst" for that style)
     active_pane()->du = true;
-    A.du_style = !strcmp(getenv("FE_SHOT_DU"), "sunburst");
+    A.du_style = !strcmp(identity_env("FE_SHOT_DU"), "sunburst");
   }
   if (split_path)
     open_target(split_path, true, true);
-  if (A.screenshot && getenv("FE_SHOT_CMP") &&
+  if (A.screenshot && identity_env("FE_SHOT_CMP") &&
       A.npanels >
           1) { // visual checks of folder compare ("diff": differences only)
-    g_cmp.diff_only = !strcmp(getenv("FE_SHOT_CMP"), "diff");
+    g_cmp.diff_only = !strcmp(identity_env("FE_SHOT_CMP"), "diff");
     cmp_start(A.panels[0]->cur, A.panels[1]->cur);
   }
-  if (A.single_instance && !A.screenshot && !picker_active() &&
-      (!any_selftest || A.ipc_test))
+  if (A.single_instance && !A.screenshot && (!any_selftest || A.ipc_test))
     ipc_listen(ipc_handle);
-  if (!any_selftest && !A.screenshot && !picker_active())
+  if (!any_selftest && !A.screenshot)
     tray_update();
   if (select_tab >= 0)
     tab_select(select_tab);
   settings_snapshot(); // started: from here on, saves write only what this
                        // process changes (settings_merge)
-  if (A.ig_fm1 && !any_selftest && !A.screenshot)
-    ig_fm1_start(); // "Show in folder" (integration.c)
   if (!any_selftest && !A.screenshot && !g_bg_start)
     ig_first_run();
   ig_update_check(); // (AppImage only)

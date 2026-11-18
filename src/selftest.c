@@ -5934,128 +5934,71 @@ static int run_selftest_m10(void) {
         cloud_disconnect(1);
         st_cloud_settle();
         ST_CHECK(st_file_has(M10_BASE "/rc/log", "fusermount -u " M10_BASE "/a") && !g_cloud[1].mount[0]);
-        // The Network header's menu exposes rclone configuration.
-        int ch = st_place_row(PK_NETHDR, NULL);
-        g_cloud_term_cmd[0] = 0;
-        A.menu_place = ch;
-        do_action(active_pane(), ACT_CLOUD_NEW);
-        ST_CHECK(!strcmp(g_cloud_term_cmd, M10_BASE "/tools/rclone config"));
+        // Only the Cloud header exposes rclone configuration and refresh.
+        int ch = st_place_row(PK_CLOUDHDR, NULL);
+        ST_CHECK(ch >= 0);
+        if (ch >= 0) {
+            menu_open_place(ch, A.r_sidebar.x + S(30), A.r_sidebar.y + S(30));
+            bool config_action = false, refresh_action = false, network_action = false;
+            for (int i = 0; i < A.menu.n; i++) {
+                config_action |= A.menu.items[i].act == ACT_CLOUD_NEW;
+                refresh_action |= A.menu.items[i].act == ACT_CLOUD_REFRESH;
+                network_action |= A.menu.items[i].act == ACT_NET_NEW;
+            }
+            ST_CHECK(config_action && refresh_action && !network_action);
+            A.menu.open = false;
+            menu_open_place(st_place_row(PK_NETHDR, NULL), A.r_sidebar.x + S(30), A.r_sidebar.y + S(30));
+            for (int i = 0; i < A.menu.n; i++)
+                ST_CHECK(A.menu.items[i].act != ACT_CLOUD_NEW && A.menu.items[i].act != ACT_CLOUD_REFRESH);
+            A.menu.open = false;
+            g_cloud_term_cmd[0] = 0;
+            A.menu_place = ch;
+            do_action(active_pane(), ACT_CLOUD_NEW);
+            ST_CHECK(!strcmp(g_cloud_term_cmd, M10_BASE "/tools/rclone config"));
+            Rect cr = place_rect(ch);
+            A.side_scroll = A.side_scroll_target = MAX(0.f, A.side_scroll + cr.y + cr.h - A.r_sidebar.y - A.r_sidebar.h + S(8));
+            st_frames(2);
+            Rect cp = A.places[ch].eject;
+            ST_CHECK(cp.w > 0);
+            g_cloud_term_cmd[0] = 0;
+            st_mouse(SDL_EVENT_MOUSE_BUTTON_DOWN, cp.x + cp.w * 0.5f, cp.y + cp.h * 0.5f, SDL_BUTTON_LEFT, 1, 0);
+            st_mouse(SDL_EVENT_MOUSE_BUTTON_UP, cp.x + cp.w * 0.5f, cp.y + cp.h * 0.5f, SDL_BUTTON_LEFT, 1, 0);
+            ST_CHECK(!strcmp(g_cloud_term_cmd, M10_BASE "/tools/rclone config") && !A.clouds_collapsed);
+        }
         // a remote deleted from rclone's config (seen by its time stamp): gone from the sidebar, its unit removed
         st_write_text(M10_BASE "/rc/remotes", "work s3:     s3\n");
         struct timespec ts[2] = {{0, UTIME_NOW}, {time(NULL) + 5, 0}};
         utimensat(AT_FDCWD, "/tmp/fe-selftest-config/rclone/rclone.conf", ts, 0);
         st_cloud_settle();
         ST_CHECK(g_ncloud == 1 && !cloud_find("gdrive") && st_place_row(PK_CLOUD, "gdrive") < 0 && access(up, F_OK) != 0);
-        // Collapsing Network also hides remotes.
-        ch = st_place_row(PK_NETHDR, NULL);
-        Rect hr = place_rect(ch);
-        st_mouse(SDL_EVENT_MOUSE_BUTTON_DOWN, hr.x + S(30), hr.y + hr.h * 0.5f, SDL_BUTTON_LEFT, 1, 0);
-        st_mouse(SDL_EVENT_MOUSE_BUTTON_UP, hr.x + S(30), hr.y + hr.h * 0.5f, SDL_BUTTON_LEFT, 1, 0);
-        ST_CHECK(A.nets_collapsed && st_place_row(PK_CLOUD, NULL) < 0);
-        A.nets_collapsed = false;
+        // Cloud collapses independently of Network, by click and menu action.
+        ch = st_place_row(PK_CLOUDHDR, NULL);
+        if (ch >= 0) {
+            Rect hr = place_rect(ch);
+            st_mouse(SDL_EVENT_MOUSE_BUTTON_DOWN, hr.x + S(30), hr.y + hr.h * 0.5f, SDL_BUTTON_LEFT, 1, 0);
+            st_mouse(SDL_EVENT_MOUSE_BUTTON_UP, hr.x + S(30), hr.y + hr.h * 0.5f, SDL_BUTTON_LEFT, 1, 0);
+            ST_CHECK(A.clouds_collapsed && !A.nets_collapsed && st_place_row(PK_CLOUD, NULL) < 0);
+            A.menu_place = st_place_row(PK_CLOUDHDR, NULL);
+            do_action(active_pane(), ACT_DEV_SECTION_TOGGLE);
+            ST_CHECK(!A.clouds_collapsed && !A.nets_collapsed && st_place_row(PK_CLOUD, "work s3") >= 0);
+        }
+        int saved_ncloud = g_ncloud;
+        g_ncloud = 0;
+        init_places();
+        ST_CHECK(st_place_row(PK_CLOUDHDR, NULL) >= 0 && st_place_row(PK_CLOUD, NULL) < 0);
+        g_ncloud = saved_ncloud;
         // no rclone: the Network section remains
         st_write_text(M10_BASE "/rc/remotes", "");
         unlink(M10_BASE "/tools/rclone");
         g_cloud_relist = true;
         st_cloud_settle();
-        ST_CHECK(g_rclone == 0 && st_place_row(PK_NETHDR, NULL) >= 0);
+        ST_CHECK(g_rclone == 0 && st_place_row(PK_NETHDR, NULL) >= 0 && st_place_row(PK_CLOUDHDR, NULL) < 0);
         unsetenv("FE_RCLONE");
         unsetenv("FE_PROC_MOUNTS");
         g_ncloud = 0;
         init_places();
     }
 
-    { // --- picker (the app as the system file chooser): Open / Open files / Choose folder / Save, output file ---
-        Pane *pp = active_pane();
-        const char *pdir = M10_BASE "/pick";
-        st_rmrf(pdir);
-        mkdir_p(M10_BASE "/pick/sub", 0755);
-        st_write_text(M10_BASE "/pick/a.txt", "a");
-        st_write_text(M10_BASE "/pick/b.txt", "b");
-        const char *outf = M10_BASE "/pick-out";
-        char outbuf[2048];
-        #define ST_PICK_OUT() (outbuf[0] = 0, (void)st_read_text(outf, outbuf, sizeof outbuf), outbuf)
-        snprintf(g_pick_out, sizeof g_pick_out, "%s", outf);
-        pane_navigate(pp, pdir, true);
-        st_wait();
-        // Choose folder: nothing selected = the folder shown; one selected folder = that one
-        g_pick = PICK_DIR;
-        layout();
-        st_frames(2);
-        ST_CHECK(A.r_status.h == picker_bar_h() && g_pick_rok.w > 0);
-        st_shot("picker-dir");
-        sel_clear(pp);
-        A.pick_done = 0;
-        unlink(outf);
-        st_key(SDLK_RETURN, 0);
-        ST_CHECK(A.pick_done == 1 && !strcmp(ST_PICK_OUT(), M10_BASE "/pick\n"));
-        st_select(pp, "sub");
-        A.pick_done = 0;
-        st_mouse(SDL_EVENT_MOUSE_BUTTON_DOWN, g_pick_rok.x + 5, g_pick_rok.y + 5, SDL_BUTTON_LEFT, 1, 0);
-        st_mouse(SDL_EVENT_MOUSE_BUTTON_UP, g_pick_rok.x + 5, g_pick_rok.y + 5, SDL_BUTTON_LEFT, 1, 0);
-        ST_CHECK(A.pick_done == 1 && !strcmp(ST_PICK_OUT(), M10_BASE "/pick/sub\n"));
-        // Open file: Enter on a file picks it; on a folder it opens the folder
-        g_pick = PICK_FILE;
-        st_select(pp, "b.txt");
-        A.pick_done = 0;
-        st_key(SDLK_RETURN, 0);
-        ST_CHECK(A.pick_done == 1 && !strcmp(ST_PICK_OUT(), M10_BASE "/pick/b.txt\n"));
-        // Open files: several at once (folders in the selection are left out)
-        g_pick = PICK_FILES;
-        do_action(pp, ACT_SELECT_ALL);
-        A.pick_done = 0;
-        picker_commit();
-        ST_CHECK(A.pick_done == 1 && !strcmp(ST_PICK_OUT(), M10_BASE "/pick/a.txt\n" M10_BASE "/pick/b.txt\n"));
-        // Save: typed name; an existing file asks first; Escape cancels with an empty answer
-        g_pick = PICK_SAVE;
-        sel_clear(pp);
-        te_set(&g_pick_name, "", 0, 0);
-        g_pick_name_focus = true;
-        st_type("new.txt");
-        A.pick_done = 0;
-        st_key(SDLK_RETURN, 0);
-        ST_CHECK(A.pick_done == 1 && !strcmp(ST_PICK_OUT(), M10_BASE "/pick/new.txt\n"));
-        te_set(&g_pick_name, "a.txt", 5, 5);
-        A.pick_done = 0;
-        picker_commit();
-        ST_CHECK(A.pick_done == 0 && A.dlg.open && strstr(A.dlg.title, "Replace")); // asked, nothing chosen yet
-        st_frames(1);
-        st_shot("picker-replace");
-        dialog_key(SDLK_ESCAPE, 0); // keep it: back to the picker
-        ST_CHECK(!A.dlg.open && A.pick_done == 0);
-        picker_commit();
-        ST_CHECK(A.dlg.open);
-        A.dlg.focus = 0;
-        dialog_key(SDLK_RETURN, 0); // Replace
-        ST_CHECK(A.pick_done == 1 && !strcmp(ST_PICK_OUT(), M10_BASE "/pick/a.txt\n"));
-        te_set(&g_pick_name, "sub", 3, 3); // a folder's name: goes into it
-        picker_commit();
-        st_wait();
-        ST_CHECK(!strcmp(pp->path, M10_BASE "/pick/sub") && !g_pick_name.buf[0]);
-        unlink(outf);
-        A.pick_done = 0;
-        g_pick_name_focus = true;
-        st_key(SDLK_ESCAPE, 0);
-        ST_CHECK(A.pick_done == -1 && st_read_text(outf, outbuf, sizeof outbuf) == 0);
-        // the suggested path splits into folder + name with the stem selected; settings stay untouched
-        const char *st0 = M10_BASE "/pick/report.final.pdf";
-        char sb[PATH_MAX];
-        picker_setup("save", &st0, sb, sizeof sb);
-        ST_CHECK(g_pick == PICK_SAVE && !strcmp(st0, M10_BASE "/pick") && !strcmp(g_pick_name.buf, "report.final.pdf") &&
-                 g_pick_name.caret == 12 && g_pick_name.anchor == 0 && g_pick_name_focus);
-        char sp[PATH_MAX];
-        settings_file(sp, sizeof sp, false);
-        struct stat s1, s2;
-        stat(sp, &s1);
-        A.settings_dirty = true;
-        settings_save();
-        ST_CHECK(stat(sp, &s2) == 0 && s1.st_mtim.tv_sec == s2.st_mtim.tv_sec && s1.st_mtim.tv_nsec == s2.st_mtim.tv_nsec);
-        g_pick = PICK_NONE;
-        g_pick_out[0] = 0;
-        A.settings_dirty = false;
-        layout();
-        #undef ST_PICK_OUT
-    }
 
     { // --- several processes share settings.conf: a save writes only what this one changed ---
         // mine, base (mine at the last sync), disk (the file now), disk_base (the file at the last sync)
@@ -6906,24 +6849,20 @@ static int run_selftest_grep(void) {
         st_write_text(mp, "[Added Associations]\nx-test/keep=keep.desktop;\n"); // someone's file already there
         ig_default_fm_set(true);
         st_read_text(mp, text, sizeof text);
-        ST_CHECK(ig_default_fm_on() && strstr(text, "inode/directory=dev.fileexplorer.desktop;") && !strcmp(A.ig_prev_fm, "fake-files.desktop"));
+        ST_CHECK(ig_default_fm_on() && strstr(text, "inode/directory=" HERMES_APP_ID ".desktop;") && !strcmp(A.ig_prev_fm, "fake-files.desktop"));
         ST_CHECK(strstr(text, "[Added Associations]\nx-test/keep=keep.desktop;\n") && strstr(text, "\n[Default Applications]\n")); // the rest kept
         ig_default_fm_set(false);
         st_read_text(mp, text, sizeof text);
-        ST_CHECK(!ig_default_fm_on() && strstr(text, "inode/directory=fake-files.desktop;") && !strstr(text, "dev.fileexplorer"));
-        // the file chooser: wrapper + termfilechooser config + the desktop's portals.conf; off puts the old one back
-        char w[PATH_MAX + 64], t[PATH_MAX + 64], pc[PATH_MAX + 64];
-        ig_picker_paths(w, t, pc, PATH_MAX + 64);
-        ST_CHECK(strstr(pc, "/xdg-desktop-portal/fetestdesk-portals.conf") && !ig_picker_on());
-        A.last_opened[0] = 0;
-        ig_picker_set(true);
-        st_read_text(pc, text, sizeof text);
-        ST_CHECK(ig_picker_on() && strstr(text, "default=gtk\n") && strstr(text, "FileChooser=termfilechooser") && !strstr(text, "FileChooser=gtk"));
-        ST_CHECK(access(w, X_OK) == 0 && st_file_has(w, "--pick") && st_file_has(t, w));
-        ST_CHECK(!strncmp(A.last_opened, "run:systemctl", 13)); // the portal restarted to read it (recorded in tests)
-        ig_picker_set(false);
-        st_read_text(pc, text, sizeof text);
-        ST_CHECK(!ig_picker_on() && strstr(text, "FileChooser=gtk") && access(w, F_OK) != 0 && access(t, F_OK) != 0);
+        ST_CHECK(!ig_default_fm_on() && strstr(text, "inode/directory=fake-files.desktop;") && !strstr(text, HERMES_APP_ID));
+        // the Options switch itself, not just the setter: on writes the role, off restores the old handler
+        opt_bool_toggle(OPT_IG_DEFAULT_FM);
+        st_read_text(mp, text, sizeof text);
+        ST_CHECK(ig_default_fm_on() && strstr(text, "inode/directory=" HERMES_APP_ID ".desktop;") &&
+                 !strcmp(A.ig_prev_fm, "fake-files.desktop"));
+        opt_bool_toggle(OPT_IG_DEFAULT_FM);
+        st_read_text(mp, text, sizeof text);
+        ST_CHECK(!ig_default_fm_on() && strstr(text, "inode/directory=fake-files.desktop;") &&
+                 !strstr(text, HERMES_APP_ID));
         // new versions (AppImage): version compare, GitHub's answer, never looked for outside an AppImage
         ST_CHECK(ig_vercmp("v0.9.1", "0.9.0") > 0 && ig_vercmp("0.9.0", "0.9.0") == 0 && ig_vercmp("0.10.0", "0.9.9") > 0 &&
                  ig_vercmp("1.0", "1.0.1") < 0 && ig_vercmp("0.9.0", "0.9.0~git2026") == 0);
@@ -6953,27 +6892,82 @@ static int run_selftest_grep(void) {
         ST_CHECK(!sha[0]);
         // how this copy updates: only the AppImage installs by itself; makepkg / source builds get a command to copy
         setenv("FE_UPDATE_KIND", "appimage", 1);
-        ST_CHECK(upd_can_install() && !upd_how_cmd());
+        ST_CHECK(!upd_can_install() && !upd_how_cmd()); // no channel: an AppImage is never offered an install
         setenv("FE_UPDATE_KIND", "arch", 1);
         ST_CHECK(!upd_can_install() && upd_how_cmd() && strstr(upd_how_cmd(), "makepkg"));
         setenv("FE_UPDATE_KIND", "deb", 1);
         ST_CHECK(!upd_can_install() && !upd_how_cmd());
         unsetenv("FE_UPDATE_KIND");
-        // "Show in folder": the activation file only while it's on; requests open folders / select items
-        char svc[PATH_MAX + 64];
-        ig_fm1_service_path(svc, sizeof svc);
-        ig_fm1_set(true);
-        ST_CHECK(A.ig_fm1 && st_file_has(svc, "Name=org.freedesktop.FileManager1") && st_file_has(svc, "--background"));
-        ig_fm1_set(false);
-        ST_CHECK(!A.ig_fm1 && access(svc, F_OK) != 0);
-        int nt = A.ntabs;
-        IgShow *sh = xcalloc(1, sizeof *sh);
-        sh->paths = xmalloc(sizeof(char *));
-        sh->paths[sh->n++] = strdup(GREP_BASE "/tree/sub/b.txt");
-        ig_show_apply(sh);
-        st_wait();
-        Pane *ap = active_pane();
-        ST_CHECK(A.ntabs == nt + 1 && !strcmp(ap->path, GREP_BASE "/tree/sub"));
+        // --- identity adoption: only our launcher + default-FM role, never a legacy portal/FM1 file ---
+        {
+            char data[PATH_MAX], config[PATH_MAX], myexe[PATH_MAX], oldl[PATH_MAX + 128], dest[PATH_MAX + 128],
+                 fm1svc[PATH_MAX + 64], w[PATH_MAX + 64], tfc[PATH_MAX + 64],
+                 legw[PATH_MAX + 64], mp[PATH_MAX + 64], buf[8192];
+            const char *fm1orig = "[D-BUS Service]\nName=org.freedesktop.FileManager1\nExec=\"/usr/bin/file-explorer\" --background\n";
+            const char *tfcorig = "# Written by File Explorer (Options > Integration)\n[filechooser]\ncmd=/fixture/file-explorer/termfilechooser-wrapper.sh\n";
+            ig_data_dir(data, sizeof data);
+            ig_config_dir(config, sizeof config);
+            exe_path(myexe, sizeof myexe);
+            snprintf(oldl, sizeof oldl, "%s/applications/" HERMES_LEGACY_APP_ID ".desktop", data);
+            snprintf(dest, sizeof dest, "%s/applications/" HERMES_APP_ID ".desktop", data);
+            snprintf(fm1svc, sizeof fm1svc, "%s/dbus-1/services/org.freedesktop.FileManager1.service", data);
+            snprintf(legw, sizeof legw, "%s/file-explorer/termfilechooser-wrapper.sh", data);
+            snprintf(tfc, sizeof tfc, "%s/xdg-desktop-portal-termfilechooser/config", config);
+            snprintf(w, sizeof w, "%s/hermes/termfilechooser-wrapper.sh", data);
+            snprintf(mp, sizeof mp, "%s/mimeapps.list", config);
+            char orig[8196] = ""; // the config's mimeapps.list, put back at the end
+            bool had_mp = access(mp, F_OK) == 0;
+            if (had_mp) st_read_text(mp, orig, sizeof orig);
+            unlink(dest); // so the launcher below has somewhere to be adopted into
+            unlink(w);
+            // the files File Explorer's integration generated, with its provenance
+            st_write_text(oldl,
+                          "[Desktop Entry]\nType=Application\nName=File Explorer\nExec=file-explorer %F\n"
+                          "Icon=dev.fileexplorer\nTerminal=false\nStartupWMClass=dev.fileexplorer\n");
+            st_write_text(mp, "[Default Applications]\ninode/directory=dev.fileexplorer.desktop;\n");
+            st_write_text(fm1svc, fm1orig);
+            st_write_text(legw, "#!/bin/sh\n# Written by File Explorer (Options > Integration).\nexec \"/usr/bin/file-explorer\" --pick \"$mode\" --out \"$5\" \"$4\"\n");
+            st_write_text(tfc, tfcorig);
+            // stale parsed defaults would win over the fixture (first entry wins)
+            for (int i = 0; i < g_ndef; i++) { free(g_def_mime[i]); free(g_def_apps[i]); }
+            g_ndef = 0;
+            g_apps_loaded = false;
+            bool self0 = A.selftest;
+            A.selftest = false; // the guard: adoption only runs at a real startup
+            ig_identity_adopt();
+            A.selftest = self0;
+            char exp[PATH_MAX + 160];
+            // our launcher is adopted next to the original, which is kept
+            ST_CHECK(access(dest, R_OK) == 0);
+            st_read_text(dest, buf, sizeof buf);
+            ST_CHECK(strstr(buf, "Name=Hermes\n") && strstr(buf, "Icon=" HERMES_APP_ID "\n") &&
+                     strstr(buf, "StartupWMClass=" HERMES_APP_ID "\n"));
+            snprintf(exp, sizeof exp, "Exec=\"%s\" %%F\n", myexe);
+            ST_CHECK(strstr(buf, exp) != NULL);
+            ST_CHECK(st_file_has(oldl, "Name=File Explorer"));
+            // the default: claimed only because it named the legacy app
+            st_read_text(mp, buf, sizeof buf);
+            ST_CHECK(strstr(buf, "inode/directory=" IG_OUR_ID) != NULL && A.ig_asked);
+            // legacy FM1 / portal files are byte-for-byte untouched: no roles are claimed here anymore
+            st_read_text(fm1svc, buf, sizeof buf);
+            ST_CHECK(!strcmp(buf, fm1orig));
+            ST_CHECK(access(fm1svc, F_OK) == 0);
+            st_read_text(tfc, buf, sizeof buf);
+            ST_CHECK(!strcmp(buf, tfcorig));
+            ST_CHECK(access(w, F_OK) != 0);
+            // a default that names some other app: never claimed
+            st_write_text(mp, "[Default Applications]\ninode/directory=org.example.Other.desktop;\n");
+            for (int i = 0; i < g_ndef; i++) { free(g_def_mime[i]); free(g_def_apps[i]); }
+            g_ndef = 0;
+            g_apps_loaded = false;
+            A.selftest = false;
+            ig_identity_adopt();
+            A.selftest = self0;
+            st_read_text(mp, buf, sizeof buf);
+            ST_CHECK(strstr(buf, "org.example.Other.desktop") != NULL && strstr(buf, IG_OUR_ID) == NULL);
+            if (had_mp) st_write_text(mp, orig);
+            else unlink(mp);
+        }
     }
     fprintf(stderr, "selftest-grep: %s (%d failures)\n", st_fail ? "FAIL" : "ok", st_fail);
     return st_fail ? 1 : 0;

@@ -1,9 +1,6 @@
-// integration.c - desktop roles, all opt-in (Options > Integration): the default file manager (inode/directory),
-// "Show in folder" from browsers and other apps (org.freedesktop.FileManager1 on the session bus) and the file
-// chooser of other apps (xdg-desktop-portal-termfilechooser). Installing never takes any of them; turning one off
-// puts back what was there. Also updates (Options > Updates), and the documents portal's file transfer for dragging
-// files into sandboxed apps (dragout.c). Included from app.c before ui_tools.c (the Options page uses it).
-
+// integration.c - the default file manager role (opt-in via Options > Integration), first-run offer, updates
+// and the shared optional libdbus loader (dbus.c, used by the KDE accent reader). Included from app.c before
+// ui_tools.c (the Options page uses it).
 static Tab *open_target(const char *in, bool split, bool activate);
 static void open_path(const char *full);
 static void window_show(void);
@@ -37,13 +34,6 @@ static bool ig_write_file(const char *path, const char *text, mode_t mode) {
     return rename(tmp, path) == 0;
 }
 
-// Run a helper command, or in self-tests only record it (never launch anything then).
-static void ig_run(char *const argv[]) {
-    if (A.selftest) { snprintf(A.last_opened, sizeof A.last_opened, "run:%s %s", argv[0], argv[1] ? argv[1] : ""); return; }
-    pid_t pid;
-    posix_spawnp(&pid, argv[0], NULL, spawn_attr(), argv, environ);
-}
-
 // --- default file manager ---------------------------------------------------------------------------------------
 
 #include "integration_identity.c"
@@ -75,419 +65,41 @@ static void ig_default_fm_set(bool on) {
     A.settings_dirty = true;
 }
 
-// --- "Show in folder": org.freedesktop.FileManager1 on the session bus --------------------------------------------
-// Browsers' "Show in folder", download panels and many apps call ShowItems / ShowFolders on this name. libdbus is
-// loaded when the switch is on (no build dependency); a thread answers and hands the paths to the main loop.
-
 #include "dbus.c"
 
-typedef struct { char **paths; int n; bool items; char token[256]; } IgShow;
-
-// On the main loop: folders open as tabs; items open their folder with the item selected (open_target does both).
-static void ig_show_apply(void *arg) {
-    IgShow *s = arg;
-    if (s->token[0]) setenv("XDG_ACTIVATION_TOKEN", s->token, 1); // lets Wayland raise us
-    bool first = true;
-    for (int i = 0; i < s->n; i++) {
-        if (open_target(s->paths[i], false, first)) first = false;
-        free(s->paths[i]);
-    }
-    free(s->paths);
-    free(s);
-    if (!A.selftest) window_show();
+static char *ig_identity_read_owned(const char *path) {
+    struct stat st;
+    if (lstat(path, &st) || !S_ISREG(st.st_mode) || st.st_uid != getuid()) return NULL;
+    return file_read_all(path);
 }
 
-// ShowFolders / ShowItems / ShowItemProperties (as uris, s startup_id): file:// URIs (or plain paths) to open.
-static IgShow *ig_show_parse(void *msg, bool items) {
-    IgDBusIter it, arr;
-    if (!g_fm1.iter_init(msg, &it) || g_fm1.iter_get_arg_type(&it) != 'a') return NULL;
-    IgShow *s = xcalloc(1, sizeof *s);
-    s->items = items;
-    g_fm1.iter_recurse(&it, &arr);
-    while (g_fm1.iter_get_arg_type(&arr) == 's' && s->n < MAX_TABS) {
-        const char *u = NULL;
-        g_fm1.iter_get_basic(&arr, &u);
-        char p[PATH_MAX];
-        if (u && (uri_to_path(u, p, sizeof p) || (u[0] == '/' && snprintf(p, sizeof p, "%s", u) > 0))) {
-            s->paths = xrealloc(s->paths, (size_t)(s->n + 1) * sizeof(char *));
-            s->paths[s->n++] = strdup(p);
-        }
-        g_fm1.iter_next(&arr);
-    }
-    if (g_fm1.iter_next(&it) && g_fm1.iter_get_arg_type(&it) == 's') {
-        const char *t = NULL;
-        g_fm1.iter_get_basic(&it, &t);
-        if (t && !strchr(t, '\n')) snprintf(s->token, sizeof s->token, "%s", t);
-    }
-    return s;
-}
-
-static const char g_fm1_xml[] =
-    "<!DOCTYPE node PUBLIC \"-//freedesktop//DTD D-BUS Object Introspection 1.0//EN\" "
-    "\"http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd\">\n<node>\n"
-    " <interface name=\"org.freedesktop.FileManager1\">\n"
-    "  <method name=\"ShowFolders\"><arg type=\"as\" name=\"URIs\" direction=\"in\"/><arg type=\"s\" name=\"StartupId\" direction=\"in\"/></method>\n"
-    "  <method name=\"ShowItems\"><arg type=\"as\" name=\"URIs\" direction=\"in\"/><arg type=\"s\" name=\"StartupId\" direction=\"in\"/></method>\n"
-    "  <method name=\"ShowItemProperties\"><arg type=\"as\" name=\"URIs\" direction=\"in\"/><arg type=\"s\" name=\"StartupId\" direction=\"in\"/></method>\n"
-    " </interface>\n"
-    " <interface name=\"org.freedesktop.DBus.Introspectable\"><method name=\"Introspect\"><arg type=\"s\" name=\"xml\" direction=\"out\"/></method></interface>\n"
-    "</node>\n";
-
-static void *ig_fm1_thread(void *arg) {
-    (void)arg;
-    static const char *iface = "org.freedesktop.FileManager1";
-    while (!atomic_load(&g_fm1.stop) && g_fm1.read_write(g_fm1.conn, 250)) {
-        void *m;
-        while ((m = g_fm1.pop_message(g_fm1.conn))) {
-            IgShow *s = NULL;
-            bool known = true;
-            if (g_fm1.is_method_call(m, iface, "ShowFolders")) s = ig_show_parse(m, false);
-            else if (g_fm1.is_method_call(m, iface, "ShowItems") || g_fm1.is_method_call(m, iface, "ShowItemProperties"))
-                s = ig_show_parse(m, true);
-            else if (g_fm1.is_method_call(m, "org.freedesktop.DBus.Introspectable", "Introspect")) {
-                void *r = g_fm1.new_method_return(m);
-                const char *x = g_fm1_xml;
-                if (r) { g_fm1.append_args(r, 's', &x, 0); g_fm1.send(g_fm1.conn, r, NULL); g_fm1.message_unref(r); }
-                known = false;
-            } else known = false;
-            if (known) {
-                void *r = g_fm1.new_method_return(m); // (answer first: callers wait for it)
-                if (r) { g_fm1.send(g_fm1.conn, r, NULL); g_fm1.message_unref(r); }
-                if (s) main_post(ig_show_apply, s);
-            }
-            g_fm1.message_unref(m);
-        }
-        g_fm1.flush(g_fm1.conn);
-    }
-    atomic_store(&g_fm1.running, false);
-    return NULL;
-}
-
-// The D-Bus activation file: starts us when an app asks for the name and no file manager is running. Only written
-// while the switch is on (a user file: the system's own file managers' entries are left alone).
-static void ig_fm1_service_path(char *out, size_t cap) {
-    char d[PATH_MAX];
-    ig_data_dir(d, sizeof d);
-    snprintf(out, cap, "%s/dbus-1/services/org.freedesktop.FileManager1.service", d);
-}
-
-static void ig_fm1_stop(void) {
-    if (!g_fm1.conn) { g_fm1.state = IG_FM1_OFF; return; }
-    atomic_store(&g_fm1.stop, true);
-    for (int i = 0; i < 100 && atomic_load(&g_fm1.running); i++) usleep(10000); // (read_write wakes every 250 ms)
-    IgDBusError e;
-    g_fm1.error_init(&e);
-    g_fm1.release_name(g_fm1.conn, "org.freedesktop.FileManager1", &e);
-    g_fm1.error_free(&e);
-    g_fm1.connection_close(g_fm1.conn);
-    g_fm1.connection_unref(g_fm1.conn);
-    g_fm1.conn = NULL;
-    g_fm1.state = IG_FM1_OFF;
-}
-
-// Answer for the name now (while running). Another file manager that holds it keeps it.
-static void ig_fm1_start(void) {
-    if (g_fm1.conn || A.selftest || picker_active()) return;
-    if (!ig_dbus_load()) { g_fm1.state = IG_FM1_NO_DBUS; return; }
-    IgDBusError e;
-    g_fm1.error_init(&e);
-    void *c = g_fm1.bus_get_private(0 /* session */, &e);
-    g_fm1.error_free(&e);
-    if (!c) { g_fm1.state = IG_FM1_NO_DBUS; return; }
-    g_fm1.error_init(&e);
-    int r = g_fm1.request_name(c, "org.freedesktop.FileManager1", 4 /* DO_NOT_QUEUE */, &e);
-    g_fm1.error_free(&e);
-    if (r != 1 && r != 4) { // (1 primary owner, 4 already ours)
-        g_fm1.connection_close(c);
-        g_fm1.connection_unref(c);
-        g_fm1.state = IG_FM1_TAKEN;
-        return;
-    }
-    g_fm1.conn = c;
-    atomic_store(&g_fm1.stop, false);
-    atomic_store(&g_fm1.running, true);
-    pthread_t t;
-    if (pthread_create(&t, NULL, ig_fm1_thread, NULL) != 0) { atomic_store(&g_fm1.running, false); ig_fm1_stop(); return; }
-    pthread_detach(t);
-    pthread_setname_np(t, "fe-dbus");
-    g_fm1.state = IG_FM1_SERVING;
-}
-
-static void ig_fm1_set(bool on) {
-    char svc[PATH_MAX + 64], exe[PATH_MAX], text[PATH_MAX + 256];
-    ig_fm1_service_path(svc, sizeof svc);
-    A.ig_fm1 = on;
-    A.settings_dirty = true;
-    if (on) {
-        exe_path(exe, sizeof exe);
-        snprintf(text, sizeof text, "[D-BUS Service]\nName=org.freedesktop.FileManager1\nExec=\"%s\" --background\n", exe);
-        ig_write_file(svc, text, 0644);
-        ig_fm1_start();
-    } else {
-        unlink(svc);
-        ig_fm1_stop();
-    }
-}
-
-// --- dragging files into sandboxed apps (the documents portal's FileTransfer) ---------------------------------------
-// Flatpak and Snap apps mostly can't read a path from outside. So a drag out (dragout.c) also offers
-// "application/vnd.portal.filetransfer": a key for the files, handed to xdg-document-portal with their fds; the app
-// redeems it and gets exactly those files (GTK and Qt do the same). Apps outside a sandbox redeeming it get the real
-// paths back. A private connection of ours (any thread), only when the portal is there.
-
-static struct {
-    pthread_mutex_t mtx;
-    void *conn;
-    atomic_int ok; // the portal answers: -1 not known yet, 0 no, 1 yes
-    unsigned (*threads_init)(void);
-    void *(*new_call)(const char *, const char *, const char *, const char *);
-    void *(*call_block)(void *, void *, int, IgDBusError *);
-    void (*init_append)(void *, IgDBusIter *);
-    unsigned (*open_container)(IgDBusIter *, int, const char *, IgDBusIter *);
-    unsigned (*close_container)(IgDBusIter *, IgDBusIter *);
-    unsigned (*append_basic)(IgDBusIter *, int, const void *);
-    void (*set_exit)(void *, unsigned);
-} g_pft = {.mtx = PTHREAD_MUTEX_INITIALIZER, .ok = -1};
-
-#define PFT_DEST "org.freedesktop.portal.Documents"
-#define PFT_PATH "/org/freedesktop/portal/documents"
-#define PFT_IFACE "org.freedesktop.portal.FileTransfer"
-
-static bool pft_connect(void) { // (under mtx)
-    if (g_pft.conn) return true;
-    if (!ig_dbus_load()) return false;
-    void *l = g_fm1.lib;
-    *(void **)&g_pft.threads_init = dlsym(l, "dbus_threads_init_default");
-    *(void **)&g_pft.new_call = dlsym(l, "dbus_message_new_method_call");
-    *(void **)&g_pft.call_block = dlsym(l, "dbus_connection_send_with_reply_and_block");
-    *(void **)&g_pft.init_append = dlsym(l, "dbus_message_iter_init_append");
-    *(void **)&g_pft.open_container = dlsym(l, "dbus_message_iter_open_container");
-    *(void **)&g_pft.close_container = dlsym(l, "dbus_message_iter_close_container");
-    *(void **)&g_pft.append_basic = dlsym(l, "dbus_message_iter_append_basic");
-    *(void **)&g_pft.set_exit = dlsym(l, "dbus_connection_set_exit_on_disconnect");
-    if (!g_pft.threads_init || !g_pft.new_call || !g_pft.call_block || !g_pft.init_append || !g_pft.open_container ||
-        !g_pft.close_container || !g_pft.append_basic || !g_pft.set_exit)
-        return false;
-    g_pft.threads_init();
-    IgDBusError e;
-    g_fm1.error_init(&e);
-    g_pft.conn = g_fm1.bus_get_private(0 /* session */, &e);
-    g_fm1.error_free(&e);
-    if (g_pft.conn) g_pft.set_exit(g_pft.conn, 0); // (a bus that goes away must not take us with it)
-    return g_pft.conn != NULL;
-}
-
-// An empty a{sv} (options).
-static void pft_no_options(IgDBusIter *it) {
-    IgDBusIter d;
-    g_pft.open_container(it, 'a', "{sv}", &d);
-    g_pft.close_container(it, &d);
-}
-
-// Send msg (consumed), wait for the reply (NULL: failed). (under mtx)
-static void *pft_call(void *msg, int timeout_ms) {
-    IgDBusError e;
-    g_fm1.error_init(&e);
-    void *r = g_pft.call_block(g_pft.conn, msg, timeout_ms, &e);
-    g_fm1.error_free(&e);
-    g_fm1.message_unref(msg);
-    return r;
-}
-
-// Is the portal there (started on demand if it can be)? Asked once, off the main thread (dragout_init).
-static void *pft_probe_thread(void *arg) {
-    (void)arg;
-    pthread_mutex_lock(&g_pft.mtx);
-    bool ok = false;
-    if (pft_connect()) {
-        void *m = g_pft.new_call(PFT_DEST, PFT_PATH, "org.freedesktop.DBus.Peer", "Ping");
-        void *r = m ? pft_call(m, 3000) : NULL;
-        ok = r != NULL;
-        if (r) g_fm1.message_unref(r);
-    }
-    atomic_store(&g_pft.ok, ok);
-    pthread_mutex_unlock(&g_pft.mtx);
-    return NULL;
-}
-
-static void pft_probe(void) {
-    pthread_t t;
-    if (pthread_create(&t, NULL, pft_probe_thread, NULL) == 0) pthread_detach(t);
-}
-
-static bool pft_available(void) { return atomic_load(&g_pft.ok) == 1; }
-
-// A transfer key for these files (StartTransfer + AddFiles with their fds, 16 at a time like GTK); false if the
-// portal said no. Called when a target asks for it (any thread).
-static bool pft_key(char **paths, int n, char *key, size_t cap) {
-    if (!pft_available() || !n) return false;
-    pthread_mutex_lock(&g_pft.mtx);
-    bool ok = false;
-    key[0] = 0;
-    void *m = pft_connect() ? g_pft.new_call(PFT_DEST, PFT_PATH, PFT_IFACE, "StartTransfer") : NULL;
-    if (m) {
-        IgDBusIter it;
-        g_pft.init_append(m, &it);
-        pft_no_options(&it); // (autostop: the transfer ends once the files are taken)
-        void *r = pft_call(m, 3000);
-        IgDBusIter ri;
-        const char *k = NULL;
-        if (r && g_fm1.iter_init(r, &ri) && g_fm1.iter_get_arg_type(&ri) == 's') g_fm1.iter_get_basic(&ri, &k);
-        if (k) snprintf(key, cap, "%s", k);
-        if (r) g_fm1.message_unref(r);
-        ok = key[0] != 0;
-    }
-    for (int i = 0; ok && i < n; i += 16) {
-        void *am = g_pft.new_call(PFT_DEST, PFT_PATH, PFT_IFACE, "AddFiles");
-        if (!am) { ok = false; break; }
-        IgDBusIter it, arr;
-        g_pft.init_append(am, &it);
-        const char *kp = key;
-        g_pft.append_basic(&it, 's', &kp);
-        g_pft.open_container(&it, 'a', "h", &arr);
-        int fds[16], nf = 0;
-        for (int j = i; j < n && j < i + 16; j++) {
-            int fd = open(paths[j], O_PATH | O_CLOEXEC);
-            if (fd < 0) continue;
-            fds[nf++] = fd;
-            g_pft.append_basic(&arr, 'h', &fd); // (libdbus keeps its own copy)
-        }
-        g_pft.close_container(&it, &arr);
-        pft_no_options(&it);
-        void *r = pft_call(am, 3000);
-        ok = r != NULL;
-        if (r) g_fm1.message_unref(r);
-        for (int j = 0; j < nf; j++) close(fds[j]);
-    }
-    pthread_mutex_unlock(&g_pft.mtx);
-    return ok;
-}
-
-// --- file chooser of other apps (xdg-desktop-portal-termfilechooser) ----------------------------------------------
-// The portal runs a command for every Open / Save / Choose folder dialog; ours is a small wrapper that turns its
-// arguments into `file-explorer --pick ...`. Turning it on writes three user files (files that were there are kept
-// as *.fe-backup and put back when it's turned off): the wrapper, termfilechooser's config, and the desktop's
-// portals.conf with FileChooser=termfilechooser.
-
-static bool ig_picker_portal_installed(void) {
-    char dirs[16][PATH_MAX], p[PATH_MAX + 64];
-    int n = xdg_dirs("XDG_DATA_DIRS", XDG_DATA_DEF, dirs, 16);
-    for (int i = 0; i < n; i++) {
-        snprintf(p, sizeof p, "%s/xdg-desktop-portal/portals/termfilechooser.portal", dirs[i]);
-        if (access(p, R_OK) == 0) return true;
-    }
-    return getenv("FE_TEST_TERMFILECHOOSER") != NULL;
-}
-
-static void ig_picker_paths(char *wrapper, char *tfc, char *portals, size_t cap) {
-    char c[PATH_MAX], d[PATH_MAX], desk[64] = "";
-    ig_config_dir(c, sizeof c);
-    ig_data_dir(d, sizeof d);
-    snprintf(wrapper, cap, "%s/file-explorer/termfilechooser-wrapper.sh", d);
-    snprintf(tfc, cap, "%s/xdg-desktop-portal-termfilechooser/config", c);
-    const char *cur = getenv("XDG_CURRENT_DESKTOP"); // its first name, lowercase: "<desktop>-portals.conf"
-    size_t k = 0;
-    for (; cur && cur[k] && cur[k] != ':' && k < sizeof desk - 1; k++) desk[k] = (char)ascii_lower((u8)cur[k]);
-    desk[k] = 0;
-    if (desk[0]) snprintf(portals, cap, "%s/xdg-desktop-portal/%s-portals.conf", c, desk);
-    else snprintf(portals, cap, "%s/xdg-desktop-portal/portals.conf", c);
-}
-
-static bool ig_picker_on(void) {
-    char w[PATH_MAX + 64], t[PATH_MAX + 64], p[PATH_MAX + 64];
-    ig_picker_paths(w, t, p, PATH_MAX + 64);
-    char *pc = file_read_all(p), *tc = file_read_all(t);
-    bool on = pc && tc && strstr(pc, "org.freedesktop.impl.portal.FileChooser=termfilechooser") && strstr(tc, w);
-    free(pc);
-    free(tc);
-    return on;
-}
-
-// Keep what's at path as path.fe-backup (once), so turning off can put it back.
-static void ig_backup(const char *path) {
-    char b[PATH_MAX + 16];
-    snprintf(b, sizeof b, "%s.fe-backup", path);
-    if (access(path, F_OK) == 0 && access(b, F_OK) != 0) rename(path, b);
-}
-
-static void ig_restore(const char *path) {
-    char b[PATH_MAX + 16];
-    snprintf(b, sizeof b, "%s.fe-backup", path);
-    if (access(b, F_OK) == 0) rename(b, path);
-    else unlink(path);
-}
-
-static void ig_portal_restart(void) { // the portal reads its config at start
-    char *argv[] = {"systemctl", "--user", "try-restart", "xdg-desktop-portal.service", NULL};
-    ig_run(argv);
-}
-
-static void ig_picker_set(bool on) {
-    char w[PATH_MAX + 64], t[PATH_MAX + 64], p[PATH_MAX + 64], exe[PATH_MAX];
-    ig_picker_paths(w, t, p, PATH_MAX + 64);
-    if (!on) {
-        unlink(w);
-        ig_restore(t);
-        ig_restore(p);
-        ig_portal_restart();
-        return;
-    }
-    if (!ig_picker_portal_installed()) {
-        toast("Install xdg-desktop-portal-termfilechooser first (it lets other apps use this file chooser)");
-        return;
-    }
+// Adopt only our generated launcher and the default-FM role. Legacy portal/FM1 files are left as they are.
+static void ig_identity_adopt(void) {
+    if (A.selftest || A.screenshot) return;
+    char data[PATH_MAX], config[PATH_MAX], exe[PATH_MAX], old[PATH_MAX + 128], dest[PATH_MAX + 128];
+    ig_data_dir(data, sizeof data); ig_config_dir(config, sizeof config);
     exe_path(exe, sizeof exe);
-    char text[PATH_MAX * 2 + 1024];
-    snprintf(text, sizeof text,
-             "#!/bin/sh\n# Written by File Explorer (Options > Integration). xdg-desktop-portal-termfilechooser runs it for\n"
-             "# every Open / Save / Choose folder dialog: $1 multiple, $2 directory, $3 save, $4 path, $5 output file.\n"
-             "if [ \"$3\" = 1 ]; then mode=save; elif [ \"$2\" = 1 ]; then mode=dir; elif [ \"$1\" = 1 ]; then mode=files; else mode=file; fi\n"
-             "exec \"%s\" --pick \"$mode\" --out \"$5\" \"$4\"\n", exe);
-    ig_write_file(w, text, 0755);
-    // termfilechooser's own config
-    ig_backup(t);
-    snprintf(text, sizeof text, "# Written by File Explorer (Options > Integration)\n[filechooser]\ncmd=%s\ndefault_dir=$HOME\n"
-             "create_help_file=0\nopen_mode=suggested\nsave_mode=last\n", w);
-    ig_write_file(t, text, 0644);
-    // the desktop's portals.conf: the one there (or the system's for this desktop) with FileChooser pointed at it
-    char *base = file_read_all(p);
-    if (!base) {
-        char dirs[16][PATH_MAX], sp[PATH_MAX + 64];
-        int n = xdg_dirs("XDG_DATA_DIRS", XDG_DATA_DEF, dirs, 16);
-        const char *name = strrchr(p, '/') + 1;
-        for (int i = 0; i < n && !base; i++) {
-            snprintf(sp, sizeof sp, "%s/xdg-desktop-portal/%s", dirs[i], name);
-            base = file_read_all(sp);
+    if (strpbrk(exe, "\"\\\r\n`$")) return;
+    snprintf(old, sizeof old, "%s/applications/" HERMES_LEGACY_APP_ID ".desktop", data);
+    snprintf(dest, sizeof dest, "%s/applications/" HERMES_APP_ID ".desktop", data);
+    char *text = ig_identity_read_owned(old);
+    struct stat st;
+    if (text && lstat(dest, &st) && errno == ENOENT) {
+        char *adopted = identity_legacy_desktop(text, exe);
+        if (adopted) {
+            if (!ig_write_file(dest, adopted, 0644))
+                fprintf(stderr, "Hermes: generated legacy launcher adoption failed; original retained.\n");
+            free(adopted);
         }
     }
-    ig_backup(p);
-    char *out = NULL;
-    size_t olen = 0;
-    FILE *o = open_memstream(&out, &olen);
-    bool in_pref = false, done = false;
-    for (const char *l = base ? base : ""; *l;) {
-        const char *e = strchr(l, '\n');
-        size_t len = e ? (size_t)(e - l) + 1 : strlen(l);
-        if (l[0] == '[') {
-            if (in_pref && !done) { fputs("org.freedesktop.impl.portal.FileChooser=termfilechooser\n", o); done = true; }
-            in_pref = !strncmp(l, "[preferred]", 11);
-        } else if (in_pref && !strncmp(l, "org.freedesktop.impl.portal.FileChooser=", 40)) {
-            if (!done) fputs("org.freedesktop.impl.portal.FileChooser=termfilechooser\n", o);
-            done = true;
-            l += len;
-            continue;
-        }
-        fwrite(l, 1, len, o);
-        if (l[len - 1] != '\n') fputc('\n', o);
-        l += len;
+    free(text);
+    // Never change a custom default or invoke normal default-toggle routines.
+    if (!strcmp(ig_folder_app(), HERMES_LEGACY_APP_ID ".desktop") && access(dest, R_OK) == 0) {
+        mimeapps_set_default("inode/directory", IG_OUR_ID);
+        A.ig_asked = true;
+        A.settings_dirty = true;
     }
-    if (!done) fputs(in_pref ? "org.freedesktop.impl.portal.FileChooser=termfilechooser\n"
-                             : "[preferred]\norg.freedesktop.impl.portal.FileChooser=termfilechooser\n", o);
-    fclose(o);
-    ig_write_file(p, out, 0644);
-    free(out);
-    free(base);
-    ig_portal_restart();
+
 }
 
 // --- first run: offer (once) to become the default file manager -----------------------------------------------------
@@ -499,15 +111,14 @@ static void ig_ask_cb(int choice, bool check, void *ud) {
 }
 
 static void ig_first_run(void) {
-    if (A.ig_asked || A.selftest || A.screenshot || picker_active() || A.win_hidden) return;
+    if (A.ig_asked || A.selftest || A.screenshot || A.win_hidden) return;
     A.ig_asked = true;
     A.settings_dirty = true;
     if (ig_default_fm_on()) return;
     static const char *b[] = {"Make default", "Not now"};
     dialog_open("Use " APP_NAME " for folders?",
-                "Folders opened from other apps and the desktop would open here. You can change this, and make it the "
-                "file chooser or the target of \"Show in folder\", in Options > Integration.",
-                b, 2, 0, 1, NULL, ig_ask_cb, NULL);
+                "Folders opened from other apps and the desktop would open here. You can change this in "
+                 "Options > Integration.",b, 2, 0, 1, NULL, ig_ask_cb, NULL);
 }
 
 // --- updates (Options > Updates: the AppImage updates itself, packages come with the system's updates) -------------

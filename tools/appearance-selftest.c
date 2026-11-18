@@ -413,7 +413,7 @@ static void test_system_palette(void) {
 
 static void test_portal_messages(void) {
     assert(ig_dbus_load());
-    void *lib = g_fm1.lib;
+    void *lib = g_dbus.lib;
     void *(*new_message)(int) = dlsym(lib, "dbus_message_new");
     void (*init_append)(void *, IgDBusIter *) = dlsym(lib, "dbus_message_iter_init_append");
     unsigned (*open)(IgDBusIter *, int, const char *, IgDBusIter *) = dlsym(lib, "dbus_message_iter_open_container");
@@ -434,17 +434,17 @@ static void test_portal_messages(void) {
         assert(close(parent, &channels));
         if (depth) assert(close(depth == 2 ? &outer : &it, &inner));
         if (depth == 2) assert(close(&it, &outer));
-        assert(g_fm1.iter_init(msg, &it));
+        assert(g_dbus.iter_init(msg, &it));
         assert(system_accent_value(&it) == 0x014080FF);
-        g_fm1.message_unref(msg);
+        g_dbus.message_unref(msg);
     }
     void *msg = new_message(2);
     const char *bad = "not a color";
-    assert(g_fm1.append_args(msg, 's', &bad, 0));
+    assert(g_dbus.append_args(msg, 's', &bad, 0));
     IgDBusIter it;
-    assert(g_fm1.iter_init(msg, &it));
+    assert(g_dbus.iter_init(msg, &it));
     assert(system_accent_value(&it) == 0);
-    g_fm1.message_unref(msg);
+    g_dbus.message_unref(msg);
     // Self-tests must never query a real desktop session.
     g_accent_system = true;
     system_accent_start();

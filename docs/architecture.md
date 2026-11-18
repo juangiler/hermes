@@ -35,10 +35,43 @@
 - `src/app.c` – layout, input, virtualized list, navigation, tabs, dialogs, menus, progress cards, transfer queue, undo.
   `src/input.c` (keyboard/mouse), `src/render.c` (drawing), `src/settings.c` (config files) and
   `src/selftest.c` (self-tests) are included from it.
+- `src/identity.h` – the single source of the Hermes identity (`HERMES_NAME`, `HERMES_SLUG`,
+  `HERMES_APP_ID`, the legacy `file-explorer`/`dev.fileexplorer` identifiers) and `identity_env()`
+  precedence: a `HERMES_*` variable, present even empty, wins over its `FE_*` legacy alias. Included
+  from `base.h`, so every file sees it.
+- `src/migration.c` – one-time startup migration: the private `$XDG_STATE_HOME/hermes` root and
+  `startup.lock`, the legacy single-instance socket probe (a running File Explorer aborts migration
+  before anything is touched), and the per-file ledger import of the four XDG roots
+  (`file-explorer` → `hermes`) with retained sources, atomic no-replace commits, and the legacy
+  cloud subtree excluded.
+- `src/cloud_identity.c` – cloud unit naming (`hermes-cloud-<escaped>.service` and the legacy
+  `file-explorer-cloud-…` form) and file-provenance ownership (legacy / Hermes / external) that keeps
+  File Explorer's units under deferred handover.
+- `src/credentials.c` – lazy keyring migration: secrets are copied to the `hermes` application id
+  only with a verified write, and a durable deletion intent keeps a credential from being resurrected
+  from the old namespace.
+- `src/integration_identity.c` – strict provenance checks for adopting the generated launcher
+  at startup; a standard filename alone never proves ownership. Legacy portal/FileManager1 files are
+  left untouched.
 
 - `src/theme.c` owns the effective palette and scrollbar colors; `src/tab_preferences.c` shares tab settings and
   geometry across rendering and input; `src/header_preferences.c` owns the label and control-visibility settings. `src/desktop_config.c` / `src/desktop_palette.c` read desktop colors without
   GTK/Qt build dependencies. `src/system_appearance.c` monitors the optional Settings portal off the UI thread and
-  posts updates to the existing main queue. The optional libdbus loader is shared with integration via `src/dbus.c`.
+  posts updates to the existing main queue; the optional libdbus loader it uses lives in `src/dbus.c`.
 - `src/system_icons.c` resolves installed freedesktop icon themes and inheritance; `src/system_icon_raster.c` converts
   SVG/PNG icons into the existing atlas/texture caches in `icons.c`. Missing icons keep bundled fallbacks.
+
+## Repository layout
+
+- `assets/branding/` owns Hermes's editable pixel-art helmet and generated SVG/PNG
+  assets. `tools/gen_logo.py` also generates the embedded `src/logo_data.h`.
+- `assets/desktop/` and `assets/udev/` hold shared installation assets.
+- `packaging/debian/`, `packaging/rpm/`, `packaging/arch/` and
+  `packaging/appimage/` own distribution-specific recipes.
+- `build/<mode>/` holds separate debug/release/package/demo outputs;
+  `build/packaging/` holds isolated native-package workspaces and `dist/`
+  holds generated distributable artifacts.
+- `build.sh` remains the unity-build entry point. `install.sh` consumes an
+  explicitly selected mode/binary and supports `DESTDIR` staging.
+- `tools/source-archive.sh` packages an explicit source allowlist, including
+  working-tree edits but not local Git metadata, build products or home data.
