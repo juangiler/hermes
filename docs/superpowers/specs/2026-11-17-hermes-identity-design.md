@@ -1,7 +1,9 @@
 > **Superseded:** this design still describes FileManager1, xdg-desktop-portal
 > and a picker app id; those roles and the `--pick` window were removed by
 > `2026-11-18-portal-removal-default-fm-and-webdav-icon-design.md`. Only the
-> launcher and default-folder-handler adoption remain.
+> launcher and default-folder-handler adoption remain. The later decision to make
+> `0.0.1` the first Hermes release also supersedes the note against resetting
+> `APP_VERSION` below.
 
 # Hermes identity, migration, branding, and distribution layout
 

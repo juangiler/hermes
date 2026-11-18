@@ -6,6 +6,8 @@ will be listed above that history.
 
 ## Unreleased
 
+## 0.0.1
+
 **New**
 - One-time migration from File Explorer at startup: settings, data, cache and
   state are imported into the `hermes` namespaces with a per-file ledger,

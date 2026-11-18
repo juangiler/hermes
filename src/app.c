@@ -6,7 +6,7 @@ extern char **environ;
 #define APP_NAME                                                               \
   HERMES_NAME                // system-facing name: window title, launcher, tray
 #define APP_LABEL HERMES_NAME // shown next to the logo inside the app
-#define APP_VERSION "0.11.2" // bumped with each tagged release
+#define APP_VERSION "0.0.1" // bumped with each tagged release
 
 typedef struct {
   f32 x, y, w, h;

@@ -1,6 +1,6 @@
 # Hermes - local RPM package for Fedora.
 Name:           hermes
-Version:        0.11.2
+Version:        0.0.1
 Release:        1%{?dist}
 Summary:        Fast, keyboard-first file manager
 License:        MIT
