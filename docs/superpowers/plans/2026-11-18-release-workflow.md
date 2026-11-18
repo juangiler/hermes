@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make a pushed `v<version>` tag publish a GitHub Release with the Hermes source archive and checksum.
+**Goal:** Make a pushed `v<version>` tag create a draft GitHub Release with the Hermes source archive and checksum; a separate dispatch publishes it after review.
 
-**Architecture:** Rewrite the existing `.github/workflows/release.yml` from manual preparation into a tag-triggered publishing workflow. No new scripts or third-party actions: reuse `tools/check-release-version.sh`, `tools/source-archive.sh`, `tools/branding-selftest.py`, `tools/build-install-selftest.py`, `awk`, `sha256sum` and the runner's preinstalled `gh` CLI.
+**Architecture:** Rewrite the existing `.github/workflows/release.yml` from manual preparation into a tag-triggered draft-creation workflow. No new scripts or third-party actions: reuse `tools/check-release-version.sh`, `tools/source-archive.sh`, `tools/branding-selftest.py`, `tools/build-install-selftest.py`, `awk`, `sha256sum` and the runner's preinstalled `gh` CLI.
 
 **Tech Stack:** GitHub Actions, `gh release create`, POSIX shell, `GITHUB_TOKEN`.
 
@@ -41,7 +41,7 @@
 
 **Interfaces:**
 - Consumes: `tools/check-release-version.sh`, `tools/source-archive.sh`, `tools/branding-selftest.py`, `tools/build-install-selftest.py`, `CHANGELOG.md`, `src/app.c`.
-- Produces: a workflow named `Release` triggered by `v*` tags, publishing `hermes-<version>.tar.gz` + `.sha256` with release notes.
+- Produces: a workflow named `Release` triggered by `v*` tags, creating a draft with `hermes-<version>.tar.gz` + `.sha256` and release notes; publication is dispatched separately.
 
 - [ ] **Step 1: Replace the workflow file**
 
@@ -138,7 +138,7 @@ git commit -m "ci(release): publish GitHub Release on version tag"
 Replace the current "Release infrastructure" text with wording that states:
 
 - Pushing a `v<version>` tag triggers the `Release` workflow.
-- The workflow validates metadata against the tag, publishes a GitHub Release with
+- The workflow validates metadata against the tag, creates a draft release with
   `hermes-<version>.tar.gz` and its SHA256, and uses release notes from that
   version's CHANGELOG section.
 - The workflow uses only `GITHUB_TOKEN` with job-scoped `contents: write`.
