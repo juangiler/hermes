@@ -14,7 +14,8 @@ One switch, showing who has the role now. Turning it off restores the previous h
 | **Default file manager** | Sets `inode/directory` in your `~/.config/mimeapps.list` (and in the desktop's own `<desktop>-mimeapps.list` when that one names folders), remembering the previous app to restore later. |
 
 On the first start, Hermes asks once whether it should be the default file manager.
-Existing File Explorer integration is handled separately by [migration](migration.md).
+No existing desktop integration is adopted or rewritten; files created by other
+applications are left as they are.
 
 No other desktop roles are claimed. Hermes does **not** implement
 `org.freedesktop.FileManager1` ("Show in folder"), provide a system

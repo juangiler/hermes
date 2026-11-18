@@ -36,23 +36,12 @@
   `src/input.c` (keyboard/mouse), `src/render.c` (drawing), `src/settings.c` (config files) and
   `src/selftest.c` (self-tests) are included from it.
 - `src/identity.h` – the single source of the Hermes identity (`HERMES_NAME`, `HERMES_SLUG`,
-  `HERMES_APP_ID`, the legacy `file-explorer`/`dev.fileexplorer` identifiers) and `identity_env()`
-  precedence: a `HERMES_*` variable, present even empty, wins over its `FE_*` legacy alias. Included
-  from `base.h`, so every file sees it.
-- `src/migration.c` – one-time startup migration: the private `$XDG_STATE_HOME/hermes` root and
-  `startup.lock`, the legacy single-instance socket probe (a running File Explorer aborts migration
-  before anything is touched), and the per-file ledger import of the four XDG roots
-  (`file-explorer` → `hermes`) with retained sources, atomic no-replace commits, and the legacy
-  cloud subtree excluded.
-- `src/cloud_identity.c` – cloud unit naming (`hermes-cloud-<escaped>.service` and the legacy
-  `file-explorer-cloud-…` form) and file-provenance ownership (legacy / Hermes / external) that keeps
-  File Explorer's units under deferred handover.
-- `src/credentials.c` – lazy keyring migration: secrets are copied to the `hermes` application id
-  only with a verified write, and a durable deletion intent keeps a credential from being resurrected
-  from the old namespace.
-- `src/integration_identity.c` – strict provenance checks for adopting the generated launcher
-  at startup; a standard filename alone never proves ownership. Legacy portal/FileManager1 files are
-  left untouched.
+  `HERMES_APP_ID`) and `identity_env()`, a `getenv()` wrapper. Runtime overrides use `HERMES_*`
+  names only. Included from `base.h`, so every file sees it.
+- `src/cloud_identity.c` – cloud unit naming (`hermes-cloud-<escaped>.service`) and file-provenance
+  ownership (`CLOUD_HERMES` / `CLOUD_EXTERNAL`); units with a legacy header are external.
+- `src/credentials.c` – Hermes-only keyring namespace with a private deletion-intent directory;
+  no legacy fallback.
 
 - `src/theme.c` owns the effective palette and scrollbar colors; `src/tab_preferences.c` shares tab settings and
   geometry across rendering and input; `src/header_preferences.c` owns the label and control-visibility settings. `src/desktop_config.c` / `src/desktop_palette.c` read desktop colors without

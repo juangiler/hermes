@@ -1,6 +1,6 @@
 # Installing Hermes
 
-[README](../README.md) · [Building](building.md) · [Migration](migration.md)
+[README](../README.md) · [Building](building.md) · [Legacy support (removed)](migration.md)
 
 Hermes currently ships source and local package recipes, not a public apt/dnf
 repository, AUR submission, or published AppImage channel. Do not use the
@@ -86,9 +86,10 @@ downloads third-party sources/tools, and requires
 Do not run it on the host. No AppImage compatibility or download availability
 is claimed until an artifact has actually been built and tested.
 
-## Removing and migrating
+## Removing Hermes
 
 Remove Hermes through the same package manager used to install it. User data
-under the Hermes XDG directories is retained. The old File Explorer package,
-its repositories, and retained migration source data are not automatically
-uninstalled or deleted; see [migration](migration.md).
+under the Hermes XDG directories is retained. The old File Explorer package and
+its repositories are not automatically uninstalled or deleted; Hermes does not
+import or modify their data. See [legacy support (removed)](migration.md) for
+the history.

@@ -53,6 +53,43 @@ def test_legacy_directory_not_referenced(errors):
         errors.append("src/migration.c still exists")
 
 
+HISTORICAL_DOCS = (
+    "docs/superpowers/specs/2026-11-17-hermes-identity-design.md",
+    "docs/superpowers/plans/2026-11-17-hermes-identity.md",
+    "docs/superpowers/specs/2026-11-18-portal-removal-default-fm-and-webdav-icon-design.md",
+    "docs/superpowers/plans/2026-11-18-portal-removal-default-fm-and-webdav-icon.md",
+)
+
+
+def test_migration_page_is_historical(errors):
+    text = (ROOT / "docs/migration.md").read_text(encoding="utf-8")
+    if "removed" not in text.lower():
+        errors.append("docs/migration.md does not say legacy support was removed")
+    for phrase in ("migration imports", "are migrated lazily",
+                   "handover is deferred", "accepted for compatibility"):
+        if phrase in text:
+            errors.append(f"docs/migration.md still promises {phrase!r}")
+
+
+def test_changelog_records_purge(errors):
+    text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    if "## Unreleased" not in text:
+        errors.append("CHANGELOG.md has no Unreleased section")
+        return
+    section = text.split("## Unreleased", 1)[1].split("\n## ", 1)[0].lower()
+    if "early hermes" not in section or "fully purged" not in section:
+        errors.append("CHANGELOG.md Unreleased does not record the early support and full purge")
+
+
+def test_historical_docs_marked_superseded(errors):
+    for rel in HISTORICAL_DOCS:
+        path = ROOT / rel
+        if not path.exists():
+            errors.append(f"{rel} is missing")
+        elif "later fully purged" not in path.read_text(encoding="utf-8"):
+            errors.append(f"{rel} lacks the superseded banner")
+
+
 def main():
     errors = []
     for name, fn in sorted(globals().items()):

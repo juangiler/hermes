@@ -38,5 +38,6 @@ Exporting affects the host's user applications directory; it is not part of
 ordinary compilation or self-tests.
 
 Do not export a stale File Explorer binary expecting it to become Hermes.
-For an existing exported launcher, preserve user customization and follow the
-[migration guidance](migration.md) before removing/replacing it.
+An existing exported launcher belongs to its original application: preserve
+user customization and decide separately whether to remove or replace it.
+See [legacy support (removed)](migration.md) for the history.

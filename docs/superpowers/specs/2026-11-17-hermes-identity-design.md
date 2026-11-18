@@ -1,3 +1,6 @@
+> **Historical design:** implemented in early Hermes, later fully purged; see
+> `CHANGELOG.md`. Do not treat as current behavior.
+>
 > **Superseded:** this design still describes FileManager1, xdg-desktop-portal
 > and a picker app id; those roles and the `--pick` window were removed by
 > `2026-11-18-portal-removal-default-fm-and-webdav-icon-design.md`. Only the

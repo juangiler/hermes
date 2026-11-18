@@ -1,5 +1,8 @@
 # Design: remove portal integrations, verify default-FM switch, theme the WebDAV sidebar icon
 
+> **Historical design:** implemented in early Hermes, later fully purged; see
+> `CHANGELOG.md`. Do not treat as current behavior.
+
 Date: 2026-11-18
 Status: **awaiting approval** (nothing implemented yet)
 

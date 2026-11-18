@@ -1,5 +1,8 @@
 # Hermes Identity Implementation Plan
 
+> **Historical design:** implemented in early Hermes, later fully purged; see
+> `CHANGELOG.md`. Do not treat as current behavior.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans for coordinated native execution; an isolated runtime implementation helper may work on disjoint files. No commits.
 
 **Goal:** Rebrand and reorganize Hermes with recoverable migration and maintainable Linux packaging.

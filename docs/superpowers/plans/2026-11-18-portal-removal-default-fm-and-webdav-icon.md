@@ -1,5 +1,8 @@
 # Portal removal, default-FM verification and WebDAV sidebar icon Implementation Plan
 
+> **Historical design:** implemented in early Hermes, later fully purged; see
+> `CHANGELOG.md`. Do not treat as current behavior.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 >
 > Execution method for this session: **native** (no subagents — user asked not to spawn them until limits refresh). All work stays uncommitted; skip every commit step.

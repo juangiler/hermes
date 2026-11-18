@@ -86,11 +86,9 @@ or file chooser.
 ## Moving from File Explorer
 
 Hermes uses its own `hermes` configuration/data namespace and
-`io.github.juangiler.hermes` desktop identity. The migration preserves original
-data, does not overwrite existing Hermes files, and treats active cloud mounts
-separately: a cloud folder connected through File Explorer's own service stays
-there until Hermes takes it over, and says so instead of touching it. See
-[migration and recovery](docs/migration.md) before switching.
+`io.github.juangiler.hermes` desktop identity. There is no automatic migration:
+existing File Explorer settings, data and desktop roles are left untouched.
+See [legacy support (removed)](docs/migration.md) for the history.
 
 ## First steps
 
@@ -107,7 +105,7 @@ there until Hermes takes it over, and says so instead of touching it. See
 ## Documentation
 
 [Install](docs/install.md) · [Build and test](docs/building.md) ·
-[Migration](docs/migration.md) · [Keys](docs/keys.md) ·
+[Legacy support (removed)](docs/migration.md) · [Keys](docs/keys.md) ·
 [Settings](docs/settings.md) · [Integration](docs/integration.md) ·
 [Custom icons](docs/custom-icons.md) · [Architecture](docs/architecture.md) ·
 [Maintenance](MAINTENANCE.md)

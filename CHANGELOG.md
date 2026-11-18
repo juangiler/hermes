@@ -6,6 +6,13 @@ will be listed above that history.
 
 ## Unreleased
 
+**Changed**
+- Early Hermes carried a File Explorer compatibility layer: a startup importer,
+  `FE_*` aliases, lazy keyring and cloud handover, and generated-launcher
+  adoption. It has been **fully purged**: legacy data is ignored, overrides are
+  `HERMES_*` only, and a stale migration lock can no longer block startup.
+  Existing legacy files are left untouched; see `docs/migration.md` for history.
+
 ## 0.0.1
 
 **New**
