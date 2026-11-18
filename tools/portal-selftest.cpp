@@ -368,6 +368,7 @@ private slots:
     void portalConfigDisableRestoresExactOriginalBytes();
     void portalConfigDisableRemovesConfigWhenOriginalMissing();
     void portalConfigDisableWithoutBackupRemovesOnlyHermesKey();
+    void portalConfigDisableWithoutBackupKeepsForeignFileChooserValue();
     void portalConfigStatusTracksEnableAndDisable();
     void portalConfigNeverWritesUnderRealHome();
 
@@ -810,6 +811,20 @@ void PortalSelfTest::portalConfigDisableWithoutBackupRemovesOnlyHermesKey()
     QVERIFY2(PortalConfig::disableFileChooser(&error), qPrintable(error));
     QCOMPARE(readFile(configPath()),
              QByteArray("[preferred]\ndefault=gtk\nkeep=yes\n"));
+}
+
+void PortalSelfTest::portalConfigDisableWithoutBackupKeepsForeignFileChooserValue()
+{
+    resetPortalConfig();
+    const QByteArray original("[preferred]\n"
+                              "org.freedesktop.impl.portal.FileChooser=gtk\n");
+    writeConfig(original);
+    QVERIFY(!QFile::exists(backupPath()));
+
+    QString error;
+    QVERIFY2(PortalConfig::disableFileChooser(&error), qPrintable(error));
+    QCOMPARE(readFile(configPath()), original);
+    QVERIFY(!QFile::exists(backupPath()));
 }
 
 void PortalSelfTest::portalConfigStatusTracksEnableAndDisable()

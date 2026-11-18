@@ -168,6 +168,14 @@ KeyLocation findKey(const QList<Line> &lines)
     return location;
 }
 
+// Only a line Hermes itself wrote may be removed on disable. A foreign
+// backend's value must survive an opt-out even when no backup exists.
+bool isHermesKey(const QList<Line> &lines, const KeyLocation &location)
+{
+    return location.key >= 0
+        && lines.at(location.key).body.mid(location.equals + 1).trimmed() == kHermesValue;
+}
+
 QByteArray keyLine(const QByteArray &ending)
 {
     return kFileChooserKey + "=" + kHermesValue
@@ -200,7 +208,7 @@ QByteArray editedConfig(const QByteArray &content, bool enable)
     const KeyLocation location = findKey(lines);
 
     if (!enable) {
-        if (location.key >= 0)
+        if (isHermesKey(lines, location))
             lines.removeAt(location.key);
         return joinLines(lines);
     }
@@ -228,10 +236,7 @@ QByteArray editedConfig(const QByteArray &content, bool enable)
 bool fileChooserEnabled(const QByteArray &content)
 {
     const QList<Line> lines = splitLines(content);
-    const KeyLocation location = findKey(lines);
-    if (location.key < 0)
-        return false;
-    return lines.at(location.key).body.mid(location.equals + 1).trimmed() == kHermesValue;
+    return isHermesKey(lines, findKey(lines));
 }
 
 } // namespace
