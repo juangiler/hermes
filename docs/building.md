@@ -91,7 +91,8 @@ headless runs prove D-Bus plumbing only, not live KDE Plasma portal behaviour.
 ### Qt/Kirigami shell (migration)
 
 The `hermes-qt` executable is built by CMake from Qt 6 Quick, Kirigami and KF6;
-it shares the SDL-free `hermes_core` archive with the legacy app. Install the
+it links the SDL-free `hermes_core` archive. `hermes-legacy` is a separate
+unity compilation of `src/main.c` and does not link that archive. Install the
 same packages the four CI build legs use:
 
 ```sh
@@ -128,6 +129,12 @@ build and headless plumbing only and do **not** prove live KDE Plasma behaviour
 offscreen/software backends are for tests only. Qt equivalents of the legacy
 `--screenshot` and `HERMES_RECORD` diagnostics are deferred to PR 4; those two
 options still apply to `./build/*/hermes` only.
+
+Known limitation: directory scans are synchronous in this shell.
+`hermes_core_scan_sorted()` polls for up to 10,000 one-millisecond intervals,
+and `DirectoryModel::applyScan()` calls it on the GUI thread. A large or slow
+directory can therefore block the Qt event loop until the scan returns.
+Asynchronous scanning is planned for PR 4.
 
 ## Install and package
 
