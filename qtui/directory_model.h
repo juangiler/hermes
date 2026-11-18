@@ -33,6 +33,10 @@ signals:
   void navigateFailed(const QString &path);
 
 private:
+  // Test seam for the stale-result guard: the integration test cannot force a
+  // queued scan to finish after a newer navigation with the synchronous ABI.
+  friend class HermesQtUiTest;
+
   bool applyScan(const QString &path, quint64 generation);
 
   struct Entry {

@@ -158,15 +158,18 @@ void ShellController::goTo(const QString &path, bool record)
   if (!m_directory || path.isEmpty() || !m_directory->navigate(path))
     return;
 
-  if (m_tabs.isEmpty()) {
+  if (m_tabs.isEmpty() || m_currentTab < 0 || m_currentTab >= m_tabs.size()) {
     TabState tab;
     tab.path = path;
     tab.history.append(path);
     tab.historyIndex = 0;
     m_tabs.append(tab);
-    m_currentTab = 0;
     emit tabsChanged();
-    emit currentTabChanged();
+    const int index = m_tabs.size() - 1;
+    if (m_currentTab != index) {
+      m_currentTab = index;
+      emit currentTabChanged();
+    }
   } else {
     TabState &tab = m_tabs[m_currentTab];
     tab.path = path;
@@ -233,35 +236,30 @@ void ShellController::openTabFromHost(const QString &path, int index, bool focus
   if (path.isEmpty())
     return;
 
-  if (index >= 0 && index < m_tabs.size()) {
-    TabState &tab = m_tabs[index];
-    tab.path = path;
-    tab.history = {path};
-    tab.historyIndex = 0;
-    if (focus && m_currentTab != index) {
-      m_currentTab = index;
-      emit currentTabChanged();
-    }
-    if (focus && m_directory) {
-      m_directory->navigate(path);
-      emitHistory();
-    }
-    return;
-  }
-
   TabState tab;
   tab.path = path;
   tab.history.append(path);
   tab.historyIndex = 0;
-  m_tabs.append(tab);
+
+  // Match the engine's tab_new(): insert at the requested index, or append.
+  if (index < 0 || index > m_tabs.size())
+    index = m_tabs.size();
+  m_tabs.insert(index, tab);
   emit tabsChanged();
-  if (focus) {
-    m_currentTab = m_tabs.size() - 1;
-    emit currentTabChanged();
+
+  if (focus || m_currentTab < 0) {
+    if (m_currentTab != index) {
+      m_currentTab = index;
+      emit currentTabChanged();
+    }
     if (m_directory) {
       m_directory->navigate(path);
       emitHistory();
     }
+  } else if (m_currentTab >= index) {
+    // Inserting before the focused tab shifts its index but not its context.
+    ++m_currentTab;
+    emit currentTabChanged();
   }
 }
 
@@ -269,14 +267,18 @@ void ShellController::closeTab(int index)
 {
   if (index < 0 || index >= m_tabs.size())
     return;
+  const int previous = m_currentTab;
   m_tabs.remove(index);
+  if (index < m_currentTab)
+    --m_currentTab;
   if (m_tabs.isEmpty())
     m_currentTab = -1;
   else if (m_currentTab >= m_tabs.size())
     m_currentTab = m_tabs.size() - 1;
 
   emit tabsChanged();
-  emit currentTabChanged();
+  if (m_currentTab != previous)
+    emit currentTabChanged();
   emitHistory();
   if (m_currentTab >= 0 && m_directory && m_directory->path() != m_tabs.at(m_currentTab).path)
     goTo(m_tabs.at(m_currentTab).path, false);

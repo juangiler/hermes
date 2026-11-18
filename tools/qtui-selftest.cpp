@@ -35,6 +35,10 @@ private slots:
   void upAndFailedPathKeepState();
   void placesIncludeHomeAndRoot();
   void navigationIgnoresStaleDirectoryResults();
+  void closeTabBeforeCurrentKeepsFocusedTab();
+  void focusFreeHostTabKeepsValidCursor();
+  void hostOpenTabAtIndexInsertsTab();
+  void directoryModelRejectsStaleScanResults();
 
 private:
   using CorePtr = std::unique_ptr<HermesCore, decltype(&hermes_core_destroy)>;
@@ -268,6 +272,97 @@ void HermesQtUiTest::navigationIgnoresStaleDirectoryResults()
         controller.directory()->index(row), DirectoryModel::PathRole).toString();
     QCOMPARE(QFileInfo(path).absolutePath(), second.path());
   }
+}
+
+void HermesQtUiTest::closeTabBeforeCurrentKeepsFocusedTab()
+{
+  QTemporaryDir root;
+  QVERIFY(root.isValid());
+  QStringList paths;
+  for (const char *name : {"a", "b", "c", "d"}) {
+    const QString path = root.filePath(QString::fromLatin1(name));
+    QVERIFY(QDir().mkpath(path));
+    paths.append(path);
+  }
+
+  ShellController controller;
+  for (const QString &path : paths)
+    controller.newTab(path);
+  QCOMPARE(controller.tabs(), paths);
+
+  controller.selectTab(2);
+  QCOMPARE(controller.currentTab(), 2);
+  QCOMPARE(controller.directory()->path(), paths.at(2));
+
+  controller.closeTab(0);
+  QCOMPARE(controller.tabs(), QStringList({paths.at(1), paths.at(2), paths.at(3)}));
+  QCOMPARE(controller.currentTab(), 1);
+  QCOMPARE(controller.directory()->path(), paths.at(2));
+}
+
+void HermesQtUiTest::focusFreeHostTabKeepsValidCursor()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+
+  ShellController controller;
+  const QByteArray uri = QUrl::fromLocalFile(dir.path()).toEncoded();
+  const char *uris[] = {uri.constData()};
+  QCOMPARE(hermes_core_open_uris(controller.core(), uris, 1, false), 1);
+  QTRY_COMPARE(controller.tabs().size(), 1);
+  QVERIFY(controller.currentTab() >= 0);
+
+  const QString child = dir.filePath(QStringLiteral("child"));
+  QVERIFY(QDir().mkpath(child));
+  controller.navigate(child);
+  QCOMPARE(controller.directory()->path(), child);
+  QVERIFY(controller.currentTab() >= 0 && controller.currentTab() < controller.tabs().size());
+  QCOMPARE(controller.tabs().at(controller.currentTab()), child);
+}
+
+void HermesQtUiTest::hostOpenTabAtIndexInsertsTab()
+{
+  QTemporaryDir root;
+  QVERIFY(root.isValid());
+  const QString first = root.filePath(QStringLiteral("first"));
+  const QString inserted = root.filePath(QStringLiteral("inserted"));
+  QVERIFY(QDir().mkpath(first));
+  QVERIFY(QDir().mkpath(inserted));
+
+  ShellController controller;
+  controller.newTab(first);
+  controller.openTabFromHost(inserted, 0, false);
+  QCOMPARE(controller.tabs(), QStringList({inserted, first}));
+  QCOMPARE(controller.currentTab(), 1);
+  QCOMPARE(controller.directory()->path(), first);
+}
+
+void HermesQtUiTest::directoryModelRejectsStaleScanResults()
+{
+  QTemporaryDir current;
+  QTemporaryDir other;
+  QVERIFY(current.isValid());
+  QVERIFY(other.isValid());
+  QVERIFY(writeFile(current.filePath(QStringLiteral("one.txt")), "1"));
+  QVERIFY(writeFile(current.filePath(QStringLiteral("two.txt")), "2"));
+  QVERIFY(writeFile(other.filePath(QStringLiteral("three.txt")), "3"));
+
+  CorePtr core = makeCore();
+  DirectoryModel model(core.get());
+  QVERIFY(model.navigate(current.path()));
+  QCOMPARE(model.rowCount(), 2);
+  const QString firstName = model.data(model.index(0), DirectoryModel::NameRole).toString();
+
+  // Both calls scan successfully; only the generation/path check can reject them.
+  QVERIFY(model.applyScan(current.path(), model.m_generation - 1));
+  QCOMPARE(model.path(), current.path());
+  QCOMPARE(model.rowCount(), 2);
+  QCOMPARE(model.data(model.index(0), DirectoryModel::NameRole).toString(), firstName);
+
+  QVERIFY(model.applyScan(other.path(), model.m_generation));
+  QCOMPARE(model.path(), current.path());
+  QCOMPARE(model.rowCount(), 2);
+  QCOMPARE(model.data(model.index(0), DirectoryModel::NameRole).toString(), firstName);
 }
 
 QTEST_MAIN(HermesQtUiTest)
