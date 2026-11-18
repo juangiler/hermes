@@ -38,7 +38,9 @@ static const HermesCoreHost hermes_core_host_defaults = {
     core_host_zero,
 };
 
-static const HermesCoreHost *g_core_host = &hermes_core_host_defaults;
+// Not every translation unit that needs the struct uses the hook table (for
+// example a C++ consumer that only calls hermes_core_set_host()).
+static const HermesCoreHost *g_core_host __attribute__((unused)) = &hermes_core_host_defaults;
 
 #ifdef __cplusplus
 }
