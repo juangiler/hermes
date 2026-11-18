@@ -8,6 +8,10 @@
 
 Split panels, cloud folders, an integrated terminal, and a GPU-drawn interface.
 
+[![CI](https://github.com/juangiler/hermes/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/juangiler/hermes/actions/workflows/ci.yml)
+[![Build](https://github.com/juangiler/hermes/actions/workflows/ci.yml/badge.svg?branch=main&job=build)](https://github.com/juangiler/hermes/actions/workflows/ci.yml?query=branch%3Amain)
+[![Built with OpenCode](https://img.shields.io/badge/Built%20with-OpenCode-7aa2f7)](https://opencode.ai)
+
 [![License: MIT](https://img.shields.io/badge/license-MIT-9ece6a)](LICENSE)
 ![Linux](https://img.shields.io/badge/Linux-Wayland%20%7C%20X11-bb9af7)
 ![C11 + SDL3](https://img.shields.io/badge/C11-SDL3-e0af68)
