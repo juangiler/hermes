@@ -1,8 +1,6 @@
 /* cc -std=gnu11 -Wall -Wextra -Wno-unused-function -Wno-unused-parameter -Wno-format-truncation
    tools/core-selftest.c -o /tmp/hermes-core-test -lm -ldl -pthread $(pkg-config --cflags --libs libarchive fuse3 openssl) */
 #include "../src/base.h"
-#include "../src/core_api.h"
-#include "../src/core_host.h"
 #include <assert.h>
 #include <ctype.h>
 #include <dlfcn.h>
@@ -35,7 +33,6 @@ static struct { bool selftest; bool screenshot; } A = {.selftest = true};
 #include "../src/git.c"
 #include "../src/apps.c"
 #include "../src/cloud_identity.c"
-#include "../src/core_api.c"
 
 static _Atomic int op_finished_count;
 static void op_finished(void *arg) {
@@ -216,86 +213,6 @@ static void test_xxh64(void) {
     assert(xxh64_final(&h) == 0x44BC2CF5AD770999ull);
 }
 
-static void test_core_host_defaults(void) {
-    assert(!g_core_host->is_selftest());
-    assert(!g_core_host->is_screenshot());
-    assert(!g_core_host->window_hidden());
-    assert(g_core_host->current_tab() == 0);
-    g_core_host->mark_settings_dirty();
-    g_core_host->request_redraw();
-    g_core_host->open_tab("/tmp", 0, true);
-}
-
-static _Atomic int abi_wakes;
-static void abi_wake(void *user) { (void)user; atomic_fetch_add(&abi_wakes, 1); }
-static _Atomic int abi_jobs;
-static void abi_main_job(void *arg) { (void)arg; atomic_fetch_add(&abi_jobs, 1); }
-static void abi_worker_job(void *arg) { (void)arg; main_post(abi_main_job, NULL); }
-
-static void test_public_abi(const char *dir) {
-    HermesCore *core = hermes_core_create(abi_wake, NULL);
-    assert(core);
-
-    HermesListing out;
-    assert(hermes_core_scan(core, dir, &out) == 0);
-    assert(out.count == 4);
-    bool found = false;
-    for (size_t i = 0; i < out.count; i++) {
-        if (!strcmp(out.items[i].name, "a.txt")) {
-            assert(out.items[i].name_len == 5);
-            found = true;
-        }
-    }
-    assert(found);
-    hermes_listing_free(&out);
-    assert(out.items == NULL && out.count == 0);
-
-    // Exercise the public drain path, then destroy with another job queued:
-    // a late callback must not touch freed core state, and drain after destroy
-    // must stay a safe no-op.
-    struct timespec pause = {0, 1000000};
-    pool_submit(abi_worker_job, NULL);
-    for (int i = 0; i < 10000 && !atomic_load(&abi_jobs); i++) {
-        hermes_core_drain(core);
-        nanosleep(&pause, NULL);
-    }
-    assert(atomic_load(&abi_jobs) == 1);
-    assert(atomic_load(&abi_wakes) >= 1);
-    pool_submit(abi_worker_job, NULL);
-    hermes_core_destroy(core);
-    hermes_core_drain(core);
-}
-
-static _Atomic int multicore_jobs;
-static void multicore_job(void *arg) { (void)arg; atomic_fetch_add(&multicore_jobs, 1); }
-static void multicore_worker(void *arg) { (void)arg; main_post(multicore_job, NULL); }
-
-static void test_two_cores(void) {
-    HermesCore *a = hermes_core_create(abi_wake, NULL);
-    HermesCore *b = hermes_core_create(abi_wake, NULL);
-    assert(a && b && a != b);
-
-    hermes_core_destroy(a);
-    // Destroyed handles are rejected by pointer lookup, never dereferenced.
-    hermes_core_drain(a);
-
-    // Destroying A must not disable drain through B.
-    int before = atomic_load(&multicore_jobs);
-    struct timespec pause = {0, 1000000};
-    pool_submit(multicore_worker, NULL);
-    for (int i = 0; i < 10000 && atomic_load(&multicore_jobs) == before; i++) {
-        hermes_core_drain(b);
-        nanosleep(&pause, NULL);
-    }
-    assert(atomic_load(&multicore_jobs) == before + 1);
-
-    // Creating another core after a destroy must not resurrect the dead handle.
-    hermes_core_drain(a);
-    assert(atomic_load(&multicore_jobs) == before + 1);
-
-    hermes_core_destroy(b);
-}
-
 static void cleanup_dir(const char *dir, const char *longname) {
     char p[PATH_MAX];
     const char *names[] = {"a.txt", "b b.txt", "caf\xc3\xa9.txt", "copy-me.bin", "secret/x", "loop"};
@@ -318,7 +235,6 @@ int main(void) {
 
     test_fuzzy_and_natcmp();
     test_xxh64();
-    test_core_host_defaults();
 
     char dir[] = "/tmp/hermes-core-XXXXXX";
     assert(mkdtemp(dir));
@@ -333,8 +249,6 @@ int main(void) {
     memset(longname, 'z', 255);
     longname[255] = 0;
     test_scan_names(dir);
-    test_public_abi(dir);
-    test_two_cores();
     test_scan_empty_and_symlink(plain, empty);
     test_scan_denied(dir);
     test_copy_cross_device(dir, shm);

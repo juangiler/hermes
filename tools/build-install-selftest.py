@@ -169,6 +169,7 @@ class BuildInstallTest(unittest.TestCase):
         self.assertIn("add_library(hermes_core STATIC src/hermes_core.c)", cmake)
         self.assertIn("add_executable(hermes-core-selftest tools/core-selftest.c)", cmake)
         self.assertIn("add_executable(hermes-cpp-probe tools/core-api-probe.cpp)", cmake)
+        self.assertIn("add_executable(hermes-core-abi-selftest tools/core-abi-selftest.c)", cmake)
 
 
 if __name__ == "__main__":

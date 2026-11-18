@@ -65,9 +65,9 @@ jobs:
           su tester -c '
             set -e
             cmake -S . -B build/cmake
-            cmake --build build/cmake --target hermes-core-selftest
+            cmake --build build/cmake --target hermes-core-selftest hermes-core-abi-selftest hermes-cpp-probe
             ./build/cmake/hermes-core-selftest
-            cmake --build build/cmake --target hermes-cpp-probe
+            ./build/cmake/hermes-core-abi-selftest
             ./build/cmake/hermes-cpp-probe'
 
   # Debug build (ASan/UBSan) + the headless self-tests. A restricted seccomp profile

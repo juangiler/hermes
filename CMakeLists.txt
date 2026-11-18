@@ -28,3 +28,9 @@ target_link_libraries(hermes-core-selftest PRIVATE hermes_core)
 add_executable(hermes-cpp-probe tools/core-api-probe.cpp)
 target_compile_options(hermes-cpp-probe PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(hermes-cpp-probe PRIVATE hermes_core)
+
+# Unlike the engine harness, this suite links the archive: no engine sources
+# are included here, so the hermes_core object file must be pulled in.
+add_executable(hermes-core-abi-selftest tools/core-abi-selftest.c)
+target_compile_options(hermes-core-abi-selftest PRIVATE -Wall -Wextra -Werror -Wno-format-truncation)
+target_link_libraries(hermes-core-abi-selftest PRIVATE hermes_core)
