@@ -36,7 +36,6 @@ static bool ig_write_file(const char *path, const char *text, mode_t mode) {
 
 // --- default file manager ---------------------------------------------------------------------------------------
 
-#include "integration_identity.c"
 #define IG_OUR_ID HERMES_APP_ID ".desktop"
 
 static const char *ig_folder_app(void) { // the app folders open with now ("" none)
@@ -66,41 +65,6 @@ static void ig_default_fm_set(bool on) {
 }
 
 #include "dbus.c"
-
-static char *ig_identity_read_owned(const char *path) {
-    struct stat st;
-    if (lstat(path, &st) || !S_ISREG(st.st_mode) || st.st_uid != getuid()) return NULL;
-    return file_read_all(path);
-}
-
-// Adopt only our generated launcher and the default-FM role. Legacy portal/FM1 files are left as they are.
-static void ig_identity_adopt(void) {
-    if (A.selftest || A.screenshot) return;
-    char data[PATH_MAX], config[PATH_MAX], exe[PATH_MAX], old[PATH_MAX + 128], dest[PATH_MAX + 128];
-    ig_data_dir(data, sizeof data); ig_config_dir(config, sizeof config);
-    exe_path(exe, sizeof exe);
-    if (strpbrk(exe, "\"\\\r\n`$")) return;
-    snprintf(old, sizeof old, "%s/applications/" HERMES_LEGACY_APP_ID ".desktop", data);
-    snprintf(dest, sizeof dest, "%s/applications/" HERMES_APP_ID ".desktop", data);
-    char *text = ig_identity_read_owned(old);
-    struct stat st;
-    if (text && lstat(dest, &st) && errno == ENOENT) {
-        char *adopted = identity_legacy_desktop(text, exe);
-        if (adopted) {
-            if (!ig_write_file(dest, adopted, 0644))
-                fprintf(stderr, "Hermes: generated legacy launcher adoption failed; original retained.\n");
-            free(adopted);
-        }
-    }
-    free(text);
-    // Never change a custom default or invoke normal default-toggle routines.
-    if (!strcmp(ig_folder_app(), HERMES_LEGACY_APP_ID ".desktop") && access(dest, R_OK) == 0) {
-        mimeapps_set_default("inode/directory", IG_OUR_ID);
-        A.ig_asked = true;
-        A.settings_dirty = true;
-    }
-
-}
 
 // --- first run: offer (once) to become the default file manager -----------------------------------------------------
 

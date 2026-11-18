@@ -15,12 +15,14 @@ FORBIDDEN = (
     "HERMES_MIGRATION_RETRY",
     "HERMES_LEGACY_SLUG",
     "cloud_legacy_owned",
+    "ig_identity_adopt",
+    "identity_legacy_desktop",
+    "HERMES_LEGACY_APP_ID",
 )
 
-# Tasks 3-5 remove these owners; allow the token only in those files until then.
+# Task 5 removes these definitions from identity.h; allow them there until then.
 TEMP_ALLOWED = {
-    "src/integration_identity.c": {"HERMES_LEGACY_SLUG"},
-    "src/identity.h": {"HERMES_LEGACY_SLUG"},
+    "src/identity.h": {"HERMES_LEGACY_SLUG", "HERMES_LEGACY_APP_ID"},
 }
 
 

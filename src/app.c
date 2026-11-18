@@ -16218,7 +16218,6 @@ int main(int argc, char **argv) {
   if (!getenv("MESA_VK_IGNORE_CONFORMANCE_WARNING"))
     setenv("MESA_VK_IGNORE_CONFORMANCE_WARNING", "1", 1);
   settings_load();
-  ig_identity_adopt();
   // Single instance: hand the arguments to a running window and quit (before
   // SDL starts: instant).
   if (!any_selftest && !A.screenshot && !force_new_window &&
