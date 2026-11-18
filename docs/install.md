@@ -1,49 +1,94 @@
-# Installing
+# Installing Hermes
 
-[README](../README.md) · [Install](install.md) · [Keys](keys.md) · [Settings](settings.md) · [Integration](integration.md) · [Building](building.md) · [Architecture](architecture.md)
+[README](../README.md) · [Building](building.md) · [Migration](migration.md)
 
-Packages are built on the [openSUSE Build Service](https://build.opensuse.org/package/show/home:AlexMedela/file-explorer)
-for x86_64 and ARM64. Add the repository once; updates then come with your system's normal updates.
-The same instructions, per distro, are also on [software.opensuse.org](https://software.opensuse.org/download.html?project=home%3AAlexMedela&package=file-explorer).
+Hermes currently ships source and local package recipes, not a public apt/dnf
+repository, AUR submission, or published AppImage channel. Do not use the
+original File Explorer repositories expecting Hermes.
 
-## Debian 13, Ubuntu 25.10 / 26.04 / 26.10, Mint, Pop!_OS
-Pick the line for your release (`Debian_13`, `xUbuntu_25.10`, `xUbuntu_26.04`, `xUbuntu_26.10`):
+## Distribution status
+
+| Target | Requirements / status |
+| --- | --- |
+| Fedora 45 | Existing `fedora-build` environment available for local verification |
+| Arch Linux | Rolling-release recipe; requires an Arch build environment |
+| Debian 13+ | Native build requires packaged SDL3 3.2+, libvterm 0.3+, OpenSSL 3 |
+| Ubuntu 26.04+ | Same native dependency requirements; validate on the exact release |
+| Older releases | No native support claim; AppImage recipe requires separate validation |
+
+This table is a target matrix, not a statement that every package has been built
+or published. Build results are reported separately. Derivatives must supply
+compatible versions of all dependencies.
+
+## Debian / Ubuntu
+
+Install build dependencies in a suitable build environment:
+
 ```sh
-R=Debian_13
-echo "deb https://download.opensuse.org/repositories/home:/AlexMedela/$R/ /" | sudo tee /etc/apt/sources.list.d/file-explorer.list
-curl -fsSL "https://download.opensuse.org/repositories/home:AlexMedela/$R/Release.key" | gpg --dearmor | sudo tee /etc/apt/trusted.gpg.d/file-explorer.gpg >/dev/null
-sudo apt update && sudo apt install file-explorer
+sudo apt install build-essential pkgconf debhelper dpkg-dev \
+  libsdl3-dev libfreetype-dev libharfbuzz-dev libfontconfig-dev \
+  libarchive-dev libvterm-dev libfuse3-dev libssl-dev
+sh tools/build-package.sh deb
 ```
-(Mint 23 / Pop!_OS 26.04: use `xUbuntu_26.04`.)
 
-## Fedora 43 / 44
+The helper stages the current source and `packaging/debian/` into an isolated
+directory under `build/packaging/`, then invokes `dpkg-buildpackage`. Packages
+are copied into `dist/`; nothing is installed automatically.
+After reviewing the result, install the exact package with `sudo apt install ./dist/<package>.deb`.
+
+## Fedora
+
 ```sh
-sudo dnf config-manager addrepo --from-repofile="https://download.opensuse.org/repositories/home:AlexMedela/Fedora_$(rpm -E %fedora)/home:AlexMedela.repo"
-sudo dnf install file-explorer
+sudo dnf install gcc rpm-build pkgconf-pkg-config SDL3-devel freetype-devel \
+  harfbuzz-devel fontconfig-devel libarchive-devel libvterm-devel fuse3-devel openssl-devel
+sh tools/build-package.sh rpm
 ```
 
-## openSUSE Tumbleweed / Leap 16.0
+The helper builds `packaging/rpm/hermes.spec` with a private RPM tree under
+`build/packaging/`. Review `dist/` and install the chosen binary RPM with
+`sudo dnf install ./dist/<package>.rpm`. Do not install the source RPM as the app.
+
+On immutable Fedora desktops, build inside Distrobox rather than layering
+development dependencies onto the host; see [Distrobox](immutable-distros.md).
+
+## Arch Linux
+
 ```sh
-sudo zypper addrepo https://download.opensuse.org/repositories/home:AlexMedela/openSUSE_Tumbleweed/home:AlexMedela.repo   # Leap: .../16.0/...
-sudo zypper refresh && sudo zypper install file-explorer
+cd packaging/arch
+makepkg -s
 ```
 
-## Arch, CachyOS, Manjaro, EndeavourOS
+Review the resulting `hermes-git-*.pkg.tar.zst`, then install with `pacman -U`.
+The recipe uses the local Git repository when present, or the Hermes repository
+otherwise. **Git sources include committed state, not uncommitted edits.**
+Use `HERMES_SRC=/absolute/checkout` to select another local repository.
+No AUR publication is implied.
+
+## Direct staged installation
+
 ```sh
-git clone https://github.com/AlexMedela/file-explorer && cd file-explorer/packaging/arch && makepkg -si
+./build.sh package
+DESTDIR="$PWD/build/stage" PREFIX=/usr ./install.sh
 ```
-An AUR package follows once the AUR reopens account registration (paused because of spam).
 
-## Any other distro: AppImage
-Ubuntu 22.04 / 24.04 LTS, Debian 12 and anything newer (x86_64 and ARM64): download
-`file-explorer-<version>-<arch>.AppImage` from [Releases](https://github.com/AlexMedela/file-explorer/releases), then
-```sh
-chmod +x file-explorer-*.AppImage && ./file-explorer-*.AppImage
-```
-It brings its own SDL 3 and libraries, and updates itself: once a day it looks for a new version and offers it in a
-card (Options > Updates to turn that off, or to let it download by itself); AppImageUpdate / Gear Lever work too. For the menu entry, the phone udev rule and the
-administrator prompt's own polkit message, install a package instead, or integrate it with Gear Lever / AppImageLauncher.
+Inspect `build/stage` first. A live installation is an explicit separate step:
+`sudo PREFIX=/usr/local ./install.sh`. The installer defaults to
+`build/package/hermes`, never a leftover debug build. Select another build with
+`HERMES_BUILD_MODE=release` or an explicit `HERMES_BINARY=/absolute/path`.
+Use a package for clean upgrades/removal.
 
-## Removing
-`sudo apt remove file-explorer` / `sudo dnf remove file-explorer` / `sudo zypper remove file-explorer`, then delete the
-repository file you added. Your settings in `~/.config/file-explorer` stay unless you delete them.
+## AppImage
+
+`packaging/appimage/build.sh` is an opt-in recipe for a **disposable Ubuntu 22.04
+build container**, bundling SDL3 and libvterm. It provisions that container,
+downloads third-party sources/tools, and requires
+`HERMES_APPIMAGE_PROVISION=1` plus a separately verified `LINUXDEPLOY_SHA256`.
+Do not run it on the host. No AppImage compatibility or download availability
+is claimed until an artifact has actually been built and tested.
+
+## Removing and migrating
+
+Remove Hermes through the same package manager used to install it. User data
+under the Hermes XDG directories is retained. The old File Explorer package,
+its repositories, and retained migration source data are not automatically
+uninstalled or deleted; see [migration](migration.md).

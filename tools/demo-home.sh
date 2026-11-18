@@ -50,10 +50,10 @@ mkdir -p Documents/Taxes Documents/Recipes
 printf 'Pancakes: 2 eggs, 250 ml milk, 125 g flour\n' > Documents/Recipes/pancakes.txt
 
 # Projects: this repository (a shallow clone) with uncommitted changes and a commit not pushed yet
-git clone -q --depth 30 "file://$repo" Projects/file-explorer
+git clone -q --depth 30 "file://$repo" Projects/hermes
 (
-    cd Projects/file-explorer
-    git remote set-url origin https://github.com/AlexMedela/file-explorer.git
+    cd Projects/hermes
+    git remote set-url origin https://github.com/juangiler/hermes.git
     git config user.name demo; git config user.email demo@example.com
     printf '\n// faster thumbnails\n' >> src/preview.c
     git commit -qam "Faster thumbnails"
@@ -115,9 +115,9 @@ python3 - <<'PY'
 import os, time
 t0, k = int(time.time()) - 3600, 0
 for root, dirs, files in os.walk("."):
-    if root.startswith(("./Projects/file-explorer", "./Datasets", "./Projects/website", "./Backup/website")): continue
+    if root.startswith(("./Projects/hermes", "./Datasets", "./Projects/website", "./Backup/website")): continue
     for f in files + dirs:
-        if f in ("file-explorer", "sensor-logs", "website") or (root == "." and f.startswith(".")): continue
+        if f in ("hermes", "sensor-logs", "website") or (root == "." and f.startswith(".")): continue
         k += 1
         t = t0 - (k * 104729) % (40 * 86400)
         os.utime(os.path.join(root, f), (t, t), follow_symlinks=False)

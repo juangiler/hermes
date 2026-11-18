@@ -54,9 +54,9 @@ static const char *demo_setup(void) {
     setenv("FE_LSBLK", path, 1);
     setenv("SHELL", "/bin/bash", 1); // its prompt comes from the demo home's .bashrc
     setenv("FE_TITLE_BAR", "app", 1); // our own title bar, as on a desktop
-    snprintf(path, sizeof path, "%s/config/file-explorer", base);
+    snprintf(path, sizeof path, "%s/config/hermes", base);
     mkdir_p(path, 0755);
-    snprintf(path, sizeof path, "%s/config/file-explorer/settings.conf", base);
+    snprintf(path, sizeof path, "%s/config/hermes/settings.conf", base);
     dm_write(path, "settings_version=99\nwindow=1600x900\nmaximized=0\nzoom=1.25\nrestore_session=0\ngit_status=1\nload_times=1\n"
                    "integration_asked=1\ncheck_updates=0\nfolder_sizes=1\nserver=Home NAS\tsmb://nas.local/media\n");
     snprintf(path, sizeof path, "%s/config/user-dirs.dirs", base);
@@ -182,7 +182,7 @@ static void dm_text_centered(Font *f, f32 cy, const char *s, Color c) {
 
 // Title cards: the logo, the name and a line or two.
 static void dm_draw_card(int card, f32 a) {
-    f32 lh = 150, lw = roundf(lh * 624.f / 456.f);
+    f32 lh = 150, lw = lh;
     f32 top = card == 1 ? 300 : 260;
     Glyph *g = icon_glyph(ICON_LOGO, 256);
     if (g) {
@@ -194,11 +194,11 @@ static void dm_draw_card(int card, f32 a) {
         int i0 = dv(gx, gy, c, u0, v0), i1 = dv(gx + g->w * s, gy, c, u1, v0), i2 = dv(gx + g->w * s, gy + g->h * s, c, u1, v1), i3 = dv(gx, gy + g->h * s, c, u0, v1);
         di4(i0, i1, i2, i3);
     }
-    dm_text_centered(&D.huge, top + lh + 90, "File Explorer", CA(0xF2F4FF, a));
+    dm_text_centered(&D.huge, top + lh + 90, HERMES_NAME, CA(0xF2F4FF, a));
     if (card == 1) {
         dm_text_centered(&D.mid, top + lh + 170, "Fast, keyboard-first file manager for Linux", CA(0xA9B1D6, a));
     } else {
-        dm_text_centered(&D.mid, top + lh + 170, "github.com/AlexMedela/file-explorer", CA(0x7AA2F7, a));
+        dm_text_centered(&D.mid, top + lh + 170, "github.com/juangiler/hermes", CA(0x7AA2F7, a));
         dm_text_centered(&D.sub, top + lh + 235, "Also: phones and cameras, network shares, cloud storage, snapshots, undo, batch rename and more", CA(0xA9B1D6, a));
         dm_text_centered(&D.sub, top + lh + 280, "Free and open source (MIT)  \xC2\xB7  Wayland and X11  \xC2\xB7  AppImage, Arch, Fedora, openSUSE, Debian, Ubuntu", CA(0x8B91B0, a));
     }
@@ -524,7 +524,7 @@ static void scene_panels(void) {
 
 static void scene_git(void) {
     dm_caption("Git status at a glance", "Changes marked on files and folders; branch, ahead and behind right in the path bar");
-    dm_open("file-explorer");
+    dm_open("hermes");
     dm_hold(1.5f);
     Pane *p = active_pane();
     f32 cw = git_chip_width(p);

@@ -33,40 +33,40 @@ int main(void) {
     snprintf(data, sizeof data, "%s/home with spaces/.local/share", temp);
     snprintf(installed, sizeof installed, "%s/system", temp);
     snprintf(path, sizeof path, "%s/applications", installed); assert(!mkdir_p(path, 0755));
-    snprintf(path, sizeof path, "%s/applications/dev.fileexplorer.desktop", installed);
-    const char *entry = "[Desktop Entry]\nName=File Explorer\nExec=file-explorer %F\nIcon=dev.fileexplorer\nStartupWMClass=dev.fileexplorer\n"
-                        "[Desktop Action Other]\nExec=file-explorer --new-window\nIcon=unrelated-action\n";
+    snprintf(path, sizeof path, "%s/applications/" HERMES_APP_ID ".desktop", installed);
+    const char *entry = "[Desktop Entry]\nName=Hermes\nExec=hermes %F\nIcon=" HERMES_APP_ID "\nStartupWMClass=" HERMES_APP_ID "\n"
+                        "[Desktop Action Other]\nExec=hermes --new-window\nIcon=unrelated-action\n";
     put(path, entry);
     setenv("XDG_DATA_DIRS", installed, 1);
     unsetenv("CONTAINER_ID"); unsetenv("DISTROBOX_HOST_HOME");
     AppDesktop desktop;
-    assert(app_desktop_find(data, &desktop) && !strcmp(desktop.id, "dev.fileexplorer"));
+    assert(app_desktop_find(data, &desktop) && !strcmp(desktop.id, HERMES_APP_ID));
     const char *svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\">"
                       "<style>.a{fill:#3593e6}</style><rect class=\"a\" width=\"16\" height=\"16\"/></svg>";
     assert(app_desktop_install_icon(data, svg, strlen(svg), "svg") == APP_DESKTOP_UPDATED);
     assert(app_desktop_install_icon(data, svg, strlen(svg), "svg") == APP_DESKTOP_UNCHANGED);
-    snprintf(path, sizeof path, "%s/applications/dev.fileexplorer.desktop", data);
+    snprintf(path, sizeof path, "%s/applications/" HERMES_APP_ID ".desktop", data);
     char *text = get(path), *image = icon_path(text), *art = get(image);
     assert(!strcmp(art, svg)); // preserve the complete original SVG; no raster flattening or tint
-    assert(strstr(text, "Exec=file-explorer %F\n") && strstr(text, "Icon=unrelated-action\n"));
+    assert(strstr(text, "Exec=hermes %F\n") && strstr(text, "Icon=unrelated-action\n"));
     free(art); free(text); free(image);
 
     // Reproduce the user's exact exported launcher and container identity.
     char home[PATH_MAX]; snprintf(home, sizeof home, "%s/host-home", temp);
     setenv("HOME", home, 1); setenv("DISTROBOX_HOST_HOME", home, 1); setenv("CONTAINER_ID", "fedora-build", 1);
     snprintf(path, sizeof path, "%s/.local/share/applications", home); assert(!mkdir_p(path, 0755));
-    snprintf(path, sizeof path, "%s/.local/share/applications/fedora-build-dev.fileexplorer.desktop", home);
-    const char *exported = "[Desktop Entry]\nName=File Explorer (on fedora-build)\n"
-                           "Exec=/usr/bin/distrobox-enter  -n fedora-build  --   file-explorer  %F\n"
-                           "Icon=dev.fileexplorer\nStartupWMClass=dev.fileexplorer\n";
+    snprintf(path, sizeof path, "%s/.local/share/applications/fedora-build-" HERMES_APP_ID ".desktop", home);
+    const char *exported = "[Desktop Entry]\nName=Hermes (on fedora-build)\n"
+                           "Exec=/usr/bin/distrobox-enter  -n fedora-build  --   hermes  %F\n"
+                           "Icon=" HERMES_APP_ID "\nStartupWMClass=" HERMES_APP_ID "\n";
     put(path, exported);
     assert(app_desktop_find(data, &desktop));
-    assert(!strcmp(desktop.id, "fedora-build-dev.fileexplorer") && !strcmp(desktop.target, path));
+    assert(!strcmp(desktop.id, "fedora-build-" HERMES_APP_ID) && !strcmp(desktop.target, path));
     assert(app_desktop_install_icon(data, svg, strlen(svg), "svg") == APP_DESKTOP_UPDATED);
     text = get(path); image = icon_path(text); art = get(image);
     assert(!strcmp(art, svg));
-    assert(strstr(text, "Exec=/usr/bin/distrobox-enter  -n fedora-build  --   file-explorer  %F\n"));
-    assert(strstr(text, "StartupWMClass=fedora-build-dev.fileexplorer\n"));
+    assert(strstr(text, "Exec=/usr/bin/distrobox-enter  -n fedora-build  --   hermes  %F\n"));
+    assert(strstr(text, "StartupWMClass=fedora-build-" HERMES_APP_ID "\n"));
     free(art); free(text);
     // A different image changes the Icon= filename, bypassing cached artwork.
     const char *other = "<svg xmlns=\"http://www.w3.org/2000/svg\"><path fill=\"#ff8040\"/></svg>";
@@ -86,7 +86,7 @@ int main(void) {
     assert(app_desktop_install_icon(data, svg, strlen(svg), "svg") == APP_DESKTOP_MISSING);
     text = get(path); assert(strstr(text, "fedora-build")); free(text);
     char standard[PATH_MAX];
-    snprintf(standard, sizeof standard, "%s/.local/share/applications/dev.fileexplorer.desktop", home);
+    snprintf(standard, sizeof standard, "%s/.local/share/applications/" HERMES_APP_ID ".desktop", home);
     put(standard, entry);
     assert(app_desktop_install_icon(data, svg, strlen(svg), "svg") == APP_DESKTOP_MISSING);
     text = get(standard); assert(!strcmp(text, entry)); free(text);

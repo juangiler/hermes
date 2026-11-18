@@ -112,7 +112,7 @@ folders and never deletes anything except with Mirror, which moves to the Trash.
 folder it compares again; F5 does too.
 
 The administrator helper is this program run by pkexec with `--admin-op` (copy, move, delete, sync, rename, mkdir,
-listing versions, or adding you to a Snapper config's ALLOW_USERS); `install.sh` installs a polkit action (`dev.fileexplorer.policy`) so the password prompt says what
+listing versions, or adding you to a Snapper config's ALLOW_USERS); `install.sh` installs a polkit action (`io.github.juangiler.hermes.policy`) so the password prompt says what
 it's for. Nothing runs as root otherwise.
 
 Opening a matching line from a contents search: if the default app for the file is an editor that takes line numbers

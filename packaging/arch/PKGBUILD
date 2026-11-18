@@ -27,25 +27,25 @@ optdepends=('gtk3: GTK look for the libdecor title bar (GNOME)'
             'gvfs-gphoto2: cameras the built-in connector leaves to GVfs (PTP)'
             'rclone: cloud storage (Google Drive, OneDrive, S3...) in the sidebar'
             'noto-fonts-emoji: colour emoji in file names')
-provides=('file-explorer')
-conflicts=('file-explorer')
+provides=('hermes')
+conflicts=('hermes')
 _src="$url.git"
-if [ -n "$FE_SRC" ]; then _src="file://$FE_SRC"
+if [ -n "${HERMES_SRC:-${FE_SRC:-}}" ]; then _src="file://${HERMES_SRC:-$FE_SRC}"
 elif [ -d "$startdir/../../.git" ]; then _src="file://$(cd "$startdir/../.." && pwd)"; fi
-source=("file-explorer::git+$_src#branch=main")
+source=("hermes::git+$_src#branch=main")
 sha256sums=('SKIP')
 
 pkgver() {
-  cd file-explorer
+  cd hermes
   printf "r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
 }
 
 build() {
-  cd file-explorer
+  cd hermes
   CFLAGS_PKG="$CFLAGS" LDFLAGS_PKG="$LDFLAGS" ./build.sh package
 }
 
 package() {
-  cd file-explorer
+  cd hermes
   DESTDIR="$pkgdir" PREFIX=/usr ./install.sh
 }

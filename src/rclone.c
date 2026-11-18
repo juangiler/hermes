@@ -20,6 +20,7 @@ typedef struct {
     bool unit;            // our unit file exists
     char mount[PATH_MAX]; // where it's mounted ("" = not)
     bool ours;            // mounted by our unit (else by something else: unmounted with fusermount)
+    int ownership;        // CLOUD_*: legacy-generated services remain deferred
     char err[240];        // last problem, in plain words
     int open_after;       // once connected: 1 open where the user is, 2 in a new tab
     u64 asked;            // when the user asked to connect (ns)
@@ -162,7 +163,7 @@ static void cloud_unit_text(const char *name, const char *type_label, char *out,
     char stop[PATH_MAX * 3] = ""; // a mount left behind by a crash would block the next start
     if (fum[0]) snprintf(stop, sizeof stop, "ExecStopPost=-\"%s\" -uz \"%s\"\n", fum, e_dir);
     snprintf(out, cap,
-             "# Written by file-explorer for the cloud remote \"%s\". Edit it in the app: this file is replaced.\n"
+             "# Written by hermes for the cloud remote \"%s\". Edit it in the app: this file is replaced.\n"
              "[Unit]\n"
              "Description=Files cloud: %s (%s)\n"
              "StartLimitIntervalSec=0\n\n"

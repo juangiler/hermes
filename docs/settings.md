@@ -8,7 +8,7 @@ still running the old version after an update restarts as the new one the next t
 (unless a transfer or a terminal tab is running). `settings_version` lets a later version adjust a stored default;
 the previous file is kept as `settings.conf.bak` when that happens.
 
-`~/.config/file-explorer/settings.conf` (plain `key=value`, saved automatically; "Open settings file" in the
+`~/.config/hermes/settings.conf` (plain `key=value`, saved automatically; "Open settings file" in the
 palette). Remembers zoom, hidden files, folder sizes, search scope, sort order, preview panel, window size,
 pinned folders, columns, and your tabs/split panes (`restore_session=0` to start fresh). `transfers_at_once=1`
 (0 = all at once) and `verify_copies=0` are the transfer queue's settings. `renderer=auto` uses
@@ -56,7 +56,7 @@ opaque, square window without an app-drawn shadow or shadow margin, leaving wind
 
 With a desktop corner effect, leave Rounded corners off so the desktop owns the window edge. On KDE Wayland,
 the integrated header uses a borderless window, which has no native KWin frame or shadow. If a KWin effect leaves
-an uneven edge, use a window rule for `dev.fileexplorer` to request a server-side frame and shadow, then hide the
+an uneven edge, use a window rule for `io.github.juangiler.hermes` to request a server-side frame and shadow, then hide the
 title bar with a window-specific override in a decoration that supports it. The effect and decoration settings
 determine the resulting outline; the app cannot draw a missing portion of a compositor-owned edge.
 For KDE-Rounded-Corners, keep its **Mark windows translucent** option on; disabling it can leave stale pixels in
@@ -74,7 +74,7 @@ file, then "Restart now" switches to it (tabs come back; or it simply starts nex
 downloads by itself, so the card only asks to restart. The AppImage's folder must be writable. Packages (apt, dnf,
 zypper) update with the system and makepkg / source builds are told the command to run; "Check now" works for all.
 
-Per-folder views live in `~/.config/file-explorer/folders.conf`, saved layouts in `layouts.conf`.
+Per-folder views live in `~/.config/hermes/folders.conf`, saved layouts in `layouts.conf`.
 
 **System theme and icons.** Options > Appearance > Theme > **System** uses the desktop's colors where exposed.
 KDE palette colors come from the Settings portal or shared `kdeglobals`; other desktops use their standard
@@ -147,7 +147,7 @@ show_header_icon=1
 show_window_controls=1
 ```
 
-Colour schemes: `~/.config/file-explorer/themes/*.json` (Options → "Create theme from current colours" writes a
+Colour schemes: `~/.config/hermes/themes/*.json` (Options → "Create theme from current colours" writes a
 starting point). Any key you leave out comes from the `base` theme:
 ```json
 { "name": "My theme", "base": "dark", "colors": { "bg": "#1b1b20", "accent": "#ff8800", "folder": "#e9b44c" } }
@@ -156,7 +156,7 @@ Creating a theme from the current appearance bakes in the surface colors, resets
 and turns off Unified surfaces so those colors are not adjusted twice.
 
 The app icon follows the accent colour: in the window, and for launchers and docks through a recoloured copy at
-`~/.local/share/icons/hicolor/scalable/apps/dev.fileexplorer.svg` (none for the default Blue; delete it after
+`~/.local/share/icons/hicolor/scalable/apps/io.github.juangiler.hermes.svg` (none for the default Blue; delete it after
 uninstalling). Docks and launchers may only pick up a new colour once they reload their icons.
 
 Changed shortcuts are stored as `key=<command>=<keys>|<keys>` lines (only the ones that differ from the defaults).
@@ -183,18 +183,18 @@ key are shown to you. Saved servers appear in the sidebar's Network section: a c
 method, right-click to edit or forget them (forgetting also removes a stored GVfs password).
 Phones and cameras plugged in with a cable show under Devices (dim until connected; click to connect, ⏏ when done).
 The app talks to them itself - no usbmuxd, libimobiledevice or GVfs needed: iPhones and iPads (usbmux, lockdown,
-AFC; the first time, unlock the iPhone and tap Trust - the pairing is kept in `~/.local/share/file-explorer/lockdown`,
+AFC; the first time, unlock the iPhone and tap Trust - the pairing is kept in `~/.local/share/hermes/lockdown`,
 or the system's from usbmuxd is used), with their photos and videos (DCIM...) and an "App Documents" folder holding
 the files of apps that share them (VLC, Documents...); Android phones over MTP (unlock the phone and pick "File
 transfer" in its USB notification); cameras over PTP. Each one is served as a folder under
-`$XDG_RUNTIME_DIR/file-explorer/devices/<name>` by a small helper (`file-explorer --device-mount`, FUSE) that keeps
+`$XDG_RUNTIME_DIR/hermes/devices/<name>` by a small helper (`hermes --device-mount`, FUSE) that keeps
 running until it's disconnected or unplugged, so other programs can use the folder too. If a device drops off USB, tabs
 in it leave its folder; when it's back within a minute it's connected again by itself and the tab returns.
-`FE_DEVICE_DEBUG=1 file-explorer --device-mount <usb id> DIR` runs the helper by hand and prints what happens. Folder listings ask the
+`HERMES_DEVICE_DEBUG=1 hermes --device-mount <usb id> DIR` runs the helper by hand and prints what happens. Folder listings ask the
 device for a whole folder at once (MTP) or over several connections (iPhone). They copy, rename and delete like any
 folder, but they have no trash (deleting asks first) and keep no permissions; MTP can't change a file in place, so a
 changed file is sent again whole. Opening a device needs USB access for your user (the udev rule
-`70-file-explorer-phones.rules`, installed by `install.sh`). A device the app can't have (another program is using it)
+`70-hermes-phones.rules`, installed by `install.sh`). A device the app can't have (another program is using it)
 is opened through GVfs instead when GVfs knows it; GVfs also handles anything else it lists. While the app has an
 iPhone, usbmuxd (and the tools using it) can't reach it until it's plugged in again. `FE_NO_OWN_PHONES=1` leaves
 everything to GVfs.
@@ -251,7 +251,7 @@ the menu reads **Open in kitty** (or your chosen executable), with the U+E795 Ne
 The sort button beside the navigation bar's filter button offers Name, Date modified, Type, Size, Date created,
 Extension, Permissions and Owner, plus Ascending/Descending. Folder view preferences remember the selection.
 
-Custom file icons: `~/.config/file-explorer/icons/<Name>/` (Options -> Appearance -> "Icon themes folder"). SVGs
+Custom file icons: `~/.config/hermes/icons/<Name>/` (Options -> Appearance -> "Icon themes folder"). SVGs
 named like the built-in icons replace them (`python.svg`, `folder.svg`, `folder-src.svg`...), `ext-<extension>.svg`
 sets the icon for any extension, and `theme.conf` (`base=Catppuccin`) picks the set the missing icons come from.
 `net-<name>.svg` adds an icon for network locations (offered whichever theme is selected). The folder's README.txt

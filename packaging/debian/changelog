@@ -1,3 +1,10 @@
+hermes (0.11.2-1) unstable; urgency=medium
+
+  * Prepare independent Hermes identity and packaging.
+  * Preserve File Explorer's historical changelog and attribution below.
+
+ -- juangiler <juangiler@users.noreply.github.com>  Tue, 17 Nov 2026 12:00:00 +0000
+
 file-explorer (0.11.2-1) unstable; urgency=medium
 
   * Release 0.11.2.

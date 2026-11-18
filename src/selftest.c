@@ -1942,18 +1942,16 @@ static int run_selftest_m7(void) {
         logo_recolor(buf, LOGO_BASE_ACCENT);
         ST_CHECK(!strcmp(buf, "fill=\"#2566DE\" x #FFFFFF")); // base accent: unchanged
         // the system icon: a recoloured copy in the user's icon theme, none for Blue
-        const char *dh = ST_BASE "/appicon", *ip = ST_BASE "/appicon/icons/hicolor/scalable/apps/dev.fileexplorer.svg";
+        const char *dh = ST_BASE "/appicon", *ip = ST_BASE "/appicon/icons/hicolor/scalable/apps/" HERMES_APP_ID ".svg";
         ST_CHECK(app_icon_write(dh, 0x9D7CF4) && access(ip, F_OK) == 0);
-        FILE *f = fopen(ip, "r");
-        char svg[4096] = "";
-        if (f) { svg[fread(svg, 1, sizeof svg - 1, f)] = 0; fclose(f); }
-        ST_CHECK(strstr(svg, "viewBox=\"0 -84 624 624\"") && !strstr(svg, "#2566DE") && strstr(svg, "#FFFFFF"));
+        char *svg = file_read_all(ip);
+        ST_CHECK(svg && strstr(svg, "viewBox=\"0 0 32 32\"") && !strcmp(svg, g_logo_svg));
+        free(svg);
         ST_CHECK(!app_icon_write(dh, 0x9D7CF4));                       // same colour: left alone
-        ST_CHECK(app_icon_write(dh, LOGO_BASE_ACCENT) && access(ip, F_OK) == 0); // Blue: the copy stays, in the packaged colours
-        f = fopen(ip, "r");
-        svg[0] = 0;
-        if (f) { svg[fread(svg, 1, sizeof svg - 1, f)] = 0; fclose(f); }
-        ST_CHECK(strstr(svg, "#2566DE") != NULL);
+        ST_CHECK(!app_icon_write(dh, LOGO_BASE_ACCENT) && access(ip, F_OK) == 0); // same fixed palette
+        svg = file_read_all(ip);
+        ST_CHECK(svg && !strcmp(svg, g_logo_svg));
+        free(svg);
         unlink(ip);
         ST_CHECK(!app_icon_write(dh, LOGO_BASE_ACCENT) && access(ip, F_OK) != 0); // no copy yet: none made for Blue
         g_accent_custom = saved;
@@ -2796,8 +2794,8 @@ static void st_setup_m9(void) {
         snprintf(p, sizeof p, M9_BASE "/file%02d.%s", i, i % 3 == 0 ? "c" : i % 3 == 1 ? "png" : "md");
         st_write(p, (size_t)(i + 1) * 100);
     }
-    st_rmrf("/tmp/fe-selftest-config/file-explorer/themes");
-    unlink("/tmp/fe-selftest-config/file-explorer/layouts.conf");
+    st_rmrf("/tmp/fe-selftest-config/hermes/themes");
+    unlink("/tmp/fe-selftest-config/hermes/layouts.conf");
 }
 
 static OptHit *st_opt_hit(int part, int opt, int arg) {
@@ -4437,6 +4435,18 @@ static Tab *st_tab_at(const char *path) {
     return NULL;
 }
 
+// A spawned second launch runs a full (non-selftest) startup: its legacy
+// probe/import must never see the user's real home, a running File Explorer,
+// or another suite's state, and a failed hand-off must not open a window.
+static char *st_env_save(const char *key) {
+    const char *v = getenv(key);
+    return v ? strdup(v) : NULL;
+}
+static void st_env_restore(const char *key, char *saved) {
+    if (saved) { setenv(key, saved, 1); free(saved); }
+    else unsetenv(key);
+}
+
 static int run_selftest_m10(void) {
     st_wait();
     // --- command line + single instance ---
@@ -5706,7 +5716,7 @@ static int run_selftest_m10(void) {
         mkdir(rcd, 0755);
         mkdir_p("/tmp/fe-selftest-config/rclone", 0755);
         st_write_text("/tmp/fe-selftest-config/rclone/rclone.conf", "[gdrive]\ntype = drive\n");
-        st_write_text(M10_BASE "/rc/remotes", "gdrive:      drive\nwork s3:     s3\n");
+        st_write_text(M10_BASE "/rc/remotes", "gdrive:      drive\nwork s3:     s3\nwebdav:      webdav\n");
         st_write_text(M10_BASE "/rc/mounts", "");
         FILE *f = fopen(M10_BASE "/tools/rclone", "w");
         fputs("#!/bin/sh\necho \"rclone $*\" >> " M10_BASE "/rc/log\n[ \"$1\" = listremotes ] && cat " M10_BASE "/rc/remotes\nexit 0\n", f);
@@ -6469,8 +6479,8 @@ static void st_setup_grep(void) {
     }
     st_write_text(GREP_BASE "/data2/applications/fetestdesk-mimeapps.list", "[Default Applications]\napplication/x-fe-test=fe-b.desktop\n");
     // integration: us and another file manager for folders (the other one is the system's default)
-    st_write_text(GREP_BASE "/data2/applications/dev.fileexplorer.desktop",
-                  "[Desktop Entry]\nType=Application\nName=File Explorer\nExec=/bin/true %F\nMimeType=inode/directory;\n");
+    st_write_text(GREP_BASE "/data2/applications/" HERMES_APP_ID ".desktop",
+                  "[Desktop Entry]\nType=Application\nName=Hermes\nExec=/bin/true %F\nMimeType=inode/directory;\n");
     st_write_text(GREP_BASE "/data2/applications/fake-files.desktop",
                   "[Desktop Entry]\nType=Application\nName=Fake Files\nExec=/bin/true %U\nMimeType=inode/directory;\n");
     st_write_text(GREP_BASE "/data2/applications/mimeapps.list",
@@ -6833,11 +6843,13 @@ static int run_selftest_grep(void) {
         i64 chk0 = A.ig_update_checked;
         ig_update_check(); // (self-test, not an AppImage: nothing happens)
         upd_check_now(true);
-        ST_CHECK(A.ig_update_checked == chk0 && g_upd.state == UPD_IDLE);
+        // no Hermes release channel: a manual check reports that, and nothing is fetched
+        ST_CHECK(A.ig_update_checked == chk0 && g_upd.state == UPD_FAILED &&
+                 strstr(g_upd.err, "no release channel") != NULL);
         // the release's AppImage: its size in GitHub's answer, the checksum file
         char an[160];
         upd_asset_name("v1.2.3", an, sizeof an);
-        ST_CHECK(!strcmp(an, "file-explorer-1.2.3-" UPD_ARCH ".AppImage"));
+        ST_CHECK(!strcmp(an, "hermes-1.2.3-" UPD_ARCH ".AppImage"));
         char rel[512];
         snprintf(rel, sizeof rel, "{\"tag_name\":\"v1.2.3\",\"assets\":[{\"name\":\"%s.zsync\",\"size\":11},"
                  "{\"name\":\"%s\",\"label\":\"\",\"uploader\":{\"login\":\"x\"},\"size\": 4567,\"browser_download_url\":\"u/%s\"}]}", an, an, an);
@@ -7949,7 +7961,7 @@ static int run_selftest_admin(void) {
     snap_delete_cb(0, false, p);
     for (int k = 0; k < 400 && (sv->cmd || !atomic_load(&sv->l->done)); k++) { st_frames(1); SDL_Delay(5); }
     st_read_text(ADM_BASE "/tools/snapper.log", log, sizeof log);
-    ST_CHECK(strstr(log, "-c root create --description File Explorer --cleanup-algorithm number") && strstr(log, "-c root delete 3 2") &&
+    ST_CHECK(strstr(log, "-c root create --description Hermes --cleanup-algorithm number") && strstr(log, "-c root delete 3 2") &&
              strstr(log, "-c root status 1..2"));
     st_key(SDLK_ESCAPE, 0);
     ST_CHECK(!p->snapv && !p->sv);

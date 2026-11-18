@@ -1,30 +1,56 @@
-# Maintenance
+# Hermes maintenance
 
-## Releasing a new version
+## Identity and layout
 
-The version in `src/app.c` (`APP_VERSION`) is the source for the package version files. Once the new version number is known, complete these steps **before committing**:
+- `src/app.c`: `APP_VERSION` remains the version source of truth.
+- `assets/branding/helmet.pixels`: editable logo source; run `python3 tools/gen_logo.py`.
+- `assets/desktop/`, `assets/udev/`: shared installation assets.
+- `packaging/debian/`: Debian/Ubuntu; `packaging/rpm/`: Fedora;
+  `packaging/arch/`: Arch; `packaging/appimage/`: opt-in portable bundle.
+- `build/<mode>/`: generated executables; `build/packaging/`: isolated native
+  package workspaces; `dist/`: generated distributable artifacts.
 
-1. Set `APP_VERSION` in `src/app.c` to the new version, without the `v` prefix.
-2. Move the release notes from `## Unreleased` in `CHANGELOG.md` into a `## <version>` section. Leave an `## Unreleased` section for future changes.
-3. Run `sh tools/sync-package-versions.sh`. It updates the RPM spec, Debian `.dsc`, and Debian changelog from `APP_VERSION`.
-4. Run `sh tools/check-release-version.sh v<version>`. Review the package changes and commit them with the app version and release notes.
+Keep upstream copyright, third-party licences, and historical release notes.
+Do not fetch/merge upstream or rewrite Git history as part of maintenance.
 
-For example, for version `0.11.3`:
+## Version preparation
+
+Do not bump the version merely to rebrand a working checkout. When a new release
+is intentionally prepared:
+
+1. Set `APP_VERSION` in `src/app.c` without a `v` prefix.
+2. Add the corresponding `## <version>` changelog section.
+3. Run `sh tools/sync-package-versions.sh`.
+4. Run `sh tools/check-release-version.sh v<version>`.
+5. Review RPM/Debian metadata, build the intended packages, and run the tests.
+
+The Debian packaging revision is preserved when already valid for that version.
+The generated `.dsc` belongs to package tooling, not checked-in OBS metadata.
+
+## Build validation
 
 ```sh
-# After editing src/app.c and CHANGELOG.md:
-sh tools/sync-package-versions.sh
-sh tools/check-release-version.sh v0.11.3
+python3 tools/gen_logo.py --check
+python3 tools/branding-selftest.py
+python3 tools/build-install-selftest.py
+./build.sh debug
+# Run the in-app suites listed in docs/building.md.
+./build.sh package
+DESTDIR="$PWD/build/stage" PREFIX=/usr ./install.sh
 git diff --check
-git diff -- src/app.c CHANGELOG.md packaging/obs
 ```
 
-CI checks the versions on pushes and pull requests. The release workflow checks that the pushed tag matches them before it builds. After the release commit is on the release branch, create and push its `v<version>` tag; that starts the GitHub release workflow. Do not tag an earlier commit that lacks the package updates.
+Record exact distro/dependency versions and packages actually built. Never
+claim Debian/Ubuntu/Arch validation based solely on a Fedora build.
 
-## OBS setup
+## Release infrastructure
 
-OBS keeps its own copy of `packaging/obs/_service`. Update that hosted copy **once** to use `revision @PARENT_TAG@`; changing the file in Git does not change the hosted copy. After that, the release workflow's runservice trigger fetches the tagged source, and OBS `set_version` applies the tag's version to its build descriptions. The tag must already be available on GitHub when the trigger runs.
+Hermes is private/development-stage for now. The manual **Release preparation**
+workflow validates metadata and creates a source artifact. It does **not**
+publish releases, push tags, upload packages, or contact the original maintainer's
+OBS project. There are no inherited release credentials or repository promises.
 
-## Packaging changes without a new app version
-
-For a rebuild of the same version, increase the RPM spec's `Release` value or the Debian packaging revision in both `file-explorer.dsc` and the first `debian.changelog` entry. The sync command preserves an existing Debian revision for the current app version. Run the version check before committing.
+Configure and review a Hermes-owned release channel before enabling publishing
+or automatic application updates. Upstream File Explorer binaries must never be
+installed by Hermes's updater. Any commit, push, tag, deployment or live install
+requires separate authorization.

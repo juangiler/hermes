@@ -74,9 +74,15 @@ static bool write_file_atomic(const char *path, const char *text) {
 static bool file_equals(const char *path, const char *text) {
     FILE *f = fopen(path, "r");
     if (!f) return false;
-    char buf[8192];
-    size_t n = fread(buf, 1, sizeof buf - 1, f);
+    // Chunked compare: the embedded logo SVG is far larger than any fixed
+    // buffer, and truncating it made every write look like a change.
+    char buf[4096];
+    size_t len = strlen(text), off = 0, n;
+    bool same = true;
+    while (same && (n = fread(buf, 1, sizeof buf, f)) > 0) {
+        if (off + n > len || memcmp(buf, text + off, n)) same = false;
+        else off += n;
+    }
     fclose(f);
-    buf[n] = 0;
-    return !strcmp(buf, text);
+    return same && off == len;
 }

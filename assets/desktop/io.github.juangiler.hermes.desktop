@@ -1,13 +1,13 @@
 [Desktop Entry]
 Type=Application
-Name=File Explorer
+Name=Hermes
 GenericName=File Manager
-Comment=Just another file explorer: fast and keyboard-first
-Exec=file-explorer %F
-Icon=dev.fileexplorer
+Comment=A fast, keyboard-first file manager
+Exec=hermes %F
+Icon=io.github.juangiler.hermes
 Terminal=false
 Categories=System;FileTools;FileManager;Utility;Core;
 MimeType=inode/directory;
 Keywords=files;folders;explorer;browser;manager;
 StartupNotify=true
-StartupWMClass=dev.fileexplorer
+StartupWMClass=io.github.juangiler.hermes

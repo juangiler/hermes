@@ -28,7 +28,7 @@ static bool app_desktop_is_export(const char *path, const char *container) {
 
 static bool app_desktop_find(const char *data, AppDesktop *out) {
     memset(out, 0, sizeof *out);
-    snprintf(out->id, sizeof out->id, "dev.fileexplorer");
+    snprintf(out->id, sizeof out->id, HERMES_APP_ID);
     snprintf(out->data, sizeof out->data, "%s", data);
     snprintf(out->host_data, sizeof out->host_data, "%s", data);
     const char *container = getenv("CONTAINER_ID");
@@ -40,14 +40,14 @@ static bool app_desktop_find(const char *data, AppDesktop *out) {
         snprintf(out->host_data, sizeof out->host_data, "%s/.local/share", home);
         snprintf(out->data, sizeof out->data, "%s", out->host_data);
         if (access(home, F_OK)) snprintf(out->data, sizeof out->data, "/run/host%s/.local/share", home);
-        snprintf(out->id, sizeof out->id, "%s-dev.fileexplorer", container);
+        snprintf(out->id, sizeof out->id, "%s-" HERMES_APP_ID, container);
         snprintf(out->target, sizeof out->target, "%s/applications/%s.desktop", out->data, out->id);
         if (!access(out->target, R_OK)) {
             snprintf(out->source, sizeof out->source, "%s", out->target);
             return true;
         }
         // Also support an exported launcher the user has renamed to the app ID.
-        snprintf(out->id, sizeof out->id, "dev.fileexplorer");
+        snprintf(out->id, sizeof out->id, HERMES_APP_ID);
     }
     snprintf(out->target, sizeof out->target, "%s/applications/%s.desktop", out->data, out->id);
     if (!access(out->target, R_OK) && (!(container && *container) || app_desktop_is_export(out->target, container))) {
@@ -60,7 +60,7 @@ static bool app_desktop_find(const char *data, AppDesktop *out) {
     bool found = false;
     while ((dir = strsep(&p, ":"))) {
         if (*dir != '/') continue;
-        snprintf(out->source, sizeof out->source, "%s/applications/dev.fileexplorer.desktop", dir);
+        snprintf(out->source, sizeof out->source, "%s/applications/" HERMES_APP_ID ".desktop", dir);
         if (!access(out->source, R_OK)) { found = true; break; }
     }
     free(copy);
@@ -149,9 +149,9 @@ static int app_desktop_install_icon(const char *data, const void *bytes, size_t 
     const u8 *b = bytes;
     for (size_t i = 0; i < length; i++) { hash ^= b[i]; hash *= 1099511628211ull; }
     char folder[PATH_MAX], path[PATH_MAX], host_path[PATH_MAX], applications[PATH_MAX];
-    snprintf(folder, sizeof folder, "%s/file-explorer/app-icons", desktop.data);
+    snprintf(folder, sizeof folder, "%s/hermes/app-icons", desktop.data);
     snprintf(path, sizeof path, "%s/icon-%016llx.%s", folder, (unsigned long long)hash, ext);
-    snprintf(host_path, sizeof host_path, "%s/file-explorer/app-icons/icon-%016llx.%s",
+    snprintf(host_path, sizeof host_path, "%s/hermes/app-icons/icon-%016llx.%s",
              desktop.host_data, (unsigned long long)hash, ext);
     char *updated = app_desktop_rewrite((char *)source, host_path, desktop.id);
     free(source);

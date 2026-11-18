@@ -1415,7 +1415,7 @@ static void connect_draw(void) {
     else if (!ok && !strcmp(sch, "smb"))
         snprintf(line, sizeof line, "GVfs SMB backend not installed for direct connection. Existing system SMB mounts still appear in Network; configure new mounts in your system settings.");
     else if (!ok && (!strcmp(sch, "dav") || !strcmp(sch, "davs")))
-        snprintf(line, sizeof line, "GVfs WebDAV backend not installed for direct connection. Configured rclone WebDAV remotes still appear in Network; add one with rclone config.");
+        snprintf(line, sizeof line, "GVfs WebDAV backend not installed for direct connection. Configured rclone WebDAV remotes still appear in Cloud; add one with rclone config.");
     else if (!ok)
         snprintf(line, sizeof line, "Direct connection requires the GVfs %s backend (gvfsd-%s), which is not installed.",
                  g_net_protos[s->cn_proto].label, g_net_protos[s->cn_proto].backend);

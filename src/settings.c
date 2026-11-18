@@ -1,13 +1,13 @@
 // settings.c - persistence: settings.conf, named layouts (layouts.conf), per-folder views (folders.conf)
 // (included from app.c)
 
-// --- settings ($XDG_CONFIG_HOME/file-explorer/settings.conf) ---------------
+// --- settings ($XDG_CONFIG_HOME/hermes/settings.conf) ---------------
 
 static void settings_file(char *out, size_t cap, bool dir_only) {
     const char *x = getenv("XDG_CONFIG_HOME");
     char base[PATH_MAX];
-    if (x && x[0] == '/') snprintf(base, sizeof base, "%s/file-explorer", x);
-    else snprintf(base, sizeof base, "%s/.config/file-explorer", getenv("HOME") ? getenv("HOME") : "/tmp");
+    if (x && x[0] == '/') snprintf(base, sizeof base, "%s/hermes", x);
+    else snprintf(base, sizeof base, "%s/.config/hermes", getenv("HOME") ? getenv("HOME") : "/tmp");
     if (dir_only) snprintf(out, cap, "%s", base);
     else snprintf(out, cap, "%s/settings.conf", base);
 }
@@ -239,6 +239,7 @@ static void settings_load(void) {
         } else if (!strcmp(k, "term_look")) g_term_look_setting = !strcmp(v, "app");
         else if (!strcmp(k, "devices_collapsed")) A.devs_collapsed = atoi(v);
         else if (!strcmp(k, "network_collapsed")) A.nets_collapsed = atoi(v);
+        else if (!strcmp(k, "cloud_collapsed")) A.clouds_collapsed = atoi(v);
         else if (!strcmp(k, "close_to_tray")) A.close_to_tray = atoi(v);
         else if (addon_settings_line(k, v)) {}
         else if (cloud_settings_line(k, v)) {}
@@ -492,7 +493,7 @@ static void settings_write(FILE *f) {
         A.maximized = SDL_GetWindowFlags(A.win) & SDL_WINDOW_MAXIMIZED;
         if (!A.maximized) SDL_GetWindowSize(A.win, &A.win_w, &A.win_h);
     }
-    fprintf(f, "# File Explorer settings (edited by the app; safe to edit while it's closed)\n");
+    fprintf(f, "# Hermes settings (edited by the app; safe to edit while it's closed)\n");
     fprintf(f, "settings_version=%d\n", SETTINGS_VERSION);
     fprintf(f, "zoom=%.2f\nshow_hidden=%d\nfolder_sizes=%d\nsearch_subfolders=%d\n", A.zoom, A.show_hidden, A.folder_sizes,
             A.search_recursive);
@@ -512,6 +513,7 @@ static void settings_write(FILE *f) {
     }
     for (int i = 0; i < A.ndev_names; i++) fprintf(f, "dev_name=%s\t%s\n", A.dev_names[i].key, A.dev_names[i].name);
     fprintf(f, "devices_collapsed=%d\nnetwork_collapsed=%d\n", A.devs_collapsed, A.nets_collapsed);
+    fprintf(f, "cloud_collapsed=%d\n", A.clouds_collapsed);
     fprintf(f, "close_to_tray=%d\n", A.close_to_tray);
     addon_settings_save(f);
     fputs(g_settings_other, f);
@@ -712,7 +714,7 @@ static bool session_restore(void) {
     return true;
 }
 
-// --- named layouts ($XDG_CONFIG_HOME/file-explorer/layouts.conf) ---------------
+// --- named layouts ($XDG_CONFIG_HOME/hermes/layouts.conf) ---------------
 // [name] followed by the same session lines settings.conf uses.
 
 
@@ -775,7 +777,7 @@ static void layouts_save(void) {
     snprintf(tmp, sizeof tmp, "%s.tmp", path);
     FILE *f = fopen(tmp, "w");
     if (!f) return;
-    fprintf(f, "# File Explorer saved layouts\n");
+    fprintf(f, "# Hermes saved layouts\n");
     for (int i = 0; i < g_nlayouts; i++) fprintf(f, "[%s]\n%s", g_layouts[i].name, g_layouts[i].text ? g_layouts[i].text : "");
     if (fclose(f) == 0) rename(tmp, path);
 }
@@ -857,7 +859,7 @@ static bool layout_open(int i) {
     return true;
 }
 
-// --- per-folder view settings ($XDG_CONFIG_HOME/file-explorer/folders.conf) --
+// --- per-folder view settings ($XDG_CONFIG_HOME/hermes/folders.conf) --
 
 static FolderView *g_fv;
 static int g_nfv;

@@ -787,7 +787,7 @@ static void draw_sidebar_content(void) {
             }
             f32 tx = r.x + S(10), tmax = r.x + r.w - S(6);
             pl->eject = (Rect){0, 0, 0, 0};
-            if (pl->kind == PK_NETHDR || pl->kind == PK_ADDONHDR) { // + : connect to a server / add-on
+            if (pl->kind == PK_NETHDR || pl->kind == PK_CLOUDHDR || pl->kind == PK_ADDONHDR) { // + : server / rclone remote / add-on
                 f32 bs = roundf(S(20));
                 Rect pr = {roundf(r.x + r.w - bs - S(4)), roundf(r.y + (r.h - bs) * 0.5f), bs, bs};
                 pl->eject = pr;
@@ -798,7 +798,8 @@ static void draw_sidebar_content(void) {
             }
             { // collapse chevron
                 bool col = pl->kind == PK_GROUP ? A.qa[pl->group].collapsed : pl->kind == PK_DEVICES ? A.devs_collapsed
-                         : pl->kind == PK_ADDONHDR ? addon_section_collapsed(pl) : A.nets_collapsed;
+                         : pl->kind == PK_ADDONHDR ? addon_section_collapsed(pl)
+                         : pl->kind == PK_CLOUDHDR ? A.clouds_collapsed : A.nets_collapsed;
                 draw_chevron(r.x + S(9), r.y + r.h * 0.5f, S(4), col ? 1 : 3, MAX(1.f, S(1.3f)), C(hover ? sidebar_dim : sidebar_faint));
                 tx = r.x + S(18);
             }

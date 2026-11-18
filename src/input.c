@@ -761,14 +761,19 @@ static void on_mouse_down(SDL_MouseButtonEvent *b) {
             connect_open(-1);
             return;
         }
+        if (pl->kind == PK_CLOUDHDR && b->button == SDL_BUTTON_LEFT && pl->eject.w > 0 && in_rect(pl->eject, x, y)) {
+            cloud_config_terminal();
+            return;
+        }
         if (pl->kind == PK_ADDONHDR) {
             if (b->button == SDL_BUTTON_LEFT) addon_header_click(pl, pl->eject.w > 0 && in_rect(pl->eject, x, y));
             return;
         }
         if (pl->kind == PK_ADDON) { addon_place_click(pl, b->button); return; }
-        if (pl->kind == PK_DEVICES || pl->kind == PK_NETHDR) {
+        if (pl->kind == PK_DEVICES || pl->kind == PK_NETHDR || pl->kind == PK_CLOUDHDR) {
             if (b->button != SDL_BUTTON_LEFT) return;
             if (pl->kind == PK_DEVICES) A.devs_collapsed = !A.devs_collapsed;
+            else if (pl->kind == PK_CLOUDHDR) A.clouds_collapsed = !A.clouds_collapsed;
             else A.nets_collapsed = !A.nets_collapsed;
             init_places();
             A.settings_dirty = true;

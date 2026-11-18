@@ -292,8 +292,8 @@ static bool run_thumbnailer(const Thumbnailer *t, const char *in, const char *ur
 
 static void cache_dir(char *out, size_t cap) {
     const char *x = getenv("XDG_CACHE_HOME");
-    if (x && x[0] == '/') snprintf(out, cap, "%s/file-explorer/thumbs", x);
-    else snprintf(out, cap, "%s/.cache/file-explorer/thumbs", getenv("HOME") ? getenv("HOME") : "/tmp");
+    if (x && x[0] == '/') snprintf(out, cap, "%s/hermes/thumbs", x);
+    else snprintf(out, cap, "%s/.cache/hermes/thumbs", getenv("HOME") ? getenv("HOME") : "/tmp");
 }
 
 static bool try_thumbnail(PreviewResult *r, const char *path, i64 mtime, const char *ext) {

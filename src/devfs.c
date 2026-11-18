@@ -1,4 +1,4 @@
-// devfs.c - a phone or camera as a folder: `file-explorer --device-mount SYSNAME DIR` claims the USB device,
+// devfs.c - a phone or camera as a folder: `hermes --device-mount SYSNAME DIR` claims the USB device,
 // speaks its protocol (iphone.c: AFC; mtp.c: MTP / PTP) and serves it with FUSE at DIR/<device name> until it's
 // unmounted or unplugged. It tells the app how it's going on stdout: "wait trust" / "wait unlock" while the
 // user has to do something, then "ok PATH" or "error KIND: text" (KIND: busy, perm, io, unsupported, denied,
@@ -691,8 +691,8 @@ static bool mtp_start_on(const char *fallback_name, char *name, size_t ncap, cha
     if (!ptp_open(&g_mtp.usb, &g_mtp.ptp, err, ecap)) return false;
     pthread_mutex_init(&g_mtp.m, NULL);
     const char *ch = getenv("XDG_CACHE_HOME");
-    if (ch && ch[0]) snprintf(g_mtp.cache_dir, sizeof g_mtp.cache_dir, "%s/file-explorer", ch);
-    else snprintf(g_mtp.cache_dir, sizeof g_mtp.cache_dir, "%s/.cache/file-explorer", getenv("HOME") ? getenv("HOME") : "/tmp");
+    if (ch && ch[0] == '/') snprintf(g_mtp.cache_dir, sizeof g_mtp.cache_dir, "%s/hermes", ch);
+    else snprintf(g_mtp.cache_dir, sizeof g_mtp.cache_dir, "%s/.cache/hermes", getenv("HOME") ? getenv("HOME") : "/tmp");
     u64 until = now_ns() + 90000000000ull;
     bool told = false;
     for (;;) { // a locked Android phone shows no storage until it's unlocked
@@ -959,9 +959,9 @@ static bool dfs_is_mount(const char *path) {
     return found;
 }
 
-// file-explorer --device-mount SYSNAME DIR
+// hermes --device-mount SYSNAME DIR
 static int devfs_main(int argc, char **argv) {
-    if (argc < 4) { fprintf(stderr, "usage: file-explorer --device-mount SYSNAME DIR\n"); return 2; }
+    if (argc < 4) { fprintf(stderr, "usage: hermes --device-mount SYSNAME DIR\n"); return 2; }
     signal(SIGPIPE, SIG_IGN);
     g_dfs_out = stdout;
     g_dfs_uid = getuid();
@@ -1015,7 +1015,7 @@ static int devfs_main(int argc, char **argv) {
     char opts[400];
     snprintf(opts, sizeof opts, "fsname=fe-device:%s,subtype=fe-device,noatime", info->serial[0] ? info->serial : info->sys);
     for (char *c = opts; *c; c++) if (*c == ' ') *c = '_';
-    char *fav[] = {"file-explorer", "-o", opts, NULL};
+    char *fav[] = {"hermes", "-o", opts, NULL};
     struct fuse_args args = FUSE_ARGS_INIT(3, fav);
     struct fuse *f = fuse_new(&args, &g_dfs_ops, sizeof g_dfs_ops, NULL);
     if (!f || fuse_mount(f, g_dfs_mp)) {

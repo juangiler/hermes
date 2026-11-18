@@ -380,8 +380,8 @@ static bool g_rapps_loaded;
 static void recent_apps_file(char *out, size_t cap, bool dir_only) {
     const char *x = getenv("XDG_STATE_HOME");
     char base[PATH_MAX];
-    if (x && x[0] == '/') snprintf(base, sizeof base, "%s/file-explorer", x);
-    else snprintf(base, sizeof base, "%s/.local/state/file-explorer", getenv("HOME") ? getenv("HOME") : "/tmp");
+    if (x && x[0] == '/') snprintf(base, sizeof base, "%s/hermes", x);
+    else snprintf(base, sizeof base, "%s/.local/state/hermes", getenv("HOME") ? getenv("HOME") : "/tmp");
     if (dir_only) snprintf(out, cap, "%s", base);
     else snprintf(out, cap, "%s/recent-apps", base);
 }

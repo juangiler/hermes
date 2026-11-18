@@ -719,7 +719,7 @@ static void w_icon_make(void) {
     if (!px) return;
     int bs = MAX(1, (int)floorf(A.dpi_scale + 0.01f));
     size_t size = (size_t)w * (size_t)h * 4;
-    int fd = memfd_create("file-explorer-drag", MFD_CLOEXEC);
+    int fd = memfd_create("hermes-drag", MFD_CLOEXEC);
     void *mem = fd >= 0 && ftruncate(fd, (off_t)size) == 0 ? mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0) : MAP_FAILED;
     if (mem != MAP_FAILED) {
         memcpy(mem, px, size);

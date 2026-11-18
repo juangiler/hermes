@@ -7,7 +7,7 @@ launcher artwork.
 ## Create a custom theme
 
 Open **Options > Appearance > Icon themes folder**. The default location is
-`~/.config/file-explorer/icons/`, or `$XDG_CONFIG_HOME/file-explorer/icons/` when
+`~/.config/hermes/icons/`, or `$XDG_CONFIG_HOME/hermes/icons/` when
 that variable is set. Create a subdirectory for your theme:
 
 ```text

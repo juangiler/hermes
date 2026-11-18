@@ -5,6 +5,14 @@ on:
   pull_request:
 
 jobs:
+  source-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/build-install-selftest.py
+      - run: python3 tools/branding-selftest.py
+      - run: git diff --exit-code
+
   package-versions:
     runs-on: ubuntu-latest
     steps:
@@ -35,7 +43,7 @@ jobs:
         run: |
           ./build.sh package 2>&1 | tee build.log
           if grep -q 'warning:' build.log; then echo "::error::compiler warnings"; exit 1; fi
-          ./build/file-explorer --version
+          ./build/package/hermes --version
 
   # Debug build (ASan/UBSan) + the headless self-tests.
   selftest:
@@ -58,14 +66,14 @@ jobs:
           su tester -c '
             set -e
             sh tools/mkfiles.sh /tmp/fe-st 5000
-            ./build/file-explorer --selftest /tmp/fe-st
+            ./build/debug/hermes --selftest /tmp/fe-st
             for t in ops admin git grep du cmp m4 m5 m6 m7 m8 m9 m10 m11; do
               echo "::group::selftest-$t"
-              ./build/file-explorer --selftest-$t || { echo "::error::selftest-$t failed"; exit 1; }
+              ./build/debug/hermes --selftest-$t || { echo "::error::selftest-$t failed"; exit 1; }
               echo "::endgroup::"
             done'
       - name: Screenshot
-        run: su tester -c './build/file-explorer --screenshot shot.bmp /usr'
+        run: su tester -c './build/debug/hermes --screenshot shot.bmp /usr'
       - uses: actions/upload-artifact@v4
         with:
           name: screenshot

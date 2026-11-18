@@ -104,7 +104,11 @@ static bool ipc_listen(void (*handler)(char *msg)) {
     ipc_socket_path(a.sun_path, sizeof a.sun_path);
     int probe = ipc_connect();
     if (probe >= 0) { close(probe); return false; } // someone else is serving (raced us)
-    unlink(a.sun_path);
+    struct stat st;
+    if (lstat(a.sun_path, &st) == 0) {
+        if (!S_ISSOCK(st.st_mode) || st.st_uid != getuid()) return false;
+        if (unlink(a.sun_path)) return false;
+    } else if (errno != ENOENT) return false;
     int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
     if (fd < 0) return false;
     mode_t old = umask(0077);

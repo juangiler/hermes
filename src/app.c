@@ -1,11 +1,11 @@
-// app.c - file-explorer: window, tabs, split panes, layout, input, rendering
+// app.c - hermes: window, tabs, split panes, layout, input, rendering
 
 extern char **environ;
 
 #define S(x) ((x) * A.scale)
 #define APP_NAME                                                               \
-  "File Explorer"            // system-facing name: window title, launcher, tray
-#define APP_LABEL "Explorer" // shown next to the logo inside the app
+  HERMES_NAME                // system-facing name: window title, launcher, tray
+#define APP_LABEL HERMES_NAME // shown next to the logo inside the app
 #define APP_VERSION "0.11.2" // bumped with each tagged release
 
 typedef struct {
@@ -449,6 +449,7 @@ enum {
   PK_NETEMPTY,
   PK_PHONE,
   PK_CLOUD,
+  PK_CLOUDHDR,
   PK_ADDONHDR,
   PK_ADDON,
   PK_ADDONEMPTY
@@ -1029,7 +1030,7 @@ static struct {
     char *key, *name;
   } dev_names[64]; // custom device names (key: see place_dev_key)
   int ndev_names;
-  bool devs_collapsed, nets_collapsed;
+  bool devs_collapsed, nets_collapsed, clouds_collapsed;
   TextEdit qa_te;
   int qa_drag_row, qa_ins_g,
       qa_ins_i; // sidebar drag: row being moved, insertion point
@@ -4271,21 +4272,6 @@ static void init_places(void) {
       p->server = k;
       snprintf(p->label, sizeof p->label, "%s", A.servers[k].name);
     }
-    // Keep configured remotes here in every connection state. The mount scan
-    // above may see a newly mounted remote before rclone's status poll does.
-    for (int k = 0; k < g_ncloud && !A.nets_collapsed && g_rclone == 1; k++) {
-      Cloud *c = &g_cloud[k];
-      if (!c->listed)
-        continue;
-      Place *p = place_row();
-      if (!p)
-        break;
-      p->kind = PK_CLOUD;
-      p->item = k;
-      p->removable = c->mount[0] != 0;
-      snprintf(p->path, sizeof p->path, "%s", c->mount);
-      snprintf(p->label, sizeof p->label, "%s", c->name);
-    }
     local_share_path(NULL); // update the cached local export list when due
     for (int k = 0; k < g_local_shares.count && !A.nets_collapsed; k++) {
       unsigned kind = g_local_shares.kinds[k] & (LOCAL_SHARE_SMB | LOCAL_SHARE_NFS);
@@ -4305,6 +4291,28 @@ static void init_places(void) {
       }
     }
   }
+  if (g_rclone == 1) {
+    Place *ch = place_row();
+    if (ch) {
+      ch->kind = PK_CLOUDHDR;
+      snprintf(ch->label, sizeof ch->label, "Cloud");
+    }
+    // Keep configured remotes here in every connection state. The mount scan
+    // above may see a newly mounted remote before rclone's status poll does.
+    for (int k = 0; k < g_ncloud && !A.clouds_collapsed; k++) {
+      Cloud *c = &g_cloud[k];
+      if (!c->listed)
+        continue;
+      Place *p = place_row();
+      if (!p)
+        break;
+      p->kind = PK_CLOUD;
+      p->item = k;
+      p->removable = c->mount[0] != 0;
+      snprintf(p->path, sizeof p->path, "%s", c->mount);
+      snprintf(p->label, sizeof p->label, "%s", c->name);
+    }
+  }
   addon_places(); // add-ons' sections (addons.c)
   places_layout();
   A.redraw = true;
@@ -4312,7 +4320,7 @@ static void init_places(void) {
 
 static bool place_is_header(const Place *p) {
   return p->kind == PK_GROUP || p->kind == PK_DEVICES || p->kind == PK_NETHDR ||
-         p->kind == PK_ADDONHDR;
+         p->kind == PK_CLOUDHDR || p->kind == PK_ADDONHDR;
 }
 
 // Row positions (content space; the sidebar scrolls by A.side_scroll).
@@ -5761,7 +5769,7 @@ static DesktopApp *open_app_for(const char *full) {
       strcmp(mime, "application/octet-stream") ? app_default_for(mime) : NULL;
   if (!a && !remote && file_looks_text(full))
     a = app_default_for("text/plain"); // (shell scripts, unknown text types)
-  return a && strcmp(a->id, "dev.fileexplorer.desktop") ? a : NULL;
+  return a && strcmp(a->id, HERMES_APP_ID ".desktop") ? a : NULL;
 }
 
 static void open_path(const char *full) {
@@ -6265,7 +6273,7 @@ static void start_transfer(char **paths, int n, const char *dst, bool move,
 // their move (rmdir keeps any that aren't).
 static void clip_paste_tidy(char *dir, size_t cap) {
   const char *rt = getenv("XDG_RUNTIME_DIR");
-  snprintf(dir, cap, "%s/file-explorer/paste", rt && rt[0] ? rt : "/tmp");
+  snprintf(dir, cap, "%s/hermes/paste", rt && rt[0] ? rt : "/tmp");
   DIR *d = opendir(dir);
   for (struct dirent *de; d && (de = readdir(d));)
     if (de->d_name[0] != '.') {
@@ -8142,6 +8150,8 @@ static void do_action(Pane *p, int act) {
     if (A.menu_place >= 0 && A.menu_place < A.nplaces) {
       if (A.places[A.menu_place].kind == PK_DEVICES)
         A.devs_collapsed = !A.devs_collapsed;
+      else if (A.places[A.menu_place].kind == PK_CLOUDHDR)
+        A.clouds_collapsed = !A.clouds_collapsed;
       else
         A.nets_collapsed = !A.nets_collapsed;
       init_places();
@@ -8393,9 +8403,9 @@ static void do_action(Pane *p, int act) {
 static void cache_subdir(const char *sub, char *out, size_t cap) {
   const char *x = getenv("XDG_CACHE_HOME");
   if (x && x[0] == '/')
-    snprintf(out, cap, "%s/file-explorer/%s", x, sub);
+    snprintf(out, cap, "%s/hermes/%s", x, sub);
   else
-    snprintf(out, cap, "%s/.cache/file-explorer/%s",
+    snprintf(out, cap, "%s/.cache/hermes/%s",
              getenv("HOME") ? getenv("HOME") : "/tmp", sub);
 }
 
@@ -9324,17 +9334,17 @@ static void menu_open_place(int idx, f32 x, f32 y) {
     }
   } else if (pl->kind == PK_ADDONHDR || pl->kind == PK_ADDON) {
     addon_place_menu(pl);
-  } else if (pl->kind == PK_DEVICES || pl->kind == PK_NETHDR) {
-    bool col = pl->kind == PK_DEVICES ? A.devs_collapsed : A.nets_collapsed;
+  } else if (pl->kind == PK_DEVICES || pl->kind == PK_NETHDR || pl->kind == PK_CLOUDHDR) {
+    bool col = pl->kind == PK_DEVICES ? A.devs_collapsed :
+               pl->kind == PK_CLOUDHDR ? A.clouds_collapsed : A.nets_collapsed;
     menu_add(col ? "Expand" : "Collapse", "Click", ACT_DEV_SECTION_TOGGLE,
              true);
     if (pl->kind == PK_NETHDR) {
       menu_add("Connect to server\xE2\x80\xA6", "", ACT_NET_NEW, true);
       menu_add("Refresh network locations", "", ACT_NET_REFRESH, true);
-      if (g_rclone == 1) {
-        menu_add("New remote (rclone config)\xE2\x80\xA6", "", ACT_CLOUD_NEW, true);
-        menu_add("Refresh remotes", "", ACT_CLOUD_REFRESH, true);
-      }
+    } else if (pl->kind == PK_CLOUDHDR) {
+      menu_add("New remote (rclone config)\xE2\x80\xA6", "", ACT_CLOUD_NEW, true);
+      menu_add("Refresh remotes", "", ACT_CLOUD_REFRESH, true);
     }
   } else if (pl->kind == PK_NETSAVED) {
     NetAddr na;
@@ -12286,9 +12296,9 @@ static void recent_file(char *out, size_t cap, bool dir_only) {
   const char *x = getenv("XDG_STATE_HOME");
   char base[PATH_MAX];
   if (x && x[0] == '/')
-    snprintf(base, sizeof base, "%s/file-explorer", x);
+    snprintf(base, sizeof base, "%s/hermes", x);
   else
-    snprintf(base, sizeof base, "%s/.local/state/file-explorer",
+    snprintf(base, sizeof base, "%s/.local/state/hermes",
              getenv("HOME") ? getenv("HOME") : "/tmp");
   if (dir_only)
     snprintf(out, cap, "%s", base);
@@ -13352,7 +13362,7 @@ static void snap_create_cb(int choice, bool check, void *ud) {
                       p->sv->l->config,
                       "create",
                       "--description",
-                      "File Explorer",
+                      HERMES_NAME,
                       "--cleanup-algorithm",
                       "number",
                       NULL,
@@ -15072,9 +15082,9 @@ static bool g_bg_start; // --background: started at login, window hidden
 static void autostart_file(char *out, size_t cap) {
   const char *x = getenv("XDG_CONFIG_HOME"), *h = getenv("HOME");
   if (x && x[0] == '/')
-    snprintf(out, cap, "%s/autostart/file-explorer.desktop", x);
+    snprintf(out, cap, "%s/autostart/" HERMES_APP_ID ".desktop", x);
   else
-    snprintf(out, cap, "%s/.config/autostart/file-explorer.desktop",
+    snprintf(out, cap, "%s/.config/autostart/" HERMES_APP_ID ".desktop",
              h ? h : "/tmp");
 }
 
@@ -15103,7 +15113,7 @@ static void autostart_set(bool on) {
           "[Desktop Entry]\nType=Application\nName=" APP_NAME
           "\nComment=File manager (starts in the background)\n"
           "Exec=\"%s\" "
-          "--background\nIcon=dev.fileexplorer\nTerminal=false\nNoDisplay="
+          "--background\nIcon=" HERMES_APP_ID "\nTerminal=false\nNoDisplay="
           "true\nX-GNOME-Autostart-enabled=true\n",
           exe);
   fclose(f);
@@ -15438,7 +15448,7 @@ static void window_icon_update(void) { // the logo in the accent colour (X11 /
 }
 
 // The system icon (launchers, docks, the window list - anything that looks up
-// Icon=dev.fileexplorer in the icon theme) in the accent colour too: a
+// Icon=io.github.juangiler.hermes in the icon theme) too: a
 // recoloured copy in the user's icon folder, which wins over the packaged one.
 // Blue is the artwork as packaged: no copy is made for it, but one that exists
 // is turned blue, never deleted - panels keep using a theme icon they once
@@ -15448,21 +15458,12 @@ static void window_icon_update(void) { // the logo in the accent colour (X11 /
 static bool app_icon_write(const char *dh, u32 accent) {
   char dir[PATH_MAX], path[PATH_MAX + 32];
   snprintf(dir, sizeof dir, "%s/icons/hicolor", dh);
-  snprintf(path, sizeof path, "%s/scalable/apps/dev.fileexplorer.svg", dir);
+  snprintf(path, sizeof path, "%s/scalable/apps/" HERMES_APP_ID ".svg", dir);
   bool changed;
   if ((accent & 0xFFFFFF) == LOGO_BASE_ACCENT && access(path, F_OK))
     return false;
   {
-    static const char from[] =
-        "width=\"624\" height=\"456\" viewBox=\"0 0 624 456\"";
-    const char *at = strstr(g_logo_svg, from);
-    if (!at)
-      return false;
-    char *svg = xmalloc(sizeof g_logo_svg + 64);
-    snprintf(svg, sizeof g_logo_svg + 64,
-             "%.*swidth=\"256\" height=\"256\" viewBox=\"0 -84 624 624\"%s\n",
-             (int)(at - g_logo_svg), g_logo_svg,
-             at + strlen(from)); // square, like packaging/dev.fileexplorer.svg
+    char *svg = strdup(g_logo_svg); // generated artwork is already square
     logo_recolor(svg, accent);
     changed = !file_equals(path, svg);
     if (changed) {
@@ -16050,16 +16051,16 @@ static void ipc_handle(char *msg) {
 }
 
 static void usage(void) {
-  printf("Usage: file-explorer [PATH|FILE|URI]... [--tab PATH]... [--split "
+  printf("Usage: hermes [PATH|FILE|URI]... [--tab PATH]... [--split "
          "PATH] [--new-window] [--version]\n"
          "  Folders open as tabs, files open their folder with the file "
-         "selected. If File Explorer is already\n"
+         "selected. If Hermes is already\n"
          "  running they open in that window (Options > Behaviour), unless "
          "--new-window / -n is given;\n"
          "  launched again without paths, it opens a new window.\n"
-         "       file-explorer --bench PATH            time listing a "
+         "       hermes --bench PATH            time listing a "
          "directory (headless)\n"
-         "       file-explorer --screenshot OUT.bmp [PATH...]\n");
+         "       hermes --screenshot OUT.bmp [PATH...]\n");
 }
 
 static bool resolve_dir(const char *in, char *out) {
@@ -16186,7 +16187,7 @@ int main(int argc, char **argv) {
       return 0;
     } else if (!strcmp(argv[i], "-v") || !strcmp(argv[i], "--version")) {
       int v = SDL_GetVersion();
-      printf("file-explorer %s (SDL %d.%d.%d)\n", APP_VERSION,
+      printf("hermes %s (SDL %d.%d.%d)\n", APP_VERSION,
              SDL_VERSIONNUM_MAJOR(v), SDL_VERSIONNUM_MINOR(v),
              SDL_VERSIONNUM_MICRO(v));
       return 0;
@@ -16238,12 +16239,12 @@ int main(int argc, char **argv) {
     setenv("XDG_CONFIG_HOME", "/tmp/fe-selftest-config",
            1); // never touch the user's settings
     unlink(
-        "/tmp/fe-selftest-config/file-explorer/settings.conf"); // each run
+        "/tmp/fe-selftest-config/hermes/settings.conf"); // each run
                                                                 // starts clean
                                                                 // (saves merge
                                                                 // with the
                                                                 // file)
-    unlink("/tmp/fe-selftest-config/file-explorer/settings.conf.bak");
+    unlink("/tmp/fe-selftest-config/hermes/settings.conf.bak");
     setenv("XDG_CACHE_HOME", "/tmp/fe-selftest-cache", 1);
   }
 #ifdef __GLIBC__

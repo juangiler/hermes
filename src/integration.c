@@ -512,7 +512,7 @@ static void ig_first_run(void) {
 // the release's SHA-256 and swaps it in, so the next start runs it ("Restart now" does that at once). Other installs
 // can check by hand and are told how they update. Never in self-tests.
 
-#define IG_RELEASES "https://github.com/AlexMedela/file-explorer/releases"
+#define IG_RELEASES "https://github.com/juangiler/hermes/releases"
 #if defined(__x86_64__)
 #define UPD_ARCH "x86_64"
 #elif defined(__aarch64__)
@@ -563,7 +563,7 @@ static void ig_tag_from_json(const char *json, char *tag, size_t cap) {
 
 // The AppImage of a release for this machine, as the release workflow names it.
 static void upd_asset_name(const char *tag, char *out, size_t cap) {
-    snprintf(out, cap, "file-explorer-%s-" UPD_ARCH ".AppImage", tag[0] == 'v' ? tag + 1 : tag);
+    snprintf(out, cap, "hermes-%s-" UPD_ARCH ".AppImage", tag[0] == 'v' ? tag + 1 : tag);
 }
 
 // Size of the asset called name in GitHub's answer (its "size" follows its "name"), or 0.
@@ -615,20 +615,20 @@ static int upd_kind(void) {
     exe[n > 0 ? n : 0] = 0;
     if (appimage_path()) kind = UK_APPIMAGE;
     else if (!strncmp(exe, "/usr/bin/", 9)) {
-        if (access("/var/lib/dpkg/info/file-explorer.list", F_OK) == 0 || access("/var/lib/dpkg/info/file-explorer:amd64.list", F_OK) == 0 ||
-            access("/var/lib/dpkg/info/file-explorer:arm64.list", F_OK) == 0) kind = UK_DEB;
+        if (access("/var/lib/dpkg/info/hermes.list", F_OK) == 0 || access("/var/lib/dpkg/info/hermes:amd64.list", F_OK) == 0 ||
+            access("/var/lib/dpkg/info/hermes:arm64.list", F_OK) == 0) kind = UK_DEB;
         else if (access("/var/lib/pacman/local", F_OK) == 0) kind = UK_ARCH; // (built with makepkg: no Arch repository)
         else if (access("/var/lib/rpm", F_OK) == 0 || access("/usr/lib/sysimage/rpm", F_OK) == 0) kind = UK_RPM;
     }
     return kind;
 }
 
-static bool upd_can_install(void) { return upd_kind() == UK_APPIMAGE; }
+static bool upd_can_install(void) { return false; } // no validated Hermes release channel
 
 // How this kind of install gets a new version (Options > Updates), and the command for it to copy (NULL: none).
 static const char *upd_how(void) {
     switch (upd_kind()) {
-    case UK_APPIMAGE: return "AppImage: updates itself from GitHub";
+    case UK_APPIMAGE: return "AppImage: updates disabled until a Hermes release channel exists";
     case UK_ARCH: return "makepkg: copy the command, run it in packaging/arch";
     case UK_DEB: return "With your system updates (apt)";
     case UK_RPM: return "With your system updates (dnf / zypper)";
@@ -680,7 +680,7 @@ static void *upd_check_thread(void *arg) {
     UpdFound *r = arg;
     size_t cap = 256 << 10;
     char *out = xmalloc(cap), name[160];
-    if (upd_fetch("https://api.github.com/repos/AlexMedela/file-explorer/releases/latest", out, cap) == 0) {
+    if (upd_fetch("https://api.github.com/repos/juangiler/hermes/releases/latest", out, cap) == 0) {
         ig_tag_from_json(out, r->tag, sizeof r->tag);
         upd_asset_name(r->tag, name, sizeof name);
         r->size = upd_asset_size(out, name);
@@ -693,6 +693,14 @@ static void *upd_check_thread(void *arg) {
 
 // Ask GitHub now. manual: from Options (shows the outcome there, not as a card).
 static void upd_check_now(bool manual) {
+    // No validated Hermes release channel yet: never poll, never download, and
+    // never offer an upstream File Explorer binary as a Hermes update. A manual
+    // check says why instead of staying silent.
+    if (manual) {
+        g_upd.state = UPD_FAILED;
+        snprintf(g_upd.err, sizeof g_upd.err, "Hermes updates are disabled: no release channel is configured");
+    }
+    return;
     if (A.selftest || A.screenshot || g_upd.state == UPD_CHECKING || g_upd.state == UPD_DOWNLOADING || g_upd.state == UPD_READY) return;
     g_upd.state = UPD_CHECKING;
     g_upd.manual = manual;
@@ -783,6 +791,8 @@ static void upd_fail(const char *fmt, const char *arg) {
 
 // Download and install the new AppImage (from the card, or Options).
 static void upd_download(void) {
+    upd_fail("%s", "Hermes updates are disabled: no release channel is configured");
+    return;
     const char *ai = appimage_path();
     if (A.selftest || A.screenshot || g_upd.state != UPD_AVAILABLE) return;
     if (!ai) { upd_fail("%s", "Not running from an AppImage"); return; }
@@ -795,7 +805,7 @@ static void upd_download(void) {
     UpdJob *j = xcalloc(1, sizeof *j);
     snprintf(j->tag, sizeof j->tag, "%s", g_upd.tag);
     snprintf(j->target, sizeof j->target, "%s", ai);
-    snprintf(j->part, sizeof j->part, "%s/.file-explorer-update.part", dir);
+    snprintf(j->part, sizeof j->part, "%s/.hermes-update.part", dir);
     snprintf(g_upd.part, sizeof g_upd.part, "%s", j->part);
     g_upd.state = UPD_DOWNLOADING;
     g_upd.got = 0;
@@ -956,7 +966,7 @@ static void upd_card_draw(void) {
         snprintf(det, sizeof det, "%s", g_upd.err);
     }
     // logo, title, close (cancels a download)
-    f32 lh = roundf(S(14)), lw = roundf(lh * 624.f / 456.f), lx = x + pad, ty = y + S(10);
+    f32 lh = roundf(S(14)), lw = lh, lx = x + pad, ty = y + S(10);
     Glyph *g = icon_glyph(ICON_LOGO_SMALL, (int)lw);
     if (g) draw_glyph(g, lx, roundf(ty + (f->line_h - lh) * 0.5f - (lw - lh) * 0.5f), (Color){1, 1, 1, 1});
     f32 tx = lx + lw + roundf(S(8));

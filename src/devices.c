@@ -914,7 +914,7 @@ static void ssh_master_job(void *arg) {
         if (fd >= 0) close(fd);
     }
     snprintf(ev_ask, sizeof ev_ask, "SSH_ASKPASS=%s", exe);
-    snprintf(ev_file, sizeof ev_file, "FE_ASKPASS_FILE=%s", file);
+    snprintf(ev_file, sizeof ev_file, "HERMES_ASKPASS_FILE=%s", file);
     // -f: back to us once logged in; the connection stays in the background as long as the SFTP folder is
     // connected (ssh_master_close when it goes away; it also ends with the server, ServerAlive)
     char *av[32] = {"env", ev_ask, "SSH_ASKPASS_REQUIRE=force", ev_file, (char *)sshb, "-o", ctl, "-o", "ControlMaster=yes",

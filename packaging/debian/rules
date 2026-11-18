@@ -1,5 +1,5 @@
 #!/usr/bin/make -f
-# File Explorer - Debian / Ubuntu package (built on OBS from debian.* files, see _service).
+# Hermes - shared Debian / Ubuntu recipe, staged as debian/ by build-package.sh.
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 
 %:
@@ -10,7 +10,7 @@ override_dh_auto_build:
 	LDFLAGS_PKG="$$(dpkg-buildflags --get LDFLAGS)" ./build.sh package
 
 override_dh_auto_install:
-	DESTDIR=$(CURDIR)/debian/file-explorer PREFIX=/usr ./install.sh
+	DESTDIR=$(CURDIR)/debian/hermes PREFIX=/usr ./install.sh
 
 override_dh_auto_clean:
 	rm -rf build

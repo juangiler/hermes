@@ -1,108 +1,152 @@
-# Building from source
+# Building and testing Hermes
 
-For Bazzite and other immutable desktops, see [Build and export with Distrobox](immutable-distros.md).
+[README](../README.md) · [Install](install.md) · [Distrobox](immutable-distros.md) · [Architecture](architecture.md)
 
-[README](../README.md) · [Install](install.md) · [Keys](keys.md) · [Settings](settings.md) · [Integration](integration.md) · [Building](building.md) · [Architecture](architecture.md)
+Hermes is a C11/SDL3 Linux application with a unity build. `build.sh` compiles
+only `src/main.c`; other C files are included into that translation unit.
+There is no CMake dependency for ordinary application builds.
+
+## Dependencies
+
+A C compiler, pkg-config, and these pkg-config modules are required:
+
+```text
+sdl3 >= 3.2
+freetype2 harfbuzz fontconfig libarchive
+vterm >= 0.3
+fuse3
+openssl >= 3
+```
+
+Native distro packages must provide these versions. Debian/Ubuntu share one
+recipe; Fedora and Arch use their own packaging conventions. See
+[installation](install.md) for dependency commands and the target matrix.
+Do not infer support for older Ubuntu/Debian releases that lack SDL3.
+
+## Build modes
 
 ```sh
-git clone https://github.com/AlexMedela/file-explorer && cd file-explorer
-./build.sh package && sudo PREFIX=/usr/local ./install.sh
+./build.sh             # build/release/hermes, optimized for this CPU
+./build.sh debug       # build/debug/hermes, ASan + UBSan
+./build.sh package     # build/package/hermes, portable CPU flags
+./build.sh demo        # build/demo/hermes-demo
+./build/release/hermes [PATH|FILE|URI]... [--tab PATH] [--split PATH] [-n|--new-window]
 ```
-On Arch, `cd packaging/arch && makepkg -si` builds a package from the checkout instead.
 
-## Build & run
+Modes no longer overwrite one executable. `HERMES_OUT` chooses an explicit
+output; `FE_OUT` remains a legacy alias. `HERMES_ADDON_SRC`/`FE_ADDON_SRC` select
+optional add-on sources. `CC`, `CFLAGS_PKG`, and `LDFLAGS_PKG` remain supported.
+Use package mode for distribution packages; `-march=native` is release-only.
+
+`hermes --version` prints the application and SDL versions. Files open their
+parent folder with the file selected; folders open as tabs. Single-instance
+behavior and saved sessions remain configurable.
+
+## Install and package
+
 ```sh
-./build.sh            # release build -> build/file-explorer
-./build.sh debug      # ASan/UBSan build
-./build/file-explorer [PATH|FILE|URI]... [--tab PATH] [--split PATH] [-n|--new-window]
+./build.sh package
+DESTDIR="$PWD/build/stage" PREFIX=/usr ./install.sh
+# Inspect build/stage; this does not alter desktop defaults or host services.
+sh tools/build-package.sh rpm   # inside a prepared Fedora builder
+sh tools/build-package.sh deb   # inside a prepared Debian/Ubuntu builder
 ```
-Folders open as tabs; a file opens its folder with the file selected. If the app is already running, the
-paths open as tabs in that window (Options → Behaviour → "Open in the running window"), unless `--new-window`.
-Launching it again without paths (from the app menu or a dock) opens a new window, or brings back the one hidden in
-the tray.
-Build dependencies (pkg-config names): `sdl3` (3.2 or newer) `freetype2 harfbuzz fontconfig libarchive vterm` (libvterm 0.3+)
-`fuse3 openssl` (OpenSSL 3), plus gcc or clang. SDL 3.2 is the floor: Arch, Fedora 41+, Debian 13, Ubuntu 25.04+,
-openSUSE Tumbleweed; not Ubuntu 24.04 / Debian 12.
 
-At runtime:
-- `libdecor` (+ GTK 3 for its nicer look): only for `title_bar=system` on GNOME Wayland, which draws no title bars
-  itself (by default the app draws its own).
-- A polkit authentication agent for "Retry as administrator" (desktops ship one; on tiling compositors start e.g.
-  `hyprpolkitagent` or `polkit-gnome`).
-- Optional: `xdg-utils` (files open with the default app from the desktop entries; xdg-open is the fallback), freedesktop
-  thumbnailers (ffmpegthumbnailer, evince, glycin, ...) for video/PDF/HEIF/SVG previews, `udisks2` to mount drives,
-  `gvfs` for network locations, `rclone` for cloud storage. Phones and cameras on a cable use the built-in connector
-  (`gvfs-mtp` / `gvfs-gphoto2` are fallbacks).
+The installer defaults to `build/package/hermes`; select another mode with
+`HERMES_BUILD_MODE` or a specific binary with `HERMES_BINARY`.
+Generated packages/source archives belong in `dist/`, not source directories.
+Package helpers retain their isolated source/build workspaces in
+`build/packaging/` for diagnosis. Arch uses `makepkg` in `packaging/arch/`.
+Git-based Arch builds reflect committed source; the deb/rpm helpers include the
+current working source. See [maintenance](../MAINTENANCE.md).
 
-`file-explorer --version` prints the version and the SDL it runs on (include it in bug reports).
+## Runtime helpers
 
-For release preparation and package version maintenance, see [MAINTENANCE.md](../MAINTENANCE.md).
+Optional integrations use the existing desktop tools: `xdg-utils`, thumbnailers,
+`udisks2`, GVfs, rclone, a polkit authentication agent, and libdecor for
+system-managed Wayland title bars. Hermes does not install or enable these on
+startup. Phone/camera access uses the built-in connector where supported.
 
+## Headless self-tests
 
-`FE_DEBUG_DND=1` logs what dragging files out to other apps does (X11 / Wayland protocol steps) on stderr, for drags
-that misbehave on some desktop.
-With Vulkan, `FE_VK_TARGET=0` draws directly to the swapchain for comparison. The default draws to an offscreen
-target and copies the completed frame to the window. This setting has no effect with OpenGL or software rendering.
-## Tools and self-tests
-- `./build/file-explorer --bench DIR [QUERY]` – headless listing benchmark; with QUERY also a recursive search (time, CPU, peak memory)
-Self-tests and screenshots run headless (SDL's offscreen video driver + software renderer): no window appears,
-nothing touches your settings or recent list, and a running instance is left alone. Set `SDL_VIDEODRIVER=wayland`
-(or `x11`) to watch them in a real window.
+Rebuild debug after source changes. Tests use private config/cache/state
+fixtures, the SDL offscreen driver, and software rendering. Do not run suites
+concurrently: several use fixed fixture paths. Run as a non-root user;
+cross-device tests need sufficient `/dev/shm` space (CI uses 2 GB).
 
-- `tools/demo.sh [OUT_DIR]` – records the intro video (default `build/demo/file-explorer-demo.mp4`, about 2 minutes in real time): builds `build/file-explorer-demo` (`./build.sh demo`; `--demo` isn't in normal builds), makes a made-up home with `tools/demo-home.sh` and plays the scenes in `src/demo.c` headless, in a private namespace where that home is `/home/alex`. Needs ffmpeg, ImageMagick, zip and `unshare`
-- `./build/file-explorer --screenshot out.bmp DIR [--tab DIR]... [--split DIR]` – render one frame to an image
-- `./build/file-explorer --selftest DIR` – drive tabs/split/selection/navigation through the real input
-  handlers (use with `./build.sh debug`; DIR should have >1000 entries with folders first, e.g. from mkfiles.sh)
-- `./build/file-explorer --selftest-ops` – file operations end-to-end in `/tmp/fe-ops-test` with a private
-  trash: conflicts (each answer, together and one by one), the transfer queue (turns, order, pause), verify after
-  copy (`FE_SHOTS=dir` also saves screenshots of menus/dialogs/progress/the queue)
-- `./build/file-explorer --selftest-m4` – palette, recursive search, live refresh, folder sizes
-- `./build/file-explorer --selftest-m6` – panels, tab drag & drop, layout save/restore
-- `./build/file-explorer --selftest-m7` – icons, columns, views & thumbnails, grouping, folder views
-- `./build/file-explorer --selftest-m8` – Open with, Properties, batch rename, type filter, trash, archives
-- `./build/file-explorer --selftest-m9` – themes, Options, shortcuts, mouse options, layouts, Quick Access, tree view
-- `FE_RECORD=/tmp/fe-rec ./build/file-explorer` – diagnostics: saves the frames shown right after each click (half
-  size BMPs) plus a state log, to track down visual glitches
-- `./build/file-explorer --selftest-grep` – search inside files: matcher, results + lines, options, folding, open at line, preview, result limit, ripgrep output (stand-in rg)
-- `./build/file-explorer --selftest-du` – disk usage: sizes, mount rules, treemap + sunburst layout, picking, keys, trash / copy, rescans, menus
-- `./build/file-explorer --selftest-cmp` – folder compare: what differs, marks per side, following folders, differences only, sync / mirror / both ways, starting from one panel or a tab
-- `./build/file-explorer --selftest-devices` – phones and cameras without a device: plists (XML, binary), USB descriptors and a made-up bus, a made-up iPhone (usbmux, TCP, lockdown, pairing with certificate checks, AFC, installation_proxy, house_arrest) and a made-up MTP phone, each served through FUSE and used with plain file calls (headless)
-- `./build/file-explorer --selftest-admin` – retry as administrator (copy, rename, new folder, trash -> delete) with a stand-in pkexec, previous versions from made-up Snapper / Timeshift / ZFS layouts: open, restore, compare, root-only snapshots; the Snapshots view with a stand-in snapper: list, what changed, browse + restore + compare, create / delete, "Allow me to browse snapshots"
-- `./build/file-explorer --selftest-git` – Git status: parser, badges in every view, path bar chip + details, refresh rules, the features toggle, branch pills on repository folders, SFTP repositories over ssh (stand-in git and ssh)
-- `./build/file-explorer --selftest-m11` – terminal tabs: config readers, output/colours, input, selection, scrollback
-- `./build/file-explorer --selftest-m10` – single instance (real second launch), tabs popup, drives/network/phones with fake
-  tools, unreadable folders, odd names, deep/long paths, fractional scaling
-- `./build/file-explorer --selftest-m8` – open with, properties, batch rename, type filter, trash, archives
-- `./build/file-explorer --selftest-m5` – preview panel, thumbnailers, zoom, pins, settings + session restore
+```sh
+./build.sh debug
+sh tools/mkfiles.sh /tmp/hermes-selftest-files 5000
+./build/debug/hermes --selftest /tmp/hermes-selftest-files
+for suite in ops admin git grep du cmp m4 m5 m6 m7 m8 m9 m10 m11; do
+  ./build/debug/hermes --selftest-"$suite" || break
+done
+```
 
-Self-tests use private config/cache/state dirs under `/tmp`, never your real ones, and never launch
-external programs (xdg-open, terminals, new windows).
+| Suite | Coverage |
+| --- | --- |
+| plain | Tabs, splits, selection, navigation |
+| ops / admin | File operations, cancellation, privilege retry, snapshots |
+| git / grep | Git metadata and content search |
+| du / cmp | Disk usage and folder comparison/sync |
+| m4 / m5 | Search/refresh and previews/session restore |
+| m6 / m7 | Panels/tab dragging and icons/views/grouping |
+| m8 / m9 | Open with/properties/archives and settings/themes/shortcuts |
+| m10 | IPC, devices/network, Cloud, settings, scaling, unusual paths |
+| m11 | Terminal tabs, shell integration, input and scrollback |
+| devices | USB/phone/camera FUSE integration; needs FUSE and is not in ordinary CI |
 
-Third-party: `third_party/stb_image.h` (public domain / MIT), `third_party/nanosvg*.h` (zlib),
-file and folder icon themes (all MIT): [Material Icon Theme](https://github.com/material-extensions/vscode-material-icon-theme),
-[Catppuccin](https://github.com/catppuccin/vscode-icons) (mocha) and [Symbols](https://github.com/miguelsolorio/vscode-symbols);
-"Monokai" is the Symbols shapes recoloured with the Monokai palette. `tools/fetch_icons.py` downloads the sets,
-`tools/gen_icons.py` regenerates `src/icons_data.h`. Pick one with the palette ("Icon theme: …") or `icon_theme=` in settings.
-Network location icons: brand logos from [Simple Icons](https://simpleicons.org) (CC0) and Material Icon Theme (MIT),
-in `third_party/net-icons/`; `tools/gen_net_icons.py` regenerates `src/net_icons.h`. Logos are trademarks of their owners.
-- `tools/mkfiles.sh DIR N` – generate a test directory with N files
+Some container security profiles block LeakSanitizer's ptrace checks.
+`ASAN_OPTIONS=detect_leaks=0` disables only leak detection for those runs;
+ASan/UBSan remain enabled. Report that limitation; do not disable it in normal CI.
 
 ## Standalone regression checks
 
-Each of these test sources starts with its compiler command and runs without SDL
-or a display server:
+These need no SDL display. Each C source starts with its exact compiler command:
 
-- `tools/appearance-selftest.c`: surface independence, tabs and theme preferences.
-- `tools/system-icons-selftest.c`: installed icon discovery and SVG/PNG rendering.
-- `tools/app-desktop-icon-selftest.c`: original launcher artwork and Distrobox IDs.
-- `tools/local-shares-selftest.c`: share protocols, host includes and usershares.
-- `tools/apps-discovery-selftest.c`: host-only handlers and SVG MIME associations.
-- `tools/svg-preview-selftest.c`: SVG size, transparency, colors and invalid input.
-- `tools/icon-contrast-selftest.c`: light-surface icon contrast and dark-surface preservation.
-- `tools/text-pointer-selftest.c`: caret hit testing, selection, scrolling and modal isolation.
-- `tools/text-caret-selftest.c`: movement, pulse timing and visibility after input.
+- `tools/appearance-selftest.c`
+- `tools/system-icons-selftest.c`
+- `tools/app-desktop-icon-selftest.c`
+- `tools/local-shares-selftest.c`
+- `tools/apps-discovery-selftest.c`
+- `tools/svg-preview-selftest.c`
+- `tools/icon-contrast-selftest.c`
+- `tools/text-pointer-selftest.c`
+- `tools/text-caret-selftest.c`
 
-All nine passed on 2026-11-14 with `-Wall -Wextra -Werror` (and the suppressions
-shown in their source comments). The full application build and native UI suites
-still need the development dependencies above; the editing environment lacks
-SDL3 and the other required pkg-config packages.
+Build/install and branding tests use Python's standard library:
+
+```sh
+python3 tools/build-install-selftest.py
+python3 tools/branding-selftest.py
+python3 tools/gen_logo.py --check
+sh tools/check-release-version.sh
+```
+
+## Diagnostics and demo
+
+- `./build/release/hermes --bench DIR [QUERY]`: listing/search benchmark.
+- `./build/release/hermes --screenshot out.bmp DIR`: render one frame.
+- `HERMES_RECORD=/tmp/hermes-record ./build/release/hermes`: record UI frames.
+- `HERMES_DEBUG_DND=1`: drag-and-drop diagnostics.
+- `HERMES_VK_TARGET=0`: compare direct Vulkan swapchain rendering with the default
+  offscreen composition.
+- `sh tools/demo.sh [OUT_DIR]`: record the scripted demo with a made-up home;
+  needs ffmpeg, ImageMagick, zip, and user/mount namespaces. No real home is shown.
+
+Legacy `FE_*` runtime overrides remain accepted during migration; prefer
+`HERMES_*` for new commands.
+
+## Third-party credits
+
+Preserve the original File Explorer MIT copyright in `LICENSE`.
+Bundled `stb_image` is public domain/MIT; NanoSVG is zlib licensed.
+Material Icon Theme, Catppuccin icons, and Symbols retain their MIT licences;
+Monokai uses recolored Symbols artwork. `tools/fetch_icons.py` and
+`tools/gen_icons.py` maintain the generated file icon data.
+Network logos come from Simple Icons (CC0) and Material Icon Theme (MIT);
+trademarks belong to their owners. `tools/gen_net_icons.py` maintains that data.
+
+Hermes's own pixel-art helmet has one editable source:
+`assets/branding/helmet.pixels`. `tools/gen_logo.py` deterministically generates
+the shared SVG, PNG sizes, and `src/logo_data.h` without external image tools.

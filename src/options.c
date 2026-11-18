@@ -550,7 +550,7 @@ static void opt_app_icon_apply(void) {
     if (!A.selftest && !A.screenshot) {
         int result = app_icon_apply_now();
         if (result == APP_DESKTOP_ERROR) toast("Window icon updated, but couldn't update the taskbar launcher");
-        else if (result == APP_DESKTOP_MISSING) toast("Window icon updated; export File Explorer to update its taskbar launcher");
+        else if (result == APP_DESKTOP_MISSING) toast("Window icon updated; export Hermes to update its taskbar launcher");
         else toast("Application icon updated");
     }
 }

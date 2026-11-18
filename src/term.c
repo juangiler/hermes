@@ -595,13 +595,13 @@ static void term_winsize(Term *t) {
 enum { SHINT_NONE, SHINT_BASH, SHINT_ZSH, SHINT_FISH };
 
 static const char g_shint_bash[] =
-    "# File Explorer terminal panel: follows the folder without typing cd. Runs ~/.bashrc first.\n"
+    "# Hermes terminal panel: follows the folder without typing cd. Runs ~/.bashrc first.\n"
     "[ -f ~/.bashrc ] && . ~/.bashrc\n"
     "__fe_cd1() {\n"
     "    __fe_line=$READLINE_LINE __fe_point=$READLINE_POINT\n"
     "    READLINE_LINE= READLINE_POINT=0\n"
     "    local p=${PS1@P}; p=${p//[^$'\\n']/}; __fe_k=$(( ${#p} + 1 ))\n"
-    "    builtin cd -- \"$(< \"$FE_CD_FILE\")\" 2>/dev/null\n"
+    "    builtin cd -- \"$(< \"$HERMES_CD_FILE\")\" 2>/dev/null\n"
     "}\n"
     "__fe_cd2() {\n"
     "    local p=${PS1@P}; p=${p//[^$'\\n']/}\n"
@@ -614,42 +614,42 @@ static const char g_shint_bash[] =
     "    bind -m $__fe_m '\"\\e[9871~\": \"\\e[9872~\\C-m\\e[9873~\"'\n"
     "done\n"
     "unset __fe_m\n"
-    ": > \"$FE_CD_FILE.ready\"\n";
+    ": > \"$HERMES_CD_FILE.ready\"\n";
 
 static const char g_shint_zshenv[] =
-    "# File Explorer terminal panel: the user's own zsh files run as usual (ours: .zshrc here, after theirs)\n"
+    "# Hermes terminal panel: the user's own zsh files run as usual (ours: .zshrc here, after theirs)\n"
     "__fe_zdot=$ZDOTDIR\n"
-    "ZDOTDIR=${FE_USER_ZDOTDIR:-$HOME}\n"
+    "ZDOTDIR=${HERMES_USER_ZDOTDIR:-$HOME}\n"
     "[[ -r $ZDOTDIR/.zshenv ]] && . $ZDOTDIR/.zshenv\n"
-    "FE_USER_ZDOTDIR=$ZDOTDIR\n"
+    "HERMES_USER_ZDOTDIR=$ZDOTDIR\n"
     "ZDOTDIR=$__fe_zdot\n"
     "unset __fe_zdot\n";
 
 static const char g_shint_zshrc[] =
-    "ZDOTDIR=$FE_USER_ZDOTDIR\n"
-    "unset FE_USER_ZDOTDIR\n"
+    "ZDOTDIR=$HERMES_USER_ZDOTDIR\n"
+    "unset HERMES_USER_ZDOTDIR\n"
     "[[ -r $ZDOTDIR/.zshrc ]] && . $ZDOTDIR/.zshrc\n"
     "TRAPUSR1() {\n"
-    "    builtin cd -- \"$(<$FE_CD_FILE)\" 2>/dev/null || return 0\n"
+    "    builtin cd -- \"$(<$HERMES_CD_FILE)\" 2>/dev/null || return 0\n"
     "    local f; for f in precmd $precmd_functions; do (( $+functions[$f] )) && $f; done\n"
     "    zle && zle reset-prompt\n"
     "    return 0\n"
     "}\n"
-    ": > \"$FE_CD_FILE.ready\"\n";
+    ": > \"$HERMES_CD_FILE.ready\"\n";
 
 static const char g_shint_fish[] =
-    "# File Explorer terminal panel: follows the folder without typing cd\n"
+    "# Hermes terminal panel: follows the folder without typing cd\n"
     "function __fe_cd --on-signal SIGUSR1\n"
-    "    builtin cd -- (string collect < $FE_CD_FILE) 2>/dev/null; and commandline -f repaint\n"
+    "    builtin cd -- (string collect < $HERMES_CD_FILE) 2>/dev/null; and commandline -f repaint\n"
     "end\n"
-    "true > \"$FE_CD_FILE.ready\"\n";
+    "true > \"$HERMES_CD_FILE.ready\"\n";
 
 // Where the scripts and the per-terminal files live (written once per run; private to the user).
 static bool shint_dir(char *out, size_t cap) {
     static int done = -1;
     const char *rt = getenv("XDG_RUNTIME_DIR");
-    if (rt && rt[0]) snprintf(out, cap, "%s/file-explorer/shell", rt);
-    else snprintf(out, cap, "/tmp/file-explorer-%d/shell", (int)getuid());
+    if (rt && rt[0] == '/') snprintf(out, cap, "%s/hermes/shell", rt);
+    else snprintf(out, cap, "/tmp/hermes-%d/shell", (int)getuid());
     if (done >= 0) return done;
     char p[PATH_MAX];
     mkdir_p(out, 0700);
@@ -717,7 +717,7 @@ static Term *term_new(const char *dir, char *const argv[], int rows, int cols, b
         const char *b = path_basename(shell);
         shint = !strcmp(b, "bash") ? SHINT_BASH : !strcmp(b, "zsh") ? SHINT_ZSH : !strcmp(b, "fish") ? SHINT_FISH : SHINT_NONE;
         snprintf(cdf, sizeof cdf, "%s/cd-%d-%u", sdir, (int)getpid(), ++shint_n);
-        snprintf(e_cdf, sizeof e_cdf, "FE_CD_FILE=%s", cdf);
+        snprintf(e_cdf, sizeof e_cdf, "HERMES_CD_FILE=%s", cdf);
         if (shint == SHINT_BASH) {
             snprintf(a1, sizeof a1, "%s/fe.bash", sdir);
             sh_argv[1] = "--rcfile";
@@ -731,7 +731,7 @@ static Term *term_new(const char *dir, char *const argv[], int rows, int cols, b
         } else if (shint == SHINT_ZSH) {
             const char *uz = getenv("ZDOTDIR");
             snprintf(e_zdot, sizeof e_zdot, "ZDOTDIR=%s/zsh", sdir);
-            snprintf(e_uzdot, sizeof e_uzdot, "FE_USER_ZDOTDIR=%s", uz ? uz : "");
+            snprintf(e_uzdot, sizeof e_uzdot, "HERMES_USER_ZDOTDIR=%s", uz ? uz : "");
         }
     }
     int nenv = 0;
@@ -744,7 +744,7 @@ static Term *term_new(const char *dir, char *const argv[], int rows, int cols, b
             envp[ne++] = environ[i];
     if (shint) envp[ne++] = e_cdf;
     if (shint == SHINT_ZSH) { envp[ne++] = e_zdot; envp[ne++] = e_uzdot; }
-    char e_term[64], e_ct[] = "COLORTERM=truecolor", e_tp[] = "TERM_PROGRAM=file-explorer";
+    char e_term[64], e_ct[] = "COLORTERM=truecolor", e_tp[] = "TERM_PROGRAM=hermes";
     snprintf(e_term, sizeof e_term, "TERM=%s", g_tc.term[0] ? g_tc.term : "xterm-256color");
     envp[ne++] = e_term;
     envp[ne++] = e_ct;
