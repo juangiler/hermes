@@ -1,6 +1,7 @@
 /* cc -std=gnu11 -Wall -Wextra -Wno-unused-function -Wno-unused-parameter -Wno-format-truncation
    tools/core-selftest.c -o /tmp/hermes-core-test -lm -ldl -pthread $(pkg-config --cflags --libs libarchive fuse3 openssl) */
 #include "../src/base.h"
+#include "../src/core_host.h"
 #include <assert.h>
 #include <ctype.h>
 #include <dlfcn.h>
@@ -200,6 +201,16 @@ static void test_xxh64(void) {
     assert(xxh64_final(&h) == 0x44BC2CF5AD770999ull);
 }
 
+static void test_core_host_defaults(void) {
+    assert(!g_core_host->is_selftest());
+    assert(!g_core_host->is_screenshot());
+    assert(!g_core_host->window_hidden());
+    assert(g_core_host->current_tab() == 0);
+    g_core_host->mark_settings_dirty();
+    g_core_host->request_redraw();
+    g_core_host->open_tab("/tmp", 0, true);
+}
+
 static void cleanup_dir(const char *dir, const char *longname) {
     char p[PATH_MAX];
     const char *names[] = {"a.txt", "b b.txt", "caf\xc3\xa9.txt", "copy-me.bin", "secret/x", "loop"};
@@ -222,6 +233,7 @@ int main(void) {
 
     test_fuzzy_and_natcmp();
     test_xxh64();
+    test_core_host_defaults();
 
     char dir[] = "/tmp/hermes-core-XXXXXX";
     assert(mkdtemp(dir));

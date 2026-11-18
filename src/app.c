@@ -17,6 +17,8 @@ static void sdl_wake(void *user) {
   SDL_PushEvent(&ev);
 }
 
+#include "core_host.h"
+
 typedef struct {
   f32 x, y, w, h;
 } Rect;
@@ -4031,6 +4033,20 @@ static void net_connect_saved(int i) {
 
 #include "addons.c"
 #include "units.c"
+
+static bool host_is_selftest(void) { return A.selftest; }
+static bool host_is_screenshot(void) { return A.screenshot != NULL; }
+static bool host_window_hidden(void) { return A.win_hidden; }
+static void host_mark_settings_dirty(void) { A.settings_dirty = true; }
+static void host_request_redraw(void) { A.redraw = true; }
+static void host_open_tab(const char *path, int index, bool focus) { tab_new(path, index, focus); }
+static int host_current_tab(void) { return A.cur; }
+static const HermesCoreHost sdl_host = {
+    host_is_selftest, host_is_screenshot, host_window_hidden,
+    host_mark_settings_dirty, host_request_redraw,
+    host_open_tab, host_current_tab,
+};
+
 #include "rclone.c"
 
 // GVfs asked something (unknown host key...): the user decides; never answered
@@ -15788,6 +15804,7 @@ static int run_bench(const char *path, const char *query) {
   mallopt(M_ARENA_MAX, 2); // as in main()
 #endif
   SDL_Init(SDL_INIT_EVENTS);
+  g_core_host = &sdl_host;
   g_wake_event = SDL_RegisterEvents(1);
   pool_set_wake(sdl_wake, NULL);
   pool_init();
@@ -16284,6 +16301,7 @@ int main(int argc, char **argv) {
     fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
     return 1;
   }
+  g_core_host = &sdl_host;
   g_wake_event = SDL_RegisterEvents(1);
   pool_set_wake(sdl_wake, NULL);
   pool_init();

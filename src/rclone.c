@@ -239,7 +239,7 @@ static void cloud_op_done(void *arg) {
     if (c && o->op == COP_MOUNT && o->rc == 0) c->unit = true;
     free(o);
     cloud_poll_now();
-    A.redraw = true;
+    g_core_host->request_redraw();
 }
 
 static CloudOp *cloud_op_new(int op, const Cloud *c) {
@@ -270,7 +270,7 @@ static void cloud_connect(int i, int how) {
     if (i < 0 || i >= g_ncloud) return;
     Cloud *c = &g_cloud[i];
     if (c->mount[0]) {
-        if (how == 2) tab_new(c->mount, A.cur + 1, true);
+        if (how == 2) g_core_host->open_tab(c->mount, g_core_host->current_tab() + 1, true);
         else if (how == 1) open_folder(c->mount);
         return;
     }
@@ -283,7 +283,7 @@ static void cloud_connect(int i, int how) {
     c->notify_until = c->asked + 60000000000ull; // report a failure of this connect
     c->notified = false;
     cloud_submit(cloud_op_new(COP_MOUNT, c));
-    A.redraw = true;
+    g_core_host->request_redraw();
 }
 
 static void cloud_disconnect(int i) {
@@ -296,14 +296,14 @@ static void cloud_disconnect(int i) {
     if (c->mount[0] && !c->ours) cloud_submit(cloud_op_new(COP_FUSE_UNMOUNT, c));
     else cloud_submit(cloud_op_new(COP_STOP, c));
     c->state = CS_OFF;
-    A.redraw = true;
+    g_core_host->request_redraw();
 }
 
 static void cloud_set_login(int i, bool on) {
     if (i < 0 || i >= g_ncloud) return;
     Cloud *c = &g_cloud[i];
     c->login = on;
-    A.settings_dirty = true;
+    g_core_host->mark_settings_dirty();
     if (g_units_systemd) cloud_submit(cloud_op_new(COP_LOGIN, c));
 }
 
@@ -311,7 +311,7 @@ static Tab *term_tab_open(const char *dir, char *const argv[]);
 
 // A terminal tab running rclone (config, reconnect a login); self-tests only note the command.
 static void cloud_terminal(char *const argv[]) {
-    if (A.selftest) {
+    if (g_core_host->is_selftest()) {
         size_t o = 0;
         g_cloud_term_cmd[0] = 0;
         for (int k = 0; argv[k] && o + 2 < sizeof g_cloud_term_cmd; k++)
@@ -582,7 +582,7 @@ static void cloud_status_done(void *arg) {
         int o = 0; // forget remotes gone from the config (their settings too)
         for (int i = 0; i < g_ncloud; i++)
             if (g_cloud[i].listed) g_cloud[o++] = g_cloud[i];
-            else if (g_cloud[i].login) A.settings_dirty = true;
+            else if (g_cloud[i].login) g_core_host->mark_settings_dirty();
         g_ncloud = o;
         rows = true;
     }
@@ -623,11 +623,11 @@ static void cloud_status_done(void *arg) {
         if (c->state != CS_UP || !c->mount[0] || !c->open_after) continue;
         int how = c->open_after;
         c->open_after = 0;
-        if (how == 2) tab_new(c->mount, A.cur + 1, true);
+        if (how == 2) g_core_host->open_tab(c->mount, g_core_host->current_tab() + 1, true);
         else open_folder(c->mount);
     }
     free(s);
-    A.redraw = true;
+    g_core_host->request_redraw();
 }
 
 static bool cloud_pending(void) {
@@ -639,10 +639,10 @@ static bool cloud_pending(void) {
 static void cloud_tick(void) {
     // (the picker too: a file can be opened from / saved to a cloud folder; the mount outlives the picker, so the app
     // that asked can still read or write the path it got)
-    if (A.screenshot || atomic_load(&g_cloud_job) > 0) return;
-    if (A.selftest && !identity_env("HERMES_RCLONE")) return; // tests only ever run a stand-in rclone
+    if (g_core_host->is_screenshot() || atomic_load(&g_cloud_job) > 0) return;
+    if (g_core_host->is_selftest() && !identity_env("HERMES_RCLONE")) return; // tests only ever run a stand-in rclone
     u64 now = now_ns();
-    u64 every = g_rclone == 0 ? 30000000000ull : now < g_cloud_fast_until || cloud_pending() ? 700000000ull : A.win_hidden ? 10000000000ull : 2500000000ull;
+    u64 every = g_rclone == 0 ? 30000000000ull : now < g_cloud_fast_until || cloud_pending() ? 700000000ull : g_core_host->window_hidden() ? 10000000000ull : 2500000000ull;
     if (g_cloud_polled && now - g_cloud_polled < every) return;
     g_cloud_polled = now;
     CloudStatus *s = xcalloc(1, sizeof *s);
