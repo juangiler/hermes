@@ -43,12 +43,44 @@ QString DirectoryModel::path() const
 
 bool DirectoryModel::navigate(const QString &path)
 {
+  // Claim the target before scanning so a queued refresh from an older scan
+  // cannot overwrite the newer directory.
+  const QString previous = m_path;
+  const quint64 generation = ++m_generation;
+  m_path = path;
+  if (applyScan(path, generation))
+    return true;
+
+  if (m_generation == generation && m_path == path) {
+    m_path = previous;
+    emit navigateFailed(path);
+  }
+  return false;
+}
+
+void DirectoryModel::refresh()
+{
+  if (m_path.isEmpty())
+    return;
+  const QString path = m_path;
+  const quint64 generation = m_generation;
+  if (!applyScan(path, generation))
+    emit navigateFailed(path);
+}
+
+bool DirectoryModel::applyScan(const QString &path, quint64 generation)
+{
   const QByteArray utf8 = path.toUtf8();
   HermesListing listing{};
   if (hermes_core_scan_sorted(m_core, utf8.constData(), m_key, m_desc, &listing) != 0) {
     hermes_listing_free(&listing);
-    emit navigateFailed(path);
     return false;
+  }
+
+  if (generation != m_generation || path != m_path) {
+    // The scan completed after a newer navigation; drop its stale rows.
+    hermes_listing_free(&listing);
+    return true;
   }
 
   QVector<Entry> entries;
@@ -67,12 +99,6 @@ bool DirectoryModel::navigate(const QString &path)
   endResetModel();
   emit pathChanged(m_path);
   return true;
-}
-
-void DirectoryModel::refresh()
-{
-  if (!m_path.isEmpty())
-    navigate(m_path);
 }
 
 void DirectoryModel::setSort(HermesSortKey key, bool desc)

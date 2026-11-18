@@ -53,7 +53,11 @@ if(HERMES_BUILD_QT_UI)
   find_package(KF6Kirigami REQUIRED)
   include(GNUInstallDirs)
 
-  add_library(hermes-kirigami-ui STATIC qtui/hermes-qt.qrc qtui/directory_model.cpp)
+  add_library(hermes-kirigami-ui STATIC
+      qtui/hermes-qt.qrc
+      qtui/directory_model.cpp
+      qtui/places_model.cpp
+      qtui/shell_controller.cpp)
   set_target_properties(hermes-kirigami-ui PROPERTIES AUTOMOC ON)
   target_compile_features(hermes-kirigami-ui PUBLIC cxx_std_17)
   target_compile_options(hermes-kirigami-ui PRIVATE -Wall -Wextra -Werror)

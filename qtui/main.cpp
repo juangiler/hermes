@@ -1,16 +1,13 @@
-#include "directory_model.h"
+#include "shell_controller.h"
 
 #include <QCoreApplication>
 #include <QDebug>
 #include <QGuiApplication>
-#include <QObject>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
-#include <QString>
+#include <QStringList>
 #include <QTextStream>
 #include <QUrl>
-#include <QVariantMap>
-#include <memory>
 
 int main(int argc, char *argv[])
 {
@@ -25,17 +22,27 @@ int main(int argc, char *argv[])
     return 0;
   }
 
-  std::unique_ptr<HermesCore, decltype(&hermes_core_destroy)> core(
-      hermes_core_create([](void *) {}, nullptr), &hermes_core_destroy);
-  DirectoryModel directory(core.get());
-  QQmlApplicationEngine engine;
-  // Task 4 replaces this placeholder with the full controller.
-  engine.rootContext()->setContextProperty(QStringLiteral("hermes"),
-      QVariantMap{{QStringLiteral("directory"), QVariant::fromValue<QObject *>(&directory)}});
-  engine.load(QUrl(QStringLiteral("qrc:/qtui/qml/main.qml")));
-  if (engine.rootObjects().isEmpty()) {
-    qCritical() << QStringLiteral("failed to load qrc:/qtui/qml/main.qml");
-    return 1;
+  installShellCoreHost();
+  int result = 0;
+  {
+    ShellController controller;
+    QStringList paths;
+    for (const QString &arg : args.mid(1)) {
+      if (!arg.startsWith(QStringLiteral("--")))
+        paths.append(arg);
+    }
+    controller.setPaths(paths);
+
+    QQmlApplicationEngine engine;
+    engine.rootContext()->setContextProperty(QStringLiteral("hermes"), &controller);
+    engine.load(QUrl(QStringLiteral("qrc:/qtui/qml/main.qml")));
+    if (engine.rootObjects().isEmpty()) {
+      qCritical() << QStringLiteral("failed to load qrc:/qtui/qml/main.qml");
+      result = 1;
+    } else {
+      result = app.exec();
+    }
   }
-  return app.exec();
+  hermes_core_set_host(nullptr);
+  return result;
 }

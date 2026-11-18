@@ -40,10 +40,7 @@ Kirigami.Page {
 
       MouseArea {
         anchors.fill: parent
-        onDoubleClicked: {
-          if (hermes.openEntry)
-            hermes.openEntry(model.path)
-        }
+        onDoubleClicked: hermes.openEntry(model.path)
       }
     }
   }

@@ -33,6 +33,8 @@ signals:
   void navigateFailed(const QString &path);
 
 private:
+  bool applyScan(const QString &path, quint64 generation);
+
   struct Entry {
     QString name;
     QString path;
@@ -46,4 +48,5 @@ private:
   QString m_path;
   HermesSortKey m_key = HERMES_SORT_NAME;
   bool m_desc = false;
+  quint64 m_generation = 0;
 };

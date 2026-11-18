@@ -1,15 +1,19 @@
 #include "directory_model.h"
+#include "places_model.h"
+#include "shell_controller.h"
 
 #include "core_api.h"
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QSignalSpy>
+#include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QTimeZone>
-#include <QVariantMap>
+#include <QUrl>
 #include <QtTest>
 #include <memory>
 
@@ -26,6 +30,11 @@ private slots:
   void directoryModelReportsRoles();
   void directoryModelPreservesUtf8Names();
   void directoryModelFailedNavigateKeepsPath();
+  void hostOpenUrisCreatesTabs();
+  void navigationHistoryBackForward();
+  void upAndFailedPathKeepState();
+  void placesIncludeHomeAndRoot();
+  void navigationIgnoresStaleDirectoryResults();
 
 private:
   using CorePtr = std::unique_ptr<HermesCore, decltype(&hermes_core_destroy)>;
@@ -57,11 +66,9 @@ void HermesQtUiTest::initTestCase()
 
 void HermesQtUiTest::qmlMainLoadsOffscreen()
 {
-  CorePtr core = makeCore();
-  DirectoryModel directory(core.get());
+  ShellController controller;
   QQmlApplicationEngine engine;
-  engine.rootContext()->setContextProperty(QStringLiteral("hermes"),
-      QVariantMap{{QStringLiteral("directory"), QVariant::fromValue<QObject *>(&directory)}});
+  engine.rootContext()->setContextProperty(QStringLiteral("hermes"), &controller);
   engine.load(QUrl(QStringLiteral("qrc:/qtui/qml/main.qml")));
   QVERIFY(!engine.rootObjects().isEmpty());
 }
@@ -153,6 +160,114 @@ void HermesQtUiTest::directoryModelFailedNavigateKeepsPath()
   QCOMPARE(model.path(), dir.path());
   QCOMPARE(model.rowCount(), rows);
   QCOMPARE(model.data(model.index(0), DirectoryModel::NameRole).toString(), name);
+}
+
+void HermesQtUiTest::hostOpenUrisCreatesTabs()
+{
+  QTemporaryDir first;
+  QTemporaryDir second;
+  QVERIFY(first.isValid());
+  QVERIFY(second.isValid());
+
+  ShellController controller;
+  const QByteArray firstUri = QUrl::fromLocalFile(first.path()).toEncoded();
+  const QByteArray secondUri = QUrl::fromLocalFile(second.path()).toEncoded();
+  const char *uris[] = {firstUri.constData(), secondUri.constData()};
+  QCOMPARE(hermes_core_open_uris(controller.core(), uris, 2, true), 2);
+  QTRY_COMPARE(controller.tabs().size(), 2);
+  QVERIFY(controller.tabs().contains(first.path()));
+  QVERIFY(controller.tabs().contains(second.path()));
+}
+
+void HermesQtUiTest::navigationHistoryBackForward()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString child = dir.filePath(QStringLiteral("child"));
+  QVERIFY(QDir().mkpath(child));
+  QVERIFY(writeFile(dir.filePath(QStringLiteral("marker")), "x"));
+
+  ShellController controller;
+  controller.navigate(dir.path());
+  QCOMPARE(controller.directory()->path(), dir.path());
+  QVERIFY(!controller.canGoBack());
+  QVERIFY(!controller.canGoForward());
+
+  controller.navigate(child);
+  QCOMPARE(controller.directory()->path(), child);
+  QVERIFY(controller.canGoBack());
+  QVERIFY(!controller.canGoForward());
+
+  controller.back();
+  QCOMPARE(controller.directory()->path(), dir.path());
+  QVERIFY(!controller.canGoBack());
+  QVERIFY(controller.canGoForward());
+
+  controller.forward();
+  QCOMPARE(controller.directory()->path(), child);
+  QVERIFY(controller.canGoBack());
+  QVERIFY(!controller.canGoForward());
+}
+
+void HermesQtUiTest::upAndFailedPathKeepState()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString child = dir.filePath(QStringLiteral("child"));
+  QVERIFY(QDir().mkpath(child));
+
+  ShellController controller;
+  controller.navigate(child);
+  QCOMPARE(controller.directory()->path(), child);
+
+  controller.up();
+  QCOMPARE(controller.directory()->path(), dir.path());
+
+  controller.navigate(dir.filePath(QStringLiteral("missing")));
+  QCOMPARE(controller.directory()->path(), dir.path());
+  QVERIFY(!controller.canGoForward());
+}
+
+void HermesQtUiTest::placesIncludeHomeAndRoot()
+{
+  PlacesModel places;
+  QStringList paths;
+  for (int row = 0; row < places.rowCount(); ++row)
+    paths.append(places.data(places.index(row), PlacesModel::PathRole).toString());
+
+  const QString home = QStandardPaths::standardLocations(QStandardPaths::HomeLocation).value(0);
+  QVERIFY(!home.isEmpty());
+  QVERIFY(paths.contains(home));
+  QVERIFY(paths.contains(QStringLiteral("/")));
+  QCOMPARE(places.data(places.index(0), PlacesModel::LabelRole).toString(), QStringLiteral("Home"));
+  QCOMPARE(places.data(places.index(places.rowCount() - 1), PlacesModel::LabelRole).toString(),
+           QStringLiteral("File System"));
+}
+
+void HermesQtUiTest::navigationIgnoresStaleDirectoryResults()
+{
+  QTemporaryDir first;
+  QTemporaryDir second;
+  QVERIFY(first.isValid());
+  QVERIFY(second.isValid());
+  QVERIFY(writeFile(first.filePath(QStringLiteral("only-in-first.txt")), "x"));
+  QVERIFY(writeFile(second.filePath(QStringLiteral("a.txt")), "a"));
+  QVERIFY(writeFile(second.filePath(QStringLiteral("b.txt")), "b"));
+  QVERIFY(writeFile(second.filePath(QStringLiteral("c.txt")), "c"));
+
+  ShellController controller;
+  controller.navigate(first.path());
+  QCOMPARE(controller.directory()->rowCount(), 1);
+
+  controller.navigate(second.path());
+  hermes_core_drain(controller.core());
+  QTRY_COMPARE(controller.directory()->rowCount(), 3);
+  QCOMPARE(controller.directory()->path(), second.path());
+  for (int row = 0; row < controller.directory()->rowCount(); ++row) {
+    const QString path = controller.directory()->data(
+        controller.directory()->index(row), DirectoryModel::PathRole).toString();
+    QCOMPARE(QFileInfo(path).absolutePath(), second.path());
+  }
 }
 
 QTEST_MAIN(HermesQtUiTest)
