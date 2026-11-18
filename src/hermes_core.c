@@ -33,7 +33,25 @@
 
 // The engine files forward-declare these host callbacks; the headless library
 // supplies inert defaults. A real frontend supplies its own in its own TU.
-static void op_finished(void *arg) { op_free((Op *)arg); }
+// The engine hands an op back on its main thread once done (ops.c publishes
+// OPS_DONE before main_post(op_finished, op)); report through the host hook and
+// free the op. Never call the hook from the worker thread.
+static int op_kind_hermes(int kind) {
+    switch (kind) {
+    case OP_MKDIR: return HERMES_OP_MKDIR;
+    case OP_RENAME: return HERMES_OP_RENAME;
+    case OP_TRASH: return HERMES_OP_TRASH;
+    case OP_DELETE: return HERMES_OP_DELETE;
+    case OP_COPY: return HERMES_OP_COPY;
+    case OP_MOVE: return HERMES_OP_MOVE;
+    }
+    return HERMES_OP_MKDIR; // not reached: the engine enum is closed
+}
+static void op_finished(void *arg) {
+    Op *op = (Op *)arg;
+    g_core_host->operations_changed(op_kind_hermes(op->kind), op->nerr);
+    op_free(op);
+}
 static void search_batch_cb(void *arg) { (void)arg; }
 static void content_batch_cb(void *arg) { (void)arg; }
 static void dirsize_done_cb(void *arg) { (void)arg; }

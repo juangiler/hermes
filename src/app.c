@@ -4041,10 +4041,14 @@ static void host_mark_settings_dirty(void) { A.settings_dirty = true; }
 static void host_request_redraw(void) { A.redraw = true; }
 static void host_open_tab(const char *path, int index, bool focus) { tab_new(path, index, focus); }
 static int host_current_tab(void) { return A.cur; }
+static void host_operations_changed(int kind, int error_count) {
+  (void)kind;
+  A.redraw = true; // the engine reported an operation finished; refresh what it touched
+}
 static const HermesCoreHost sdl_host = {
     host_is_selftest, host_is_screenshot, host_window_hidden,
     host_mark_settings_dirty, host_request_redraw,
-    host_open_tab, host_current_tab,
+    host_open_tab, host_current_tab, host_operations_changed,
 };
 
 #include "rclone.c"
