@@ -37,7 +37,11 @@ static struct { bool selftest; bool screenshot; } A = {.selftest = true};
 #include "../src/cloud_identity.c"
 #include "../src/core_api.c"
 
-static void op_finished(void *arg) { op_free((Op *)arg); }
+static _Atomic int op_finished_count;
+static void op_finished(void *arg) {
+    op_free((Op *)arg);
+    atomic_fetch_add(&op_finished_count, 1);
+}
 static void search_batch_cb(void *arg) { (void)arg; }
 static void content_batch_cb(void *arg) { (void)arg; }
 static void dirsize_done_cb(void *arg) { (void)arg; }
@@ -169,6 +173,7 @@ static void test_copy_cross_device(const char *src_dir, const char *dst_dir) {
     const char payload[] = "cross-device copy payload";
     write_file(src, payload, sizeof payload - 1);
 
+    int finished_before = atomic_load(&op_finished_count);
     char *srcs[] = {src};
     Op *op = op_new(OP_COPY, srcs, 1, dst_dir);
     assert(op);
@@ -179,6 +184,14 @@ static void test_copy_cross_device(const char *src_dir, const char *dst_dir) {
         nanosleep(&pause, NULL);
     }
     assert(atomic_load(&op->phase) == OPS_DONE);
+
+    // ops.c publishes OPS_DONE before main_post(op_finished, op). Keep draining
+    // until the stub runs, so its op_free() ownership is actually exercised.
+    for (int i = 0; i < 10000 && atomic_load(&op_finished_count) == finished_before; i++) {
+        main_drain();
+        nanosleep(&pause, NULL);
+    }
+    assert(atomic_load(&op_finished_count) == finished_before + 1);
 
     int a = open(src, O_RDONLY), b = open(dst, O_RDONLY);
     assert(a >= 0 && b >= 0);
@@ -253,6 +266,36 @@ static void test_public_abi(const char *dir) {
     hermes_core_drain(core);
 }
 
+static _Atomic int multicore_jobs;
+static void multicore_job(void *arg) { (void)arg; atomic_fetch_add(&multicore_jobs, 1); }
+static void multicore_worker(void *arg) { (void)arg; main_post(multicore_job, NULL); }
+
+static void test_two_cores(void) {
+    HermesCore *a = hermes_core_create(abi_wake, NULL);
+    HermesCore *b = hermes_core_create(abi_wake, NULL);
+    assert(a && b && a != b);
+
+    hermes_core_destroy(a);
+    // Destroyed handles are rejected by pointer lookup, never dereferenced.
+    hermes_core_drain(a);
+
+    // Destroying A must not disable drain through B.
+    int before = atomic_load(&multicore_jobs);
+    struct timespec pause = {0, 1000000};
+    pool_submit(multicore_worker, NULL);
+    for (int i = 0; i < 10000 && atomic_load(&multicore_jobs) == before; i++) {
+        hermes_core_drain(b);
+        nanosleep(&pause, NULL);
+    }
+    assert(atomic_load(&multicore_jobs) == before + 1);
+
+    // Creating another core after a destroy must not resurrect the dead handle.
+    hermes_core_drain(a);
+    assert(atomic_load(&multicore_jobs) == before + 1);
+
+    hermes_core_destroy(b);
+}
+
 static void cleanup_dir(const char *dir, const char *longname) {
     char p[PATH_MAX];
     const char *names[] = {"a.txt", "b b.txt", "caf\xc3\xa9.txt", "copy-me.bin", "secret/x", "loop"};
@@ -291,6 +334,7 @@ int main(void) {
     longname[255] = 0;
     test_scan_names(dir);
     test_public_abi(dir);
+    test_two_cores();
     test_scan_empty_and_symlink(plain, empty);
     test_scan_denied(dir);
     test_copy_cross_device(dir, shm);
