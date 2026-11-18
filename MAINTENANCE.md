@@ -43,6 +43,17 @@ git diff --check
 Record exact distro/dependency versions and packages actually built. Never
 claim Debian/Ubuntu/Arch validation based solely on a Fedora build.
 
+## Commit-series history
+
+The five Hermes rebrand commits (`a97f229`..`0e7e892`) were split by concern
+without rewriting the series. Every commit builds, but the first two snapshots
+(`a97f229`, `2af4d2d`) are not fully test-green on their own: a few self-test
+expectations were committed together with the later integration/docs changes
+that implement them. From `d834b03` onward — including current `main` — the
+full headless battery passes. This only matters when checking out those two old
+snapshots (for example during `git bisect`); there is no runtime defect.
+Rewriting the series would require a force-push and is deliberately avoided.
+
 ## Release infrastructure
 
 Hermes is private/development-stage for now. The manual **Release preparation**
