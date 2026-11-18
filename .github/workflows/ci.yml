@@ -45,7 +45,9 @@ jobs:
           if grep -q 'warning:' build.log; then echo "::error::compiler warnings"; exit 1; fi
           ./build/package/hermes --version
 
-  # Debug build (ASan/UBSan) + the headless self-tests.
+  # Debug build (ASan/UBSan) + the headless self-tests. A restricted seccomp profile
+  # can make LeakSanitizer print a ptrace warning and "Child exited with signal 32";
+  # suite exit codes are authoritative. Keep leak detection on; see docs/building.md.
   selftest:
     runs-on: ubuntu-latest
     container:

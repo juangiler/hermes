@@ -96,9 +96,13 @@ done
 | m11 | Terminal tabs, shell integration, input and scrollback |
 | devices | USB/phone/camera FUSE integration; needs FUSE and is not in ordinary CI |
 
-Some container security profiles block LeakSanitizer's ptrace checks.
-`ASAN_OPTIONS=detect_leaks=0` disables only leak detection for those runs;
-ASan/UBSan remain enabled. Report that limitation; do not disable it in normal CI.
+Some container security profiles block LeakSanitizer's ptrace checks. A run may
+then print `WARNING: ptrace appears to be blocked (is seccomp enabled?).
+LeakSanitizer may hang.` followed by `Child exited with signal 32`. That is a
+sandbox limitation, not a test failure: the suite's `ok` / `OK` line and exit
+code are authoritative. In a restricted container, prefix the test command with
+`ASAN_OPTIONS=detect_leaks=0` to skip only leak detection; ASan/UBSan stay
+enabled. Report that limitation, and do not disable leak detection in normal CI.
 
 ## Standalone regression checks
 
