@@ -39,13 +39,21 @@ private slots:
   void focusFreeHostTabKeepsValidCursor();
   void hostOpenTabAtIndexInsertsTab();
   void directoryModelRejectsStaleScanResults();
+  void operationsCreateRenameAndTrash();
+  void operationsHandleUtf8Names();
+  void operationsUseConfiguredConflictPolicy();
+  void copyPasteMoveRoundTrip();
 
 private:
   using CorePtr = std::unique_ptr<HermesCore, decltype(&hermes_core_destroy)>;
   static CorePtr makeCore();
   static bool writeFile(const QString &path, const QByteArray &data);
+  static QStringList entryNames(DirectoryModel *model);
+  static QByteArray fileContents(const QString &path);
+  static void waitForOperation(ShellController *controller);
 
   QTemporaryDir m_config_dir;
+  QTemporaryDir m_data_dir;
 };
 
 HermesQtUiTest::CorePtr HermesQtUiTest::makeCore()
@@ -62,10 +70,33 @@ bool HermesQtUiTest::writeFile(const QString &path, const QByteArray &data)
   return true;
 }
 
+QStringList HermesQtUiTest::entryNames(DirectoryModel *model)
+{
+  QStringList names;
+  for (int row = 0; row < model->rowCount(); ++row)
+    names.append(model->data(model->index(row), DirectoryModel::NameRole).toString());
+  return names;
+}
+
+QByteArray HermesQtUiTest::fileContents(const QString &path)
+{
+  QFile file(path);
+  return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
+}
+
+void HermesQtUiTest::waitForOperation(ShellController *controller)
+{
+  // One engine op publishes exactly one operations_changed completion.
+  QTRY_COMPARE_WITH_TIMEOUT(controller->operationsChangedCount(), 1, 2000);
+  controller->resetOperationsChangedCount();
+}
+
 void HermesQtUiTest::initTestCase()
 {
   QVERIFY(m_config_dir.isValid());
+  QVERIFY(m_data_dir.isValid());
   qputenv("XDG_CONFIG_HOME", m_config_dir.path().toUtf8());
+  qputenv("XDG_DATA_HOME", m_data_dir.path().toUtf8());
 }
 
 void HermesQtUiTest::qmlMainLoadsOffscreen()
@@ -363,6 +394,107 @@ void HermesQtUiTest::directoryModelRejectsStaleScanResults()
   QCOMPARE(model.path(), current.path());
   QCOMPARE(model.rowCount(), 2);
   QCOMPARE(model.data(model.index(0), DirectoryModel::NameRole).toString(), firstName);
+}
+
+void HermesQtUiTest::operationsCreateRenameAndTrash()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  ShellController controller;
+  controller.navigate(dir.path());
+
+  const QString folder = dir.filePath(QStringLiteral("folder"));
+  QVERIFY(controller.createFolder(QStringLiteral("folder")));
+  waitForOperation(&controller);
+  QVERIFY(QFileInfo::exists(folder));
+  QVERIFY(entryNames(controller.directory()).contains(QStringLiteral("folder")));
+
+  const QString renamed = dir.filePath(QStringLiteral("renamed"));
+  QVERIFY(controller.renameEntry(folder, renamed));
+  waitForOperation(&controller);
+  QVERIFY(!QFileInfo::exists(folder));
+  QVERIFY(entryNames(controller.directory()).contains(QStringLiteral("renamed")));
+
+  QVERIFY(controller.removeEntries(QStringList({renamed}), true));
+  waitForOperation(&controller);
+  QVERIFY(!QFileInfo::exists(renamed));
+  QVERIFY(!entryNames(controller.directory()).contains(QStringLiteral("renamed")));
+}
+
+void HermesQtUiTest::operationsHandleUtf8Names()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  ShellController controller;
+  controller.navigate(dir.path());
+
+  const QString name = QString::fromUtf8("caf\xc3\xa9");
+  QVERIFY(controller.createFolder(name));
+  waitForOperation(&controller);
+  QVERIFY(QFileInfo::exists(dir.filePath(name)));
+  QVERIFY(entryNames(controller.directory()).contains(name));
+
+  const QString renamed = name + QStringLiteral("-renamed");
+  QVERIFY(controller.renameEntry(dir.filePath(name), dir.filePath(renamed)));
+  waitForOperation(&controller);
+  QVERIFY(!entryNames(controller.directory()).contains(name));
+  QVERIFY(entryNames(controller.directory()).contains(renamed));
+  QVERIFY(QFileInfo::exists(dir.filePath(renamed)));
+}
+
+void HermesQtUiTest::operationsUseConfiguredConflictPolicy()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString sourceDir = dir.filePath(QStringLiteral("src"));
+  const QString destDir = dir.filePath(QStringLiteral("dest"));
+  QVERIFY(QDir().mkpath(sourceDir));
+  QVERIFY(QDir().mkpath(destDir));
+  const QString source = sourceDir + QStringLiteral("/existing.txt");
+  const QString original = destDir + QStringLiteral("/existing.txt");
+  QVERIFY(writeFile(source, "source"));
+  QVERIFY(writeFile(original, "original"));
+
+  ShellController controller;
+  controller.navigate(destDir);
+  controller.setConflictPolicy(HERMES_CONFLICT_RENAME);
+  const QStringList paths({source});
+  QVERIFY(controller.copyEntries(paths, destDir, false));
+  waitForOperation(&controller);
+  QVERIFY(controller.copyEntries(paths, destDir, false));
+  waitForOperation(&controller);
+
+  // CF_RENAME moves each conflicting file aside; neither source nor the
+  // original destination content may be silently overwritten.
+  QCOMPARE(fileContents(destDir + QStringLiteral("/existing (2).txt")), QByteArray("original"));
+  QCOMPARE(fileContents(destDir + QStringLiteral("/existing (3).txt")), QByteArray("source"));
+  QCOMPARE(fileContents(original), QByteArray("source"));
+  QCOMPARE(fileContents(source), QByteArray("source"));
+}
+
+void HermesQtUiTest::copyPasteMoveRoundTrip()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString destDir = dir.filePath(QStringLiteral("dest"));
+  QVERIFY(QDir().mkpath(destDir));
+  const QString source = dir.filePath(QStringLiteral("file.txt"));
+  QVERIFY(writeFile(source, "payload"));
+
+  ShellController controller;
+  controller.navigate(dir.path());
+  controller.copySelection(QStringList({source}), false);
+  controller.navigate(destDir);
+  controller.pasteIntoCurrentDirectory();
+  waitForOperation(&controller);
+  QCOMPARE(fileContents(destDir + QStringLiteral("/file.txt")), QByteArray("payload"));
+  QVERIFY(QFileInfo::exists(source));
+
+  controller.copySelection(QStringList({source}), true);
+  controller.pasteIntoCurrentDirectory();
+  waitForOperation(&controller);
+  QVERIFY(!QFileInfo::exists(source));
+  QCOMPARE(fileContents(destDir + QStringLiteral("/file.txt")), QByteArray("payload"));
 }
 
 QTEST_MAIN(HermesQtUiTest)

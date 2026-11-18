@@ -4,6 +4,7 @@
 #include "open_uri_client.h"
 #include "places_model.h"
 
+#include <QByteArray>
 #include <QCoreApplication>
 #include <QFileInfo>
 #include <QMetaObject>
@@ -12,6 +13,25 @@
 
 namespace {
 ShellController *g_controller = nullptr;
+
+// Keep the UTF-8 byte arrays alive for the whole C ABI call; only collect the
+// raw pointers once the storage vector can no longer reallocate.
+QVector<const char *> utf8Pointers(const QStringList &paths, QVector<QByteArray> &storage)
+{
+  storage.clear();
+  storage.reserve(paths.size());
+  for (const QString &path : paths) {
+    const QByteArray utf8 = path.toUtf8();
+    if (utf8.isEmpty())
+      return {};
+    storage.append(utf8);
+  }
+  QVector<const char *> pointers;
+  pointers.reserve(storage.size());
+  for (const QByteArray &utf8 : storage)
+    pointers.append(utf8.constData());
+  return pointers;
+}
 }
 
 extern "C" {
@@ -67,9 +87,18 @@ static int hostCurrentTab(void)
 
 static void hostOperationsChanged(int kind, int errorCount)
 {
-  // Task 5 wires engine operations to a queued directory refresh.
   (void)kind;
   (void)errorCount;
+  if (!g_controller)
+    return;
+  // The engine may publish a completion from inside its drain, so defer the
+  // directory refresh (and the test-visible completion count) to the GUI thread.
+  QMetaObject::invokeMethod(g_controller, [] {
+    if (!g_controller)
+      return;
+    g_controller->recordOperationCompletion();
+    g_controller->refreshDirectory();
+  }, Qt::QueuedConnection);
 }
 
 } // extern "C"
@@ -151,6 +180,85 @@ bool ShellController::canGoForward() const
 HermesCore *ShellController::core() const
 {
   return m_core;
+}
+
+bool ShellController::createFolder(const QString &name)
+{
+  const QByteArray parent = m_directory ? m_directory->path().toUtf8() : QByteArray();
+  const QByteArray utf8Name = name.toUtf8();
+  if (parent.isEmpty() || utf8Name.isEmpty())
+    return false;
+  return hermes_core_mkdir(m_core, parent.constData(), utf8Name.constData()) == 0;
+}
+
+bool ShellController::renameEntry(const QString &from, const QString &to)
+{
+  const QByteArray utf8From = from.toUtf8();
+  const QByteArray utf8To = to.toUtf8();
+  if (utf8From.isEmpty() || utf8To.isEmpty())
+    return false;
+  return hermes_core_rename(m_core, utf8From.constData(), utf8To.constData()) == 0;
+}
+
+bool ShellController::removeEntries(const QStringList &paths, bool trash)
+{
+  QVector<QByteArray> storage;
+  const QVector<const char *> utf8Paths = utf8Pointers(paths, storage);
+  if (utf8Paths.size() != paths.size())
+    return false;
+  return hermes_core_remove(m_core, utf8Paths.constData(),
+                            static_cast<size_t>(utf8Paths.size()), trash) == 0;
+}
+
+bool ShellController::copyEntries(const QStringList &paths, const QString &destDir, bool move)
+{
+  const QByteArray utf8Dest = destDir.toUtf8();
+  QVector<QByteArray> storage;
+  const QVector<const char *> utf8Paths = utf8Pointers(paths, storage);
+  if (utf8Dest.isEmpty() || utf8Paths.size() != paths.size())
+    return false;
+  return hermes_core_copy(m_core, utf8Paths.constData(),
+                          static_cast<size_t>(utf8Paths.size()), utf8Dest.constData(),
+                          move, m_conflictPolicy) == 0;
+}
+
+void ShellController::copySelection(const QStringList &paths, bool move)
+{
+  m_clipboard = paths;
+  m_clipboardMove = move;
+}
+
+void ShellController::pasteIntoCurrentDirectory()
+{
+  if (!m_directory || m_clipboard.isEmpty())
+    return;
+  copyEntries(m_clipboard, m_directory->path(), m_clipboardMove);
+}
+
+void ShellController::setConflictPolicy(HermesConflictPolicy policy)
+{
+  m_conflictPolicy = policy;
+}
+
+void ShellController::recordOperationCompletion()
+{
+  m_operationsChangedCount.fetch_add(1);
+}
+
+void ShellController::refreshDirectory()
+{
+  if (m_directory)
+    m_directory->refresh();
+}
+
+int ShellController::operationsChangedCount() const
+{
+  return m_operationsChangedCount.load();
+}
+
+void ShellController::resetOperationsChangedCount()
+{
+  m_operationsChangedCount.store(0);
 }
 
 void ShellController::goTo(const QString &path, bool record)

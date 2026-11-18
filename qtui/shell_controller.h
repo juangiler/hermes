@@ -5,6 +5,7 @@
 #include <QString>
 #include <QStringList>
 #include <QVector>
+#include <atomic>
 
 class DirectoryModel;
 class OpenUriClient;
@@ -40,6 +41,20 @@ public:
   // The engine's open_tab hook arrives on this method, off the GUI thread.
   void openTabFromHost(const QString &path, int index, bool focus);
 
+  Q_INVOKABLE bool createFolder(const QString &name);
+  Q_INVOKABLE bool renameEntry(const QString &from, const QString &to);
+  Q_INVOKABLE bool removeEntries(const QStringList &paths, bool trash);
+  Q_INVOKABLE bool copyEntries(const QStringList &paths, const QString &destDir, bool move);
+  Q_INVOKABLE void copySelection(const QStringList &paths, bool move);
+  Q_INVOKABLE void pasteIntoCurrentDirectory();
+  Q_INVOKABLE void setConflictPolicy(HermesConflictPolicy policy);
+
+  // Called from the queued operations_changed hook on the GUI thread.
+  void recordOperationCompletion();
+  void refreshDirectory();
+  int operationsChangedCount() const;
+  void resetOperationsChangedCount();
+
 public slots:
   void setPaths(const QStringList &paths);
   void navigate(const QString &path);
@@ -71,5 +86,9 @@ private:
   PlacesModel *m_places = nullptr;
   OpenUriClient *m_openUri = nullptr;
   QVector<TabState> m_tabs;
+  QStringList m_clipboard;
+  bool m_clipboardMove = false;
+  HermesConflictPolicy m_conflictPolicy = HERMES_CONFLICT_RENAME;
+  std::atomic<int> m_operationsChangedCount{0};
   int m_currentTab = -1;
 };

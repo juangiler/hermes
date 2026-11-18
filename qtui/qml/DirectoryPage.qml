@@ -2,7 +2,28 @@ import QtQuick
 import org.kde.kirigami as Kirigami
 
 Kirigami.Page {
+  id: page
   title: "Directory"
+
+  // A control character separates paths so every filename stays intact.
+  property string set: ""
+  readonly property var selectedPaths: page.set.length > 0
+      ? page.set.split(String.fromCharCode(31)) : []
+
+  function toggleSelection(path) {
+    const marker = String.fromCharCode(31);
+    var parts = page.set.length > 0 ? page.set.split(marker) : [];
+    const index = parts.indexOf(path);
+    if (index >= 0)
+      parts.splice(index, 1);
+    else
+      parts.push(path);
+    page.set = parts.join(marker);
+  }
+
+  function clearSelection() {
+    page.set = "";
+  }
 
   ListView {
     anchors.fill: parent
@@ -11,6 +32,14 @@ Kirigami.Page {
     delegate: Item {
       width: ListView.view.width
       height: Kirigami.Units.gridUnit * 2
+      property bool selected: page.selectedPaths.indexOf(model.path) >= 0
+
+      Rectangle {
+        anchors.fill: parent
+        color: Kirigami.Theme.highlightColor
+        opacity: 0.25
+        visible: parent.selected
+      }
 
       Kirigami.Icon {
         id: entryIcon
@@ -40,6 +69,7 @@ Kirigami.Page {
 
       MouseArea {
         anchors.fill: parent
+        onClicked: page.toggleSelection(model.path)
         onDoubleClicked: hermes.openEntry(model.path)
       }
     }
