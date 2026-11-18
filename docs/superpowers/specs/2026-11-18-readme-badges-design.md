@@ -11,7 +11,8 @@
 The user asked for "more proper badges about the build, CI pass status" and a badge
 showing the project was built with AI, specifically OpenCode. They chose the
 **Hybrid** approach: live workflow status for the technical badges, a static badge
-for OpenCode.
+for OpenCode. They later asked that release status be dynamic too and chose a
+badge for the manual `Release preparation` workflow.
 
 Constraint: `juangiler/hermes` is a private repository. GitHub documents that
 workflow badges in private repos "are not accessible externally", so live badges
@@ -55,7 +56,20 @@ dynamic status/tooling badges first, existing static identity badges second.
    matrix across Arch, Fedora, Debian and Ubuntu, so its badge represents the
    aggregate portable-build result.
 
-3. **Built with OpenCode** — static Shields badge using the palette already used
+3. **Release preparation** — a live workflow badge for
+   `.github/workflows/release.yml`, pinned to `main`, linked to the workflow page:
+
+   ```markdown
+   [![Release preparation](https://github.com/juangiler/hermes/actions/workflows/release.yml/badge.svg?branch=main)](https://github.com/juangiler/hermes/actions/workflows/release.yml)
+   ```
+
+   This workflow is `workflow_dispatch` only and Hermes has no published release
+   or tag yet, so the badge will read "no status" until someone triggers it
+   manually. That is intentional and honest: it tracks the preparation pipeline,
+   not a published binary. A Shields "latest release" badge was rejected because
+   there is no release to report and the repo is private.
+
+4. **Built with OpenCode** — static Shields badge using the palette already used
    by the existing badges (Tokyo Night blue `7aa2f7`), linked to the project site:
 
    ```markdown
@@ -68,7 +82,7 @@ License, Linux, C11 + SDL3 stay exactly as they are.
 
 ## Non-goals
 
-- No release or package badges: there is no public binary channel yet.
+- No "latest release" version badge: there is no published release or tag, and the repo is private. The manual `Release preparation` workflow badge is included instead.
 - No version bump, workflow change, or package identity change.
 - No change to badge colors in the existing static row.
 - No attempt to make private-repo badges visible externally (not possible).

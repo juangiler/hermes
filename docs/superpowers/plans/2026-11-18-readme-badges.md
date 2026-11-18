@@ -19,6 +19,7 @@
 - Badge colors for new static badges use the existing Tokyo Night palette (`7aa2f7`).
 - `?job=` is an undocumented GitHub badge parameter; keep the documented `?branch=main` too.
 - Markdown-only change: do not claim an application rebuild occurred.
+- Release badge tracks the manual `Release preparation` workflow (`release.yml`); it will show "no status" until dispatched by hand. Do not add a "latest release" version badge (no release/tag, private repo).
 
 ## Review Focus
 
@@ -71,4 +72,44 @@ Expected: no whitespace errors.
 ```bash
 git add README.md
 git commit -m "docs(readme): add CI, build and OpenCode badges"
+```
+
+---
+
+### Task 2: Add Release preparation workflow badge
+
+**Files:**
+- Modify: `README.md:11-14` (first badge row only)
+- Modify: `docs/superpowers/specs/2026-11-18-readme-badges-design.md` (already edited: release badge row, context, non-goals)
+- Modify: `docs/superpowers/plans/2026-11-18-readme-badges.md` (this plan; release constraint and Task 2)
+
+**Interfaces:**
+- Consumes: `.github/workflows/release.yml` (`name: Release preparation`, `on: workflow_dispatch`, job `source`), repo `juangiler/hermes`, branch `main`.
+- Produces: no code interfaces; output is the rendered README header.
+
+- [ ] **Step 1: Insert the release badge**
+
+Insert this line between the Build badge and the Built with OpenCode badge in the first badge row of `README.md`:
+
+```markdown
+[![Release preparation](https://github.com/juangiler/hermes/actions/workflows/release.yml/badge.svg?branch=main)](https://github.com/juangiler/hermes/actions/workflows/release.yml)
+```
+
+Do not alter any other badge line.
+
+- [ ] **Step 2: Verify the change**
+
+Run: `git diff -- README.md docs/superpowers/specs/2026-11-18-readme-badges-design.md docs/superpowers/plans/2026-11-18-readme-badges.md`
+
+Expected: one added badge line in README between Build and OpenCode; design/plan docs contain the `release.yml` badge URL and the "no status until manually dispatched" caveat; no other README lines changed.
+
+Run: `git diff --check`
+
+Expected: no whitespace errors.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add README.md docs/superpowers/specs/2026-11-18-readme-badges-design.md docs/superpowers/plans/2026-11-18-readme-badges.md
+git commit -m "docs(readme): add release workflow status badge"
 ```
