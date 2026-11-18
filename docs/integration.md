@@ -41,6 +41,10 @@ instead of starting the long-lived services:
 | `--disable-filechooser` | Restores that backup byte-for-byte when the config is unchanged since opt-in; if it has since been edited, removes only the Hermes key (restoring a previous value) so unrelated edits survive. Removes the backup in both cases. |
 | `--status` | Prints whether the Hermes file-chooser role is enabled, without changing anything. |
 
+`--enable-filechooser` and `--disable-filechooser` are mutually exclusive and
+rejected with a usage error. `--status` is informational and may be combined
+with either opt-in flag.
+
 Installers and the default configuration never take over a desktop role: Hermes
 writes a portal preference only through these flags, and they touch only your
 XDG config. The XDG Settings portal is still read for the system accent colour

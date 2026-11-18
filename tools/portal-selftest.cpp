@@ -401,6 +401,7 @@ private slots:
     void fileChooserOpenFileReturnsCancelled();
     void fileChooserSaveFileReturnsCancelled();
     void backendKeepsFileChooserWhenFileManager1IsTaken();
+    void backendRejectsConflictingFileChooserFlags();
     void portalConfigUsesForcedXdgConfigHome();
     void portalConfigEnableCreatesKeyAndBackup();
     void portalConfigEnablePreservesUnrelatedLines();
@@ -746,6 +747,28 @@ void PortalSelfTest::backendKeepsFileChooserWhenFileManager1IsTaken()
     child.process.terminate();
     QVERIFY(child.process.waitForFinished(2000));
     QVERIFY(child.process.readAllStandardError().contains("FileManager1"));
+}
+
+void PortalSelfTest::backendRejectsConflictingFileChooserFlags()
+{
+    resetPortalConfig();
+
+    BoundedProcess child;
+    child.process.start(QStringLiteral(HERMES_PORTAL_BACKEND_PATH),
+                        QStringList{QStringLiteral("--enable-filechooser"),
+                                    QStringLiteral("--disable-filechooser")});
+    QVERIFY2(child.process.waitForStarted(2000),
+             qPrintable(child.process.errorString()));
+    QVERIFY(child.process.waitForFinished(2000));
+    QVERIFY(child.process.exitCode() != 0);
+
+    const QByteArray message = child.process.readAllStandardError();
+    QVERIFY(message.contains("--enable-filechooser"));
+    QVERIFY(message.contains("--disable-filechooser"));
+    QVERIFY(message.contains("mutually exclusive"));
+    QCOMPARE(PortalConfig::status(), kDisabledStatus);
+    QVERIFY(!QFile::exists(configPath()));
+    QVERIFY(!QFile::exists(backupPath()));
 }
 
 void PortalSelfTest::portalConfigUsesForcedXdgConfigHome()

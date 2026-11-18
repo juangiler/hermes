@@ -35,6 +35,12 @@ int main(int argc, char **argv)
     parser.addOption(status);
     parser.process(app);
 
+    if (parser.isSet(enableFileChooser) && parser.isSet(disableFileChooser)) {
+        QTextStream(stderr) << QStringLiteral("hermes-portal-backend: --enable-filechooser and "
+                                              "--disable-filechooser are mutually exclusive\n");
+        return 2;
+    }
+
     QTextStream out(stdout);
     if (parser.isSet(enableFileChooser)) {
         QString error;
