@@ -144,7 +144,7 @@ private:
   // engine's order, while a size-pass result for the same must not.
   HermesSortKey m_rowsKey = HERMES_SORT_NAME;
   bool m_rowsDesc = false;
-  bool m_showHidden = true;
+  bool m_showHidden = false;
   bool m_folderSizes = false;
   quint64 m_generation = 0;
 

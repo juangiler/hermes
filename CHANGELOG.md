@@ -29,6 +29,8 @@ will be listed above that history.
   draft after review.
 
 **Changed**
+- The Qt directory view now hides dotfiles by default, matching the legacy
+  application's `show_hidden = false`. The toolbar toggle still shows them.
 - Early Hermes carried a File Explorer compatibility layer: a startup importer,
   `FE_*` aliases, lazy keyring and cloud handover, and generated-launcher
   adoption. It has been **fully purged**: legacy data is ignored, overrides are

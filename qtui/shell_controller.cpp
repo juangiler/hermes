@@ -289,7 +289,7 @@ double ShellController::zoom() const
 
 bool ShellController::showHidden() const
 {
-  return m_directory ? m_directory->showHidden() : true;
+  return m_directory ? m_directory->showHidden() : false;
 }
 
 bool ShellController::folderSizes() const
