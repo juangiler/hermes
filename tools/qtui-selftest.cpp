@@ -14,12 +14,15 @@
 #include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QTimeZone>
+#include <QTimer>
 #include <QUrl>
 #include <QProcess>
 #include <QProcessEnvironment>
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QtTest>
+#include <atomic>
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <thread>
@@ -28,9 +31,22 @@
 #include <unistd.h>
 
 static DirectoryModel *g_wake_model;
+// The engine's wake runs off the GUI thread. Record its sequence so a timing
+// test can isolate the ticks between the final wake and the visible rows.
+static std::atomic<int> g_wake_seq{0};
+static std::atomic<qint64> g_last_wake_ns{0};
+
+static qint64 steadyNs()
+{
+  using clock = std::chrono::steady_clock;
+  return std::chrono::duration_cast<std::chrono::nanoseconds>(
+      clock::now().time_since_epoch()).count();
+}
 
 static void pollTestModel(void *)
 {
+  g_last_wake_ns.store(steadyNs());
+  g_wake_seq.fetch_add(1);
   QMetaObject::invokeMethod(QCoreApplication::instance(), [] {
     if (g_wake_model)
       g_wake_model->pollScan();
@@ -59,6 +75,7 @@ private slots:
   void directoryPageViewsShowEntriesAndScaleWithZoom();
   void directoryModelFailedNavigateKeepsPath();
   void directoryModelNavigationDoesNotBlock();
+  void directoryModelMaterializesResultsOffGuiThread();
   void directoryModelAppliesAsyncResults();
   void directoryModelKeepsRowsWhenTheDirectoryDisappears();
   void directoryModelRefreshDoesNotDuplicateRows();
@@ -102,6 +119,9 @@ private:
   static QStringList entryNames(DirectoryModel *model);
   static QByteArray fileContents(const QString &path);
   static void waitForOperation(ShellController *controller);
+  // Build the worker's snapshot seam from a genuine engine listing.
+  static DirectoryModel::ScanSnapshot testSnapshot(DirectoryModel *model,
+      const QString &path, quint64 generation, const HermesListing &listing);
 
   QTemporaryDir m_config_dir;
   QTemporaryDir m_data_dir;
@@ -140,6 +160,18 @@ void HermesQtUiTest::waitForOperation(ShellController *controller)
   // One engine op publishes exactly one operations_changed completion.
   QTRY_COMPARE_WITH_TIMEOUT(controller->operationsChangedCount(), 1, 2000);
   controller->resetOperationsChangedCount();
+}
+
+DirectoryModel::ScanSnapshot HermesQtUiTest::testSnapshot(
+    DirectoryModel *model, const QString &path, quint64 generation,
+    const HermesListing &listing)
+{
+  DirectoryModel::ScanConfig config = model->currentConfig();
+  config.path = path;
+  config.previousPath = path;
+  config.generation = generation;
+  return DirectoryModel::makeSnapshot(config, listing, false, true, false,
+      std::make_shared<std::atomic<bool>>(false));
 }
 
 void HermesQtUiTest::initTestCase()
@@ -739,6 +771,68 @@ void HermesQtUiTest::directoryModelNavigationDoesNotBlock()
   QTRY_VERIFY_WITH_TIMEOUT(model.rowCount() == 5000, 10000);
 }
 
+void HermesQtUiTest::directoryModelMaterializesResultsOffGuiThread()
+{
+  const int count = 60000;
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  for (int i = 0; i < count; ++i) {
+    const QString name = QStringLiteral("file-%1-with-a-long-name-to-sort.txt")
+        .arg(i, 6, 10, QLatin1Char('0'));
+    QVERIFY(writeFile(dir.filePath(name), "x"));
+  }
+
+  CorePtr core = makeCore();
+  DirectoryModel model(core.get());
+  g_wake_model = &model;
+  g_wake_seq.store(0);
+
+  // A timer cannot be observed while the GUI thread is inside a sort/copy.
+  // Attribute each tick to the wake sequence current at the time so only the
+  // interval after the engine's final wake counts as materialization time.
+  struct Tick { qint64 time; int wake; };
+  QVector<Tick> ticks;
+  QTimer timer;
+  timer.setInterval(10);
+  QObject::connect(&timer, &QTimer::timeout, [&] {
+    ticks.append({steadyNs(), g_wake_seq.load()});
+  });
+  timer.start();
+  QVERIFY(model.navigate(dir.path()));
+  QTRY_VERIFY_WITH_TIMEOUT(model.rowCount() == count, 30000);
+  timer.stop();
+
+  const int finalWake = g_wake_seq.load();
+  const qint64 wakeTime = g_last_wake_ns.load();
+  QVERIFY(finalWake > 0);
+  int ticksAfterWake = 0;
+  qint64 lastTick = 0;
+  qint64 maxGap = 0;
+  for (const Tick &tick : ticks) {
+    if (lastTick > 0)
+      maxGap = qMax(maxGap, tick.time - lastTick);
+    lastTick = tick.time;
+    if (tick.wake == finalWake && tick.time > wakeTime)
+      ++ticksAfterWake;
+  }
+  const auto ms = [](qint64 ns) { return ns / 1000000; };
+  qInfo() << "scan responsiveness: ticks" << ticks.size()
+          << "after final wake" << ticksAfterWake
+          << "max gap ms" << ms(maxGap)
+          << "rows" << model.rowCount();
+
+  QVERIFY2(ticksAfterWake >= 5, qPrintable(QStringLiteral(
+      "GUI thread stalled through result materialization: only %1 timer ticks "
+      "after the final wake").arg(ticksAfterWake)));
+  QVERIFY2(ms(maxGap) < 80, qPrintable(QStringLiteral(
+      "GUI thread stalled for %1 ms between timer ticks").arg(ms(maxGap))));
+  QCOMPARE(model.path(), dir.path());
+  QCOMPARE(model.data(model.index(0), DirectoryModel::NameRole).toString(),
+           QStringLiteral("file-000000-with-a-long-name-to-sort.txt"));
+  QCOMPARE(model.data(model.index(count - 1), DirectoryModel::NameRole).toString(),
+           QStringLiteral("file-059999-with-a-long-name-to-sort.txt"));
+}
+
 void HermesQtUiTest::directoryModelAppliesAsyncResults()
 {
   QTemporaryDir dir;
@@ -1225,7 +1319,8 @@ void HermesQtUiTest::selectionClearsWhenRowsSwapAfterSupersededNavigation()
   listing.items[0].name = strdup(name.constData());
   QVERIFY(listing.items[0].name);
   listing.items[0].name_len = static_cast<size_t>(name.size());
-  QVERIFY(model->applyScan(second.path(), model->m_generation, listing));
+  QVERIFY(model->applySnapshot(testSnapshot(model, second.path(),
+                                            model->m_generation, listing)));
   hermes_listing_free(&listing);
   QTRY_VERIFY_WITH_TIMEOUT(page->property("selectedPaths").toList().isEmpty(), 5000);
 }
@@ -1277,17 +1372,20 @@ void HermesQtUiTest::directoryModelRejectsStaleScanResults()
   QTRY_COMPARE_WITH_TIMEOUT(model.rowCount(), 2, 5000);
   const QString firstName = model.data(model.index(0), DirectoryModel::NameRole).toString();
 
-  // Only the generation/path guard may reject this successfully fetched result.
+  // Only the generation/path guard may reject these genuinely scanned results.
   HermesListing listing{};
   const QByteArray currentPath = current.path().toUtf8();
   QCOMPARE(hermes_core_scan_sorted(core.get(), currentPath.constData(),
                                    HERMES_SORT_NAME, false, &listing), 0);
-  QVERIFY(!model.applyScan(current.path(), model.m_generation - 1, listing));
+  QVERIFY(listing.count == 2);
+  QVERIFY(!model.applySnapshot(testSnapshot(&model, current.path(),
+                                            model.m_generation - 1, listing)));
   QCOMPARE(model.path(), current.path());
   QCOMPARE(model.rowCount(), 2);
   QCOMPARE(model.data(model.index(0), DirectoryModel::NameRole).toString(), firstName);
 
-  QVERIFY(!model.applyScan(other.path(), model.m_generation, listing));
+  QVERIFY(!model.applySnapshot(testSnapshot(&model, other.path(),
+                                            model.m_generation, listing)));
   QCOMPARE(model.path(), current.path());
   QCOMPARE(model.rowCount(), 2);
   QCOMPARE(model.data(model.index(0), DirectoryModel::NameRole).toString(), firstName);

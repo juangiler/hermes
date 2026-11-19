@@ -3,6 +3,8 @@
 #include <QDir>
 #include <QModelIndex>
 
+#include <chrono>
+
 namespace {
 // Keep the QML-facing names in engine order next to the enum mapping.
 const char *const kSortKeyNames[] = {"name", "date", "type", "size",
@@ -29,11 +31,27 @@ static bool has_pending_folder_sizes(const HermesListing &listing, bool show_hid
 DirectoryModel::DirectoryModel(HermesCore *core, QObject *parent)
   : QAbstractListModel(parent), m_core(core)
 {
+  m_worker = std::thread(&DirectoryModel::workerLoop, this);
 }
 
 DirectoryModel::~DirectoryModel()
 {
-  cancelScan();
+  stopWorker();
+}
+
+void DirectoryModel::stopWorker()
+{
+  {
+    std::lock_guard<std::mutex> lock(m_jobMutex);
+    m_stop = true;
+    if (m_activeJob)
+      m_activeJob->cancelled->store(true);
+    for (const JobPtr &job : m_pending)
+      job->cancelled->store(true);
+  }
+  m_jobCv.notify_all();
+  if (m_worker.joinable())
+    m_worker.join();
 }
 
 int DirectoryModel::rowCount(const QModelIndex &parent) const
@@ -130,62 +148,138 @@ void DirectoryModel::refresh()
   }
 }
 
+DirectoryModel::ScanConfig DirectoryModel::currentConfig() const
+{
+  ScanConfig config;
+  config.key = m_key;
+  config.desc = m_desc;
+  config.showHidden = m_showHidden;
+  config.folderSizes = m_folderSizes;
+  return config;
+}
+
+// The engine wake only nudges the worker; the GUI thread never polls a handle.
 void DirectoryModel::pollScan()
 {
-  if (!m_scan)
-    return;
+  std::lock_guard<std::mutex> lock(m_jobMutex);
+  m_jobCv.notify_all();
+}
 
-  HermesListing listing{};
-  const int result = hermes_core_scan_poll(m_core, m_scan, &listing);
-  if (result == 0)
-    return;
+DirectoryModel::ScanSnapshot DirectoryModel::makeSnapshot(
+    const ScanConfig &config, const HermesListing &listing, bool failed,
+    bool firstResult, bool folderSizesActive,
+    const std::shared_ptr<std::atomic<bool>> &cancelled)
+{
+  ScanSnapshot snapshot;
+  snapshot.config = config;
+  snapshot.cancelled = cancelled;
+  snapshot.failed = failed;
+  snapshot.firstResult = firstResult;
+  snapshot.folderSizesActive = folderSizesActive;
+  if (failed)
+    return snapshot;
 
-  const QString path = m_scanPath;
-  const QString previousPath = m_scanPreviousPath;
-  const quint64 generation = m_scanGeneration;
+  // Sort, name copies and Qt string building all happen here, off the GUI
+  // thread. Entries own their data, so the ABI listing can be freed on return.
+  snapshot.entries.reserve(static_cast<qsizetype>(listing.count));
+  const QDir dir(config.path);
+  const QByteArray dirBytes = config.path.toUtf8();
+  for (size_t i = 0; i < listing.count; ++i) {
+    const HermesEntry &item = listing.items[i];
+    const QByteArray rawName(item.name, static_cast<qsizetype>(item.name_len));
+    const QString name = QString::fromUtf8(rawName);
+    // Display may replace malformed bytes with U+FFFD; operations still need
+    // the exact bytes the engine scanned, so keep them alongside the path.
+    const QByteArray rawPath = dirBytes + "/" + rawName;
+    snapshot.entries.append({name, dir.filePath(name), rawPath, item.flags,
+                             item.size, item.mtime});
+  }
+  return snapshot;
+}
 
-  if (result < 0) {
-    HermesScan *scan = m_scan;
-    m_scan = nullptr;
-    m_scanPath.clear();
-    m_scanPreviousPath.clear();
-    m_scanGeneration = 0;
-    m_scanApplied = false;
-    m_scanFolderSizesActive = false;
-    hermes_core_scan_free(scan);
-    hermes_listing_free(&listing);
-    if (generation == m_generation && path == m_path) {
-      m_path = m_rowsPath.isEmpty() ? previousPath : m_rowsPath;
-      emit navigateFailed(path);
+void DirectoryModel::postSnapshot(const std::shared_ptr<ScanSnapshot> &snapshot)
+{
+  // A snapshot already queued when the model dies must not touch it.
+  QPointer<DirectoryModel> guard(this);
+  QMetaObject::invokeMethod(this, [guard, snapshot] {
+    if (guard)
+      guard->applySnapshot(*snapshot);
+  }, Qt::QueuedConnection);
+}
+
+void DirectoryModel::workerLoop()
+{
+  const auto dispose = [](const JobPtr &job) {
+    if (!job->scan)
+      return;
+    if (job->cancelled->load())
+      hermes_core_scan_cancel(job->scan);
+    hermes_core_scan_free(job->scan);
+    job->scan = nullptr;
+  };
+
+  std::unique_lock<std::mutex> lock(m_jobMutex);
+  for (;;) {
+    m_jobCv.wait(lock, [this] {
+      return m_stop || (!m_activeJob && !m_pending.empty());
+    });
+    if (m_stop) {
+      if (m_activeJob)
+        dispose(m_activeJob);
+      for (const JobPtr &job : m_pending)
+        dispose(job);
+      m_pending.clear();
+      m_activeJob.reset();
+      return;
     }
-    return;
+
+    m_activeJob = m_pending.front();
+    m_pending.pop_front();
+    JobPtr job = m_activeJob;
+    lock.unlock();
+
+    bool done = false;
+    while (!job->cancelled->load() && !done) {
+      HermesListing listing{};
+      const int result = hermes_core_scan_poll(job->core, job->scan, &listing);
+      if (result < 0) {
+        if (!job->cancelled->load()) {
+          auto snapshot = std::make_shared<ScanSnapshot>(makeSnapshot(
+              job->config, listing, true, false, false, job->cancelled));
+          postSnapshot(snapshot);
+        }
+        hermes_listing_free(&listing);
+        done = true;
+      } else if (result > 0) {
+        const bool firstResult = !job->applied;
+        if (firstResult && job->config.folderSizes) {
+          job->folderSizesActive =
+              hermes_core_scan_start_folder_sizes(job->core, job->scan) == 0;
+        }
+        auto snapshot = std::make_shared<ScanSnapshot>(makeSnapshot(
+            job->config, listing, false, firstResult, job->folderSizesActive,
+            job->cancelled));
+        const bool sizesPending = job->folderSizesActive
+            && has_pending_folder_sizes(listing, job->config.showHidden);
+        // A size pass republishes the whole listing; skip identical snapshots
+        // so an unchanged directory does not churn the GUI thread.
+        const bool changed = !job->applied || snapshot->entries != job->lastEntries;
+        hermes_listing_free(&listing);
+        if (changed && !job->cancelled->load()) {
+          job->lastEntries = snapshot->entries;
+          postSnapshot(snapshot);
+        }
+        job->applied = true;
+        if (!sizesPending)
+          done = true;
+      }
+      if (!done && !job->cancelled->load())
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    dispose(job);
+    lock.lock();
+    m_activeJob.reset();
   }
-
-  const bool firstResult = !m_scanApplied;
-  if (firstResult && m_folderSizes)
-    m_scanFolderSizesActive =
-        hermes_core_scan_start_folder_sizes(m_core, m_scan) == 0;
-
-  const bool applied = applyScan(path, generation, listing);
-  if (applied && firstResult) {
-    m_scanApplied = true;
-    emit scanFinished();
-  }
-
-  const bool sizesPending = applied && m_scanFolderSizesActive
-      && has_pending_folder_sizes(listing, m_showHidden);
-  hermes_listing_free(&listing);
-  if (sizesPending)
-    return;
-
-  HermesScan *scan = m_scan;
-  m_scan = nullptr;
-  m_scanPath.clear();
-  m_scanPreviousPath.clear();
-  m_scanGeneration = 0;
-  m_scanApplied = false;
-  m_scanFolderSizesActive = false;
-  hermes_core_scan_free(scan);
 }
 
 bool DirectoryModel::startScan(const QString &path, quint64 generation,
@@ -195,59 +289,67 @@ bool DirectoryModel::startScan(const QString &path, quint64 generation,
   const HermesScanOptions options = {
     m_key, m_desc, m_showHidden, m_folderSizes
   };
-  m_scan = hermes_core_scan_start(m_core, utf8.constData(), &options);
-  if (!m_scan)
+  HermesScan *scan = hermes_core_scan_start(m_core, utf8.constData(), &options);
+  if (!scan)
     return false;
 
-  m_scanPath = path;
-  m_scanPreviousPath = previousPath;
-  m_scanGeneration = generation;
-  m_scanApplied = false;
-  m_scanFolderSizesActive = false;
+  auto job = std::make_shared<ScanJob>();
+  job->core = m_core;
+  job->scan = scan;
+  job->config = currentConfig();
+  job->config.path = path;
+  job->config.previousPath = previousPath;
+  job->config.generation = generation;
+  job->cancelled = std::make_shared<std::atomic<bool>>(false);
+
+  {
+    std::lock_guard<std::mutex> lock(m_jobMutex);
+    // Only the newest navigation can produce visible rows.
+    if (m_activeJob)
+      m_activeJob->cancelled->store(true);
+    for (const JobPtr &pending : m_pending)
+      pending->cancelled->store(true);
+    m_pending.push_back(job);
+  }
+  m_jobCv.notify_all();
   return true;
 }
 
 void DirectoryModel::cancelScan()
 {
-  if (!m_scan)
-    return;
-  hermes_core_scan_cancel(m_scan);
-  hermes_core_scan_free(m_scan);
-  m_scan = nullptr;
-  m_scanPath.clear();
-  m_scanPreviousPath.clear();
-  m_scanGeneration = 0;
-  m_scanApplied = false;
-  m_scanFolderSizesActive = false;
+  {
+    std::lock_guard<std::mutex> lock(m_jobMutex);
+    if (m_activeJob)
+      m_activeJob->cancelled->store(true);
+    for (const JobPtr &job : m_pending)
+      job->cancelled->store(true);
+  }
+  m_jobCv.notify_all();
 }
 
-bool DirectoryModel::applyScan(const QString &path, quint64 generation,
-                               const HermesListing &listing)
+bool DirectoryModel::applySnapshot(ScanSnapshot snapshot)
 {
-  if (generation != m_generation || path != m_path) {
+  // A job cancelled after its snapshot was queued must not change the view.
+  if (snapshot.cancelled && snapshot.cancelled->load())
+    return false;
+  const ScanConfig &config = snapshot.config;
+  if (config.generation != m_generation || config.path != m_path)
+    return false;
+
+  if (snapshot.failed) {
+    // The rows on screen still belong to the last successful scan.
+    m_path = m_rowsPath.isEmpty() ? config.previousPath : m_rowsPath;
+    emit navigateFailed(config.path);
     return false;
   }
 
-  const bool rowsPathChanged = m_rowsPath != path;
-  QVector<Entry> entries;
-  entries.reserve(static_cast<qsizetype>(listing.count));
-  const QDir dir(path);
-  const QByteArray dirBytes = path.toUtf8();
-  for (size_t i = 0; i < listing.count; ++i) {
-    const HermesEntry &item = listing.items[i];
-    const QByteArray rawName(item.name, static_cast<qsizetype>(item.name_len));
-    const QString name = QString::fromUtf8(rawName);
-    // Display may replace malformed bytes with U+FFFD; operations still need
-    // the exact bytes the engine scanned, so keep them alongside the path.
-    const QByteArray rawPath = dirBytes + "/" + rawName;
-    entries.append({name, dir.filePath(name), rawPath, item.flags, item.size, item.mtime});
-  }
-
+  const bool rowsPathChanged = m_rowsPath != config.path;
+  QVector<Entry> &entries = snapshot.entries;
   // Match by raw bytes, never by the decoded display name: two names may
   // decode to the same string, and a size pass may return them in a new order.
   QVector<qsizetype> oldRows(entries.size(), -1);
-  bool sameRows = m_rowsPath == path && m_rowsKey == m_key && m_rowsDesc == m_desc
-      && m_entries.size() == entries.size();
+  bool sameRows = m_rowsPath == config.path && m_rowsKey == config.key
+      && m_rowsDesc == config.desc && m_entries.size() == entries.size();
   if (sameRows) {
     QHash<QByteArray, qsizetype> currentRows;
     for (qsizetype i = 0; i < m_entries.size(); ++i)
@@ -283,12 +385,14 @@ bool DirectoryModel::applyScan(const QString &path, quint64 generation,
     m_entries.swap(entries);
     endResetModel();
   }
-  m_path = path;
-  m_rowsPath = path;
-  m_rowsKey = m_key;
-  m_rowsDesc = m_desc;
+  m_path = config.path;
+  m_rowsPath = config.path;
+  m_rowsKey = config.key;
+  m_rowsDesc = config.desc;
   if (rowsPathChanged)
     emit pathChanged(m_path);
+  if (snapshot.firstResult)
+    emit scanFinished();
   return true;
 }
 

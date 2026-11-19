@@ -131,12 +131,15 @@ offscreen/software backends are for tests only. The Qt frontend now has its own
 those options apply to `hermes-qt`, while the originals still apply to the SDL
 binary at `./build/*/hermes`.
 
-Directory scans run on the engine's worker pool: `DirectoryModel` starts a
-`hermes_core_scan_start()` handle, polls it from the GUI thread and applies a
-completed result there, keeping the rows on screen until the new ones arrive. A
-superseded scan is dropped by generation, so navigating again cannot let an
-older result overwrite newer rows. The recursive folder-size pass still costs
-time on deep trees, even though the scan itself no longer blocks the event loop.
+Directory scans run on the engine's worker pool: `DirectoryModel` hands each
+`hermes_core_scan_start()` handle to one worker thread, which polls it, sorts
+the listing, builds the rows and posts a finished snapshot to the GUI thread.
+The GUI thread only applies that snapshot, keeping the rows on screen until the
+new ones arrive; an engine wake merely nudges the worker. A superseded scan is
+dropped by generation, so navigating again cannot let an older result overwrite
+newer rows. The recursive folder-size pass still costs time on deep trees, but
+it runs on the worker too, so neither it nor the final sort blocks the event
+loop.
 
 Notes carried forward from this slice:
 

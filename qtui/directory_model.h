@@ -3,9 +3,16 @@
 #include <QAbstractListModel>
 #include <QByteArray>
 #include <QHash>
+#include <QPointer>
 #include <QString>
 #include <QStringList>
 #include <QVector>
+#include <atomic>
+#include <condition_variable>
+#include <deque>
+#include <memory>
+#include <mutex>
+#include <thread>
 
 class DirectoryModel : public QAbstractListModel
 {
@@ -46,6 +53,10 @@ public:
   Q_INVOKABLE void setFolderSizes(bool on);
   bool folderSizes() const;
 
+  // Join the scan worker before a core is destroyed. The destructor calls it
+  // too; the controller needs the earlier call because it owns the core.
+  void stopWorker();
+
 public slots:
   void refresh();
   void pollScan();
@@ -63,12 +74,6 @@ private:
   // queued scan to finish after a newer navigation.
   friend class HermesQtUiTest;
 
-  bool applyScan(const QString &path, quint64 generation,
-                 const HermesListing &listing);
-  bool startScan(const QString &path, quint64 generation,
-                 const QString &previousPath);
-  void cancelScan();
-
   struct Entry {
     QString name;
     QString path;
@@ -76,13 +81,60 @@ private:
     unsigned char flags;
     quint64 size;
     qint64 modified;
+
+    bool operator==(const Entry &other) const
+    {
+      return name == other.name && path == other.path && rawPath == other.rawPath
+          && flags == other.flags && size == other.size && modified == other.modified;
+    }
   };
 
+  // Captured on the GUI thread when a scan starts. The worker must never read
+  // mutable model options: a later toggle starts a new generation instead.
+  struct ScanConfig {
+    HermesSortKey key = HERMES_SORT_NAME;
+    bool desc = false;
+    bool showHidden = false;
+    bool folderSizes = false;
+    QString path;
+    QString previousPath;
+    quint64 generation = 0;
+  };
+
+  struct ScanSnapshot {
+    ScanConfig config;
+    QVector<Entry> entries;
+    std::shared_ptr<std::atomic<bool>> cancelled;
+    bool failed = false;
+    bool firstResult = false;
+    bool folderSizesActive = false;
+  };
+
+  struct ScanJob {
+    HermesCore *core = nullptr;
+    HermesScan *scan = nullptr;
+    ScanConfig config;
+    std::shared_ptr<std::atomic<bool>> cancelled;
+    // Worker-local progress; never read from the GUI thread.
+    bool applied = false;
+    bool folderSizesActive = false;
+    QVector<Entry> lastEntries;
+  };
+  using JobPtr = std::shared_ptr<ScanJob>;
+
+  ScanConfig currentConfig() const;
+  static ScanSnapshot makeSnapshot(const ScanConfig &config,
+                                   const HermesListing &listing, bool failed,
+                                   bool firstResult, bool folderSizesActive,
+                                   const std::shared_ptr<std::atomic<bool>> &cancelled);
+  bool applySnapshot(ScanSnapshot snapshot);
+  bool startScan(const QString &path, quint64 generation,
+                 const QString &previousPath);
+  void cancelScan();
+  void workerLoop();
+  void postSnapshot(const std::shared_ptr<ScanSnapshot> &snapshot);
+
   HermesCore *m_core;
-  HermesScan *m_scan = nullptr;
-  QString m_scanPath;
-  QString m_scanPreviousPath;
-  quint64 m_scanGeneration = 0;
   QVector<Entry> m_entries;
   QString m_path;
   QString m_rowsPath;
@@ -94,7 +146,14 @@ private:
   bool m_rowsDesc = false;
   bool m_showHidden = true;
   bool m_folderSizes = false;
-  bool m_scanApplied = false;
-  bool m_scanFolderSizesActive = false;
   quint64 m_generation = 0;
+
+  // The worker owns the scan handle for its whole life. The GUI thread only
+  // queues new jobs and flips the shared cancel flag.
+  std::thread m_worker;
+  std::mutex m_jobMutex;
+  std::condition_variable m_jobCv;
+  std::deque<JobPtr> m_pending;
+  JobPtr m_activeJob;
+  bool m_stop = false;
 };

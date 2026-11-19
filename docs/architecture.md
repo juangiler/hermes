@@ -124,10 +124,12 @@
   controller owns it so the model can still be used headless.
 - `qtui/directory_model.*` is a `QAbstractListModel` over the asynchronous
   `hermes_core_scan_start()` / `hermes_core_scan_poll()` handle: `navigate()`
-  and `refresh()` start a scan and return, and `pollScan()` applies a completed
-  result on the GUI thread while the rows on screen stay until the new ones
-  arrive. A generation guard drops a superseded result, and a failed scan keeps
-  the previous rows and emits `navigateFailed`. It exposes typed
+  and `refresh()` start a scan and hand its handle to one owned worker thread.
+  That worker polls the handle, sorts and copies the listing, builds the Qt-side
+  rows and posts a snapshot to the GUI thread; `pollScan()` only wakes it. The
+  GUI thread just applies the snapshot, while the rows on screen stay until the
+  new ones arrive. A generation guard drops a superseded result, and a failed
+  scan keeps the previous rows and emits `navigateFailed`. It exposes typed
   name/path/size/date roles, the hidden-entry and folder-size toggles, the sort
   key and direction (including the legacy key policy), the eight sort keys and
   the ordered path list; `scanFinished()` fires once a result is applied. QML
