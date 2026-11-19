@@ -4,7 +4,7 @@
 
 **Goal:** Make the Kirigami frontend scan directories off the GUI thread and give the directory view the legacy application's view modes, columns, sorting, hidden-file handling, folder sizes, selection and keyboard navigation.
 
-**Architecture:** The C engine already scans on worker threads (`listing_start` submits `scan_job` to the pool; metadata runs in `meta_job` workers; the listing state moves `LST_READY` -> `LST_COMPLETE`). The blocking is entirely in the ABI, which polls that state in a sleep loop (`src/core_api.c:91-97`). This plan exposes the engine's asynchronous scan through the C ABI as a start/poll/cancel/free handle, lets the Qt model poll it from the GUI thread, and keeps every engine decision (hidden entries, sort key, folder sizes) in C.
+**Architecture:** The C engine already scans on worker threads (`listing_start` submits `scan_job` to the pool; metadata runs in `meta_job` workers; the listing state moves `LST_READY` -> `LST_COMPLETE`). The blocking is entirely in the ABI, which polls that state in a sleep loop (`src/core_api.c:91-97`). This plan exposes the engine's asynchronous scan through the C ABI as a start/poll/cancel/free handle, lets the Qt model hand the handle to one worker thread that polls it, builds the rows and posts a finished snapshot for the GUI thread to apply, and keeps every engine decision (hidden entries, sort key, folder sizes) in C.
 
 **Tech Stack:** C11 (engine, `extern "C"` ABI), C++17 + Qt 6 (models/controllers), QML + Kirigami (views), CMake, Qt Test, GoogleTest-free plain assertions in the C suites.
 
@@ -145,14 +145,14 @@ class DirectoryModel : public QAbstractListModel {
 public:
   bool navigate(const QString &path);   // starts the scan, returns immediately
   void refresh();                       // restarts the scan of the current path
-  void pollScan();                      // called on the GUI thread when the engine wakes
+  void pollScan();                      // wakes the scan worker when the engine wakes
 
 signals:
   void navigateFailed(const QString &path);
 };
 ```
 
-`pollScan()` is the only place that touches the engine's listing. It is called on the GUI thread and applies the result only when the result belongs to the current path and the current generation. The view learns about new rows through the usual model reset, not through an extra signal.
+`pollScan()` only wakes the scan worker; the worker polls the handle and posts a finished snapshot that the GUI thread applies. The GUI thread applies that snapshot only when it belongs to the current path and the current generation. The view learns about new rows through the usual model reset, not through an extra signal.
 
 - [ ] **Step 1: Write the failing Qt tests**
 
@@ -186,12 +186,12 @@ In `qtui/directory_model.cpp`:
 
 - `navigate(path)` claims the path and bumps the generation as it does today, then starts a scan instead of scanning: it cancels and frees any pending scan, calls `hermes_core_scan_start` with the model's current sort key, direction, hidden flag and folder-size flag, stores the handle and the scanned path, and returns true. It returns false only when the engine refuses to start the scan (invalid path), in which case it restores the previous path and emits `navigateFailed` exactly as today.
 - `refresh()` restarts the scan of the current path and keeps the existing rows until the new ones arrive.
-- `pollScan()` polls the pending handle. While the engine reports the scan is still running it returns. When the scan completes it calls `applyScan`, frees the handle and emits `scanFinished`. When the scan failed it keeps the previous rows, frees the handle and emits `navigateFailed` for the scanned path. A result whose path or generation no longer matches the model is dropped without touching the rows.
+- The worker polls the pending handle. While the engine reports the scan is still running it keeps polling with a short sleep. When the scan completes it builds a snapshot from the captured options and posts it to the GUI thread; `applySnapshot` applies it there and emits `scanFinished`. The worker frees the handle when no folder-size results remain. A failed scan keeps the previous rows and emits `navigateFailed` for the scanned path. A result whose path or generation no longer matches the model is dropped without touching the rows.
 - `applyScan` copies the listing into the model's entries, swaps them in with `beginResetModel`/`endResetModel` and emits `pathChanged` when the path actually changed - the same rule the current code uses, so the selection clearing in `qtui/qml/DirectoryPage.qml:25-37` keeps working.
 
 - [ ] **Step 4: Poll from the engine's wake callback**
 
-In `qtui/shell_controller.cpp` the core wake callback (around line 146) currently calls `controller->m_directory->refresh()`. Change it to call `pollScan()` instead: the wake arrives when the engine published a state change, so the right reaction is to fetch the result, not to start a new scan. Keep the `hermes_core_drain` call.
+In `qtui/shell_controller.cpp` the core wake callback (around line 146) currently calls `controller->m_directory->refresh()`. Change it to call `pollScan()` instead: the wake arrives when the engine published a state change, so the right reaction is to nudge the model's worker, not to start a new scan or do engine work on the GUI thread. Keep the `hermes_core_drain` call.
 
 - [ ] **Step 5: Run the Qt suite**
 
@@ -269,7 +269,7 @@ In `src/core_api.c`, `hermes_core_scan_start_folder_sizes` calls the engine's `d
 
 - [ ] **Step 4: Teach the model the three options**
 
-In `qtui/directory_model.{h,cpp}`: store the hidden flag, the folder-size flag and the sort key; pass them in every `hermes_core_scan_start`; `setShowHidden`, `setFolderSizes` and `setSort` store the value and restart the scan. When folder sizes are on, the model calls `hermes_core_scan_start_folder_sizes` once the scan completes, and `pollScan` keeps polling afterwards so the sizes appear when the engine publishes them.
+In `qtui/directory_model.{h,cpp}`: store the hidden flag, the folder-size flag and the sort key; pass them in every `hermes_core_scan_start`; `setShowHidden`, `setFolderSizes` and `setSort` store the value and restart the scan. When folder sizes are on, the worker calls `hermes_core_scan_start_folder_sizes` on the first result and keeps polling the same handle afterwards so the sizes appear when the engine publishes them.
 
 The size role reports -1 while a folder's size is not known yet, so the view can show a placeholder instead of a wrong zero.
 
@@ -526,7 +526,7 @@ git commit -m "feat(ui): add screenshot and record debug modes"
 
 - [ ] **Step 1: Update the known-limitation note**
 
-`docs/building.md` records the synchronous GUI-thread scan as a known limitation (the note added in `f7bff48`, around lines 133-137). Replace it with the new behaviour: the scan runs on the engine's worker pool, the GUI thread polls the result, and a superseded scan is dropped. Keep the note about the folder-size pass, which still costs time on deep trees.
+`docs/building.md` records the synchronous GUI-thread scan as a known limitation (the note added in `f7bff48`, around lines 133-137). Replace it with the new behaviour: the scan runs on the engine's worker pool, one model-owned worker thread polls it and posts finished rows, the GUI thread only applies the snapshot, and a superseded scan is dropped. Keep the note about the folder-size pass, which still costs time on deep trees.
 
 - [ ] **Step 2: Document the new files and the ABI**
 
