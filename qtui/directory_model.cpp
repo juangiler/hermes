@@ -128,8 +128,7 @@ void DirectoryModel::pollScan()
     m_scanFolderSizesActive =
         hermes_core_scan_start_folder_sizes(m_core, m_scan) == 0;
 
-  const QString appliedPreviousPath = firstResult ? previousPath : path;
-  const bool applied = applyScan(path, generation, listing, appliedPreviousPath);
+  const bool applied = applyScan(path, generation, listing);
   if (applied && firstResult) {
     m_scanApplied = true;
     emit scanFinished();
@@ -185,13 +184,13 @@ void DirectoryModel::cancelScan()
 }
 
 bool DirectoryModel::applyScan(const QString &path, quint64 generation,
-                               const HermesListing &listing,
-                               const QString &previousPath)
+                               const HermesListing &listing)
 {
   if (generation != m_generation || path != m_path) {
     return false;
   }
 
+  const bool rowsPathChanged = m_rowsPath != path;
   QVector<Entry> entries;
   entries.reserve(static_cast<qsizetype>(listing.count));
   const QDir dir(path);
@@ -226,7 +225,7 @@ bool DirectoryModel::applyScan(const QString &path, quint64 generation,
   }
   m_path = path;
   m_rowsPath = path;
-  if (previousPath != path)
+  if (rowsPathChanged)
     emit pathChanged(m_path);
   return true;
 }

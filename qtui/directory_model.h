@@ -48,7 +48,7 @@ private:
   friend class HermesQtUiTest;
 
   bool applyScan(const QString &path, quint64 generation,
-                 const HermesListing &listing, const QString &previousPath);
+                 const HermesListing &listing);
   bool startScan(const QString &path, quint64 generation,
                  const QString &previousPath);
   void cancelScan();

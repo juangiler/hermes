@@ -348,6 +348,24 @@ static void scan_folder_sizes_start_returns_zero(void) {
     assert(!rmdir(dir));
 }
 
+static void scan_cancel_poll_is_terminal(void) {
+    char dir[] = "/tmp/hermes-core-abi-cancel-XXXXXX";
+    assert(mkdtemp(dir));
+    HermesCore *core = hermes_core_create(wake_single, NULL);
+    assert(core);
+    HermesScanOptions options = {HERMES_SORT_NAME, false, false, false};
+    HermesScan *scan = hermes_core_scan_start(core, dir, &options);
+    assert(scan);
+    hermes_core_scan_cancel(scan);
+    HermesListing out = {0};
+    assert(hermes_core_scan_poll(core, scan, &out) == -1);
+
+    hermes_listing_free(&out);
+    hermes_core_scan_free(scan);
+    hermes_core_destroy(core);
+    assert(!rmdir(dir));
+}
+
 static void scan_supports_every_sort_key(void) {
     char dir[] = "/tmp/hermes-core-abi-sort-keys-XXXXXX";
     assert(mkdtemp(dir));
@@ -588,6 +606,7 @@ int main(void) {
     scan_start_poll_returns_listing();
     scan_hidden_option_includes_dotfiles();
     scan_folder_sizes_start_returns_zero();
+    scan_cancel_poll_is_terminal();
     scan_supports_every_sort_key();
     scan_free_is_safe_while_running();
     test_ops_mkdir_rename_remove();

@@ -64,6 +64,7 @@ private slots:
   void hostHooksAreSafeAcrossControllerLifetime();
   void selectionUsesPathListAndClearsOnNavigation();
   void selectionClearsOnNavigation();
+  void selectionClearsWhenRowsSwapAfterSupersededNavigation();
   void failedOperationRefreshPreservesSelection();
   void directoryModelRejectsStaleScanResults();
   void operationsCreateRenameAndTrash();
@@ -714,6 +715,48 @@ void HermesQtUiTest::selectionClearsOnNavigation()
   QVERIFY(page->property("selectedPaths").toList().isEmpty());
 }
 
+void HermesQtUiTest::selectionClearsWhenRowsSwapAfterSupersededNavigation()
+{
+  QTemporaryDir first;
+  QTemporaryDir second;
+  QVERIFY(first.isValid());
+  QVERIFY(second.isValid());
+  const QString selectedPath = first.filePath(QStringLiteral("selected.txt"));
+  QVERIFY(writeFile(selectedPath, "x"));
+  QVERIFY(writeFile(second.filePath(QStringLiteral("second.txt")), "y"));
+
+  ShellController controller;
+  controller.navigate(first.path());
+  QTRY_COMPARE_WITH_TIMEOUT(controller.directory()->rowCount(), 1, 5000);
+  QQmlApplicationEngine engine;
+  engine.rootContext()->setContextProperty(QStringLiteral("hermes"), &controller);
+  engine.load(QUrl(QStringLiteral("qrc:/qtui/qml/main.qml")));
+  QVERIFY(!engine.rootObjects().isEmpty());
+  QObject *page = engine.rootObjects().constFirst()->findChild<QObject *>(
+      QStringLiteral("directoryPage"));
+  QVERIFY(page);
+  QVERIFY(QMetaObject::invokeMethod(page, "toggleSelection",
+                                    Q_ARG(QVariant, QVariant(selectedPath))));
+  QCOMPARE(page->property("selectedPaths").toList().size(), 1);
+
+  controller.navigate(second.path());
+  controller.refreshDirectory();
+  DirectoryModel *model = controller.directory();
+  model->cancelScan();
+
+  const QByteArray name("second.txt");
+  HermesListing listing{};
+  listing.items = static_cast<HermesEntry *>(calloc(1, sizeof(HermesEntry)));
+  QVERIFY(listing.items);
+  listing.count = 1;
+  listing.items[0].name = strdup(name.constData());
+  QVERIFY(listing.items[0].name);
+  listing.items[0].name_len = static_cast<size_t>(name.size());
+  QVERIFY(model->applyScan(second.path(), model->m_generation, listing));
+  hermes_listing_free(&listing);
+  QTRY_VERIFY_WITH_TIMEOUT(page->property("selectedPaths").toList().isEmpty(), 5000);
+}
+
 void HermesQtUiTest::failedOperationRefreshPreservesSelection()
 {
   QTemporaryDir dir;
@@ -766,13 +809,12 @@ void HermesQtUiTest::directoryModelRejectsStaleScanResults()
   const QByteArray currentPath = current.path().toUtf8();
   QCOMPARE(hermes_core_scan_sorted(core.get(), currentPath.constData(),
                                    HERMES_SORT_NAME, false, &listing), 0);
-  QVERIFY(!model.applyScan(current.path(), model.m_generation - 1, listing,
-                           current.path()));
+  QVERIFY(!model.applyScan(current.path(), model.m_generation - 1, listing));
   QCOMPARE(model.path(), current.path());
   QCOMPARE(model.rowCount(), 2);
   QCOMPARE(model.data(model.index(0), DirectoryModel::NameRole).toString(), firstName);
 
-  QVERIFY(!model.applyScan(other.path(), model.m_generation, listing, current.path()));
+  QVERIFY(!model.applyScan(other.path(), model.m_generation, listing));
   QCOMPARE(model.path(), current.path());
   QCOMPARE(model.rowCount(), 2);
   QCOMPARE(model.data(model.index(0), DirectoryModel::NameRole).toString(), firstName);

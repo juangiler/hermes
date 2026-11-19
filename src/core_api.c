@@ -117,6 +117,7 @@ HermesScan *hermes_core_scan_start(HermesCore *core, const char *path,
 int hermes_core_scan_poll(HermesCore *core, HermesScan *scan, HermesListing *out) {
     if (!core_live(core) || !scan || !scan->listing || !out) return -1;
     Listing *L = scan->listing;
+    if (atomic_load(&L->cancel)) return -1;
     int state = atomic_load(&L->state);
     if (state == LST_ERROR) return -1;
     if (state < LST_COMPLETE) return 0;
