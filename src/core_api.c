@@ -10,6 +10,11 @@ struct HermesCore {
     struct HermesCore *next;
 };
 
+struct HermesScan {
+    Listing *listing;
+    HermesScanOptions options;
+};
+
 // Handles are kept in a registry so drain() can reject a destroyed handle by
 // pointer comparison without ever dereferencing freed memory.
 static pthread_mutex_t g_registry_mtx = PTHREAD_MUTEX_INITIALIZER;
@@ -82,43 +87,94 @@ void hermes_core_drain(HermesCore *core) {
     main_drain();
 }
 
-int hermes_core_scan_sorted(HermesCore *core, const char *path, HermesSortKey key, bool desc, HermesListing *out) {
-    if (!core_live(core) || !path || !out) return -1;
-    memset(out, 0, sizeof *out);
-
-    Listing *L = listing_new(path, SORT_NAME, false, true);
-    listing_start(L);
-    struct timespec pause = {0, 1000000};
-    for (int i = 0; i < 10000; i++) {
-        int st = atomic_load(&L->state);
-        if (st >= LST_COMPLETE || st == LST_ERROR) break;
-        main_drain();
-        nanosleep(&pause, NULL);
+static int engine_sort_key(HermesSortKey key) {
+    switch (key) {
+    case HERMES_SORT_NAME: return SORT_NAME;
+    case HERMES_SORT_DATE: return SORT_DATE;
+    case HERMES_SORT_TYPE: return SORT_TYPE;
+    case HERMES_SORT_SIZE: return SORT_SIZE;
+    case HERMES_SORT_CREATED: return SORT_CREATED;
+    case HERMES_SORT_EXT: return SORT_EXT;
+    case HERMES_SORT_PERMS: return SORT_PERMS;
+    case HERMES_SORT_OWNER: return SORT_OWNER;
     }
-    int st = atomic_load(&L->state);
-    if (st != LST_COMPLETE) {
-        listing_release(L);
-        return -1;
-    }
+    return -1;
+}
 
-    // The headless shell lists everything, in the requested engine order.
-    OrderOpts oo = {key, desc, true, true, NULL, 0, 0, NULL, false};
+HermesScan *hermes_core_scan_start(HermesCore *core, const char *path,
+                                   const HermesScanOptions *options) {
+    if (!core_live(core) || !path || !path[0] || !options) return NULL;
+    int key = engine_sort_key(options->key);
+    if (key < 0) return NULL;
+
+    HermesScan *scan = xcalloc(1, sizeof *scan);
+    scan->options = *options;
+    scan->listing = listing_new(path, key, options->desc, options->show_hidden);
+    listing_start(scan->listing);
+    return scan;
+}
+
+int hermes_core_scan_poll(HermesCore *core, HermesScan *scan, HermesListing *out) {
+    if (!core_live(core) || !scan || !scan->listing || !out) return -1;
+    Listing *L = scan->listing;
+    int state = atomic_load(&L->state);
+    if (state == LST_ERROR) return -1;
+    if (state < LST_COMPLETE) return 0;
+
+    OrderOpts oo = {engine_sort_key(scan->options.key), scan->options.desc,
+                    scan->options.show_hidden, true, NULL, 0, 0, NULL, false};
     u32 *order = NULL;
     u32 n = 0;
     listing_build_order_ex(L, &oo, &order, &n);
-    out->items = xcalloc(L->count ? L->count : 1, sizeof *out->items);
+    hermes_listing_free(out);
+    out->items = xcalloc(n ? n : 1, sizeof *out->items);
     out->count = n;
     for (u32 i = 0; i < n; i++) {
         const Entry *e = &L->entries[order[i]];
-        out->items[i].name = strdup(e->name);
-        out->items[i].name_len = e->name_len;
-        out->items[i].flags = e->flags;
-        out->items[i].size = e->size;
-        out->items[i].mtime = e->mtime;
+        HermesEntry *copy = &out->items[i];
+        copy->name = strdup(e->name);
+        copy->name_len = e->name_len;
+        copy->flags = e->flags;
+        if (e->flags & ENT_DIR) {
+            bool size_known;
+            (void)entry_dir_size(e, &size_known);
+            if (!size_known) copy->flags |= HERMES_ENTRY_SIZE_UNKNOWN;
+        }
+        copy->size = e->size;
+        copy->mtime = e->mtime;
     }
     free(order);
-    listing_release(L);
-    return 0;
+    return 1;
+}
+
+void hermes_core_scan_cancel(HermesScan *scan) {
+    if (scan && scan->listing) atomic_store(&scan->listing->cancel, 1);
+}
+
+void hermes_core_scan_free(HermesScan *scan) {
+    if (!scan) return;
+    listing_release(scan->listing);
+    free(scan);
+}
+
+int hermes_core_scan_sorted(HermesCore *core, const char *path, HermesSortKey key, bool desc, HermesListing *out) {
+    if (!out) return -1;
+    memset(out, 0, sizeof *out);
+    HermesScanOptions options = {key, desc, true, false};
+    HermesScan *scan = hermes_core_scan_start(core, path, &options);
+    if (!scan) return -1;
+
+    int result = 0;
+    struct timespec pause = {0, 1000000};
+    for (int i = 0; i < 10000; i++) {
+        result = hermes_core_scan_poll(core, scan, out);
+        if (result != 0) break;
+        main_drain();
+        nanosleep(&pause, NULL);
+    }
+    if (result == 0) result = hermes_core_scan_poll(core, scan, out);
+    hermes_core_scan_free(scan);
+    return result == 1 ? 0 : -1;
 }
 
 int hermes_core_scan(HermesCore *core, const char *path, HermesListing *out) {
