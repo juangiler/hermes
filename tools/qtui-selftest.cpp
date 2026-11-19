@@ -278,7 +278,7 @@ void HermesQtUiTest::directoryModelHonoursHiddenToggle()
   CorePtr core = makeCore();
   DirectoryModel model(core.get());
   g_wake_model = &model;
-  model.setShowHidden(false);
+  // The legacy app starts with hidden entries off; the Qt model must match.
   QVERIFY(!model.showHidden());
   QVERIFY(model.navigate(dir.path()));
   QTRY_COMPARE_WITH_TIMEOUT(model.rowCount(), 1, 5000);
@@ -288,6 +288,11 @@ void HermesQtUiTest::directoryModelHonoursHiddenToggle()
   QVERIFY(model.showHidden());
   QTRY_COMPARE_WITH_TIMEOUT(model.rowCount(), 2, 5000);
   QVERIFY(entryNames(&model).contains(QStringLiteral(".hidden.txt")));
+
+  model.setShowHidden(false);
+  QVERIFY(!model.showHidden());
+  QTRY_COMPARE_WITH_TIMEOUT(model.rowCount(), 1, 5000);
+  QCOMPARE(entryNames(&model), QStringList({QStringLiteral("visible.txt")}));
 }
 
 void HermesQtUiTest::directoryModelSortsByEveryKey()
@@ -496,7 +501,7 @@ void HermesQtUiTest::toolbarOptionsControlViewModel()
   ShellController controller;
   controller.navigate(dir.path());
   DirectoryModel *model = controller.directory();
-  QTRY_COMPARE_WITH_TIMEOUT(model->rowCount(), 3, 5000);
+  QTRY_COMPARE_WITH_TIMEOUT(model->rowCount(), 2, 5000);
 
   QQmlApplicationEngine engine;
   engine.rootContext()->setContextProperty(QStringLiteral("hermes"), &controller);
@@ -545,12 +550,19 @@ void HermesQtUiTest::toolbarOptionsControlViewModel()
 
   // The controller must proxy the model state for a single toolbar API.
   QVERIFY(controller.property("showHidden").isValid());
-  QVERIFY(controller.property("showHidden").toBool());
+  QVERIFY(!controller.property("showHidden").toBool());
   QObject *hiddenButton = find("showHiddenButton");
   QVERIFY2(hiddenButton, "showHiddenButton");
   QVERIFY(click(hiddenButton));
+  QVERIFY(controller.property("showHidden").toBool());
+  QVERIFY(model->showHidden());
+  QTRY_COMPARE_WITH_TIMEOUT(model->rowCount(), 3, 5000);
+  QVERIFY(entryNames(model).contains(QStringLiteral(".hidden.txt")));
+  QVERIFY(click(hiddenButton));
   QVERIFY(!controller.property("showHidden").toBool());
   QVERIFY(!model->showHidden());
+  QTRY_COMPARE_WITH_TIMEOUT(model->rowCount(), 2, 5000);
+  QVERIFY(!entryNames(model).contains(QStringLiteral(".hidden.txt")));
 
   QVERIFY(controller.property("sortKey").isValid());
   QObject *sortButton = findVisual(QStringLiteral("sortButton_size"));
