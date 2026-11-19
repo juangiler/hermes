@@ -51,6 +51,7 @@ private slots:
   void directoryModelHonoursHiddenToggle();
   void directoryModelSortsByEveryKey();
   void directoryModelReportsFolderSizes();
+  void folderSizesDoNotReorderSizeSortedRows();
   void directoryModelSortKeyUsesLegacyDirections();
   void directoryViewExposesModesColumnsAndZoom();
   void directoryPageViewModesFormatSizeAndDate();
@@ -351,6 +352,42 @@ void HermesQtUiTest::directoryModelReportsFolderSizes()
   QTRY_VERIFY_WITH_TIMEOUT(model.data(folder, DirectoryModel::SizeRole).toLongLong() > 0,
                            10000);
   QCOMPARE(model.data(model.index(fileRow), DirectoryModel::SizeRole).toLongLong(), 0LL);
+}
+
+void HermesQtUiTest::folderSizesDoNotReorderSizeSortedRows()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  // Names sort opposite to the eventual sizes, so the engine's size-sort
+  // order changes once the folder-size pass publishes its results.
+  const QString big = dir.filePath(QStringLiteral("a-big"));
+  const QString small = dir.filePath(QStringLiteral("z-small"));
+  QVERIFY(QDir().mkpath(big));
+  QVERIFY(QDir().mkpath(small));
+  QVERIFY(writeFile(QDir(big).filePath(QStringLiteral("inside.txt")),
+                    QByteArray(200, 'x')));
+  QVERIFY(writeFile(QDir(small).filePath(QStringLiteral("inside.txt")), QByteArray("x")));
+  QVERIFY(writeFile(dir.filePath(QStringLiteral("plain.txt")), "plain"));
+
+  CorePtr core = makeCore();
+  DirectoryModel model(core.get());
+  g_wake_model = &model;
+  model.setSort(HERMES_SORT_SIZE, false);
+  QVERIFY(model.navigate(dir.path()));
+  QTRY_COMPARE_WITH_TIMEOUT(model.rowCount(), 3, 5000);
+  const QStringList initialOrder = entryNames(&model);
+
+  auto sizeOf = [&model](const QString &name) {
+    for (int row = 0; row < model.rowCount(); ++row) {
+      if (model.data(model.index(row), DirectoryModel::NameRole).toString() == name)
+        return model.data(model.index(row), DirectoryModel::SizeRole).toLongLong();
+    }
+    return -1LL;
+  };
+  model.setFolderSizes(true);
+  QTRY_VERIFY_WITH_TIMEOUT(sizeOf(QStringLiteral("a-big")) > 0
+                           && sizeOf(QStringLiteral("z-small")) > 0, 10000);
+  QCOMPARE(entryNames(&model), initialOrder);
 }
 
 void HermesQtUiTest::directoryModelSortKeyUsesLegacyDirections()

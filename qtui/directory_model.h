@@ -79,6 +79,10 @@ private:
   QString m_rowsPath;
   HermesSortKey m_key = HERMES_SORT_NAME;
   bool m_desc = false;
+  // The sort that produced m_entries: a changed key/direction must reapply the
+  // engine's order, while a size-pass result for the same must not.
+  HermesSortKey m_rowsKey = HERMES_SORT_NAME;
+  bool m_rowsDesc = false;
   bool m_showHidden = true;
   bool m_folderSizes = false;
   bool m_scanApplied = false;
