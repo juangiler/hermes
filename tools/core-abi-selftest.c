@@ -204,6 +204,7 @@ static void test_scan_sorted(void) {
     assert(hermes_core_scan_sorted(core, dir, HERMES_SORT_NAME, false, &out) == 0);
     assert(out.count == 3);
     assert(out.items[0].flags & HERMES_ENTRY_DIR);
+    assert(out.items[0].flags & HERMES_ENTRY_SIZE_UNKNOWN);
     assert(!strcmp(out.items[0].name, "zdir"));
     assert(!strcmp(out.items[1].name, "a.txt"));
     assert(!strcmp(out.items[2].name, "b.txt"));
@@ -242,6 +243,145 @@ static void test_scan_sorted(void) {
     assert(!unlink(p));
     assert(!rmdir(sizedir));
 
+    hermes_core_destroy(core);
+}
+
+static int poll_scan_until_done(HermesCore *core, HermesScan *scan, HermesListing *out) {
+    struct timespec pause = {0, 1000000};
+    int result = 0;
+    for (int i = 0; i < 2000 && result == 0; i++) {
+        result = hermes_core_scan_poll(core, scan, out);
+        if (result == 0) nanosleep(&pause, NULL);
+    }
+    return result;
+}
+
+static void make_scan_fixture(char dir[PATH_MAX]) {
+    strcpy(dir, "/tmp/hermes-core-abi-scan-XXXXXX");
+    assert(mkdtemp(dir));
+    char p[PATH_MAX];
+    snprintf(p, sizeof p, "%s/b.txt", dir);
+    write_content(p, "b", 1);
+    snprintf(p, sizeof p, "%s/a.txt", dir);
+    write_content(p, "a", 1);
+    snprintf(p, sizeof p, "%s/.secret", dir);
+    write_content(p, "s", 1);
+}
+
+static void remove_scan_fixture(const char *dir) {
+    char p[PATH_MAX];
+    snprintf(p, sizeof p, "%s/b.txt", dir);
+    assert(!unlink(p));
+    snprintf(p, sizeof p, "%s/a.txt", dir);
+    assert(!unlink(p));
+    snprintf(p, sizeof p, "%s/.secret", dir);
+    assert(!unlink(p));
+    assert(!rmdir(dir));
+}
+
+static void scan_start_poll_returns_listing(void) {
+    char dir[PATH_MAX];
+    make_scan_fixture(dir);
+    HermesCore *core = hermes_core_create(wake_single, NULL);
+    assert(core);
+    HermesScanOptions options = {HERMES_SORT_NAME, false, false, false};
+    HermesScan *scan = hermes_core_scan_start(core, dir, &options);
+    assert(scan);
+    HermesListing out = {0};
+    assert(poll_scan_until_done(core, scan, &out) == 1);
+    assert(out.count == 2);
+    assert(!strcmp(out.items[0].name, "a.txt"));
+    assert(hermes_core_scan_poll(core, scan, &out) == 1);
+    assert(out.count == 2);
+    hermes_listing_free(&out);
+    hermes_core_scan_free(scan);
+    hermes_core_destroy(core);
+    remove_scan_fixture(dir);
+}
+
+static void scan_hidden_option_includes_dotfiles(void) {
+    char dir[PATH_MAX];
+    make_scan_fixture(dir);
+    HermesCore *core = hermes_core_create(wake_single, NULL);
+    assert(core);
+    HermesScanOptions options = {HERMES_SORT_NAME, false, true, false};
+    HermesScan *scan = hermes_core_scan_start(core, dir, &options);
+    assert(scan);
+    HermesListing out = {0};
+    assert(poll_scan_until_done(core, scan, &out) == 1);
+    assert(out.count == 3);
+    bool found = false;
+    for (size_t i = 0; i < out.count; i++)
+        if (!strcmp(out.items[i].name, ".secret")) found = true;
+    assert(found);
+    hermes_listing_free(&out);
+    hermes_core_scan_free(scan);
+    hermes_core_destroy(core);
+    remove_scan_fixture(dir);
+}
+
+static void scan_supports_every_sort_key(void) {
+    char dir[] = "/tmp/hermes-core-abi-sort-keys-XXXXXX";
+    assert(mkdtemp(dir));
+    char p[PATH_MAX];
+    snprintf(p, sizeof p, "%s/a.txt", dir);
+    write_content(p, "a", 1);
+    snprintf(p, sizeof p, "%s/b.txt", dir);
+    write_content(p, "b", 1);
+    snprintf(p, sizeof p, "%s/sub", dir);
+    assert(mkdir(p, 0755) == 0);
+
+    HermesCore *core = hermes_core_create(wake_single, NULL);
+    assert(core);
+    for (int key = HERMES_SORT_NAME; key <= HERMES_SORT_OWNER; key++) {
+        HermesScanOptions options = {(HermesSortKey)key, false, true, false};
+        HermesScan *scan = hermes_core_scan_start(core, dir, &options);
+        assert(scan);
+        HermesListing out = {0};
+        assert(poll_scan_until_done(core, scan, &out) == 1);
+        assert(out.count > 0);
+        hermes_listing_free(&out);
+        hermes_core_scan_free(scan);
+    }
+    hermes_core_destroy(core);
+    snprintf(p, sizeof p, "%s/a.txt", dir);
+    assert(!unlink(p));
+    snprintf(p, sizeof p, "%s/b.txt", dir);
+    assert(!unlink(p));
+    snprintf(p, sizeof p, "%s/sub", dir);
+    assert(!rmdir(p));
+    assert(!rmdir(dir));
+}
+
+static void scan_free_is_safe_while_running(void) {
+    char dir[] = "/tmp/hermes-core-abi-scan-free-XXXXXX";
+    assert(mkdtemp(dir));
+    make_files(dir, 2000);
+    HermesCore *core = hermes_core_create(wake_single, NULL);
+    assert(core);
+    HermesScanOptions options = {HERMES_SORT_NAME, false, false, false};
+    HermesScan *scan = hermes_core_scan_start(core, dir, &options);
+    assert(scan);
+    hermes_core_scan_cancel(scan);
+    hermes_core_scan_free(scan);
+    hermes_core_drain(core);
+
+    char small[] = "/tmp/hermes-core-abi-scan-small-XXXXXX";
+    assert(mkdtemp(small));
+    char p[PATH_MAX];
+    snprintf(p, sizeof p, "%s/one.txt", small);
+    write_content(p, "1", 1);
+    HermesListing out;
+    assert(hermes_core_scan(core, small, &out) == 0);
+    assert(out.count == 1);
+    hermes_listing_free(&out);
+    assert(!unlink(p));
+    assert(!rmdir(small));
+    for (int i = 0; i < 2000; i++) {
+        snprintf(p, sizeof p, "%s/f%d.txt", dir, i);
+        assert(!unlink(p));
+    }
+    assert(!rmdir(dir));
     hermes_core_destroy(core);
 }
 
@@ -417,6 +557,10 @@ int main(void) {
     test_uri_to_path();
     test_open_uris();
     test_scan_sorted();
+    scan_start_poll_returns_listing();
+    scan_hidden_option_includes_dotfiles();
+    scan_supports_every_sort_key();
+    scan_free_is_safe_while_running();
     test_ops_mkdir_rename_remove();
     test_ops_copy_move_conflict_policy();
     test_operations_changed_hook();
