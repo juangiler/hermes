@@ -19,9 +19,12 @@
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QtTest>
+#include <functional>
 #include <memory>
 #include <thread>
 #include <QThread>
+#include <fcntl.h>
+#include <unistd.h>
 
 static DirectoryModel *g_wake_model;
 
@@ -50,6 +53,7 @@ private slots:
   void directoryModelSortKeyUsesLegacyDirections();
   void directoryViewExposesModesColumnsAndZoom();
   void directoryPageViewModesFormatSizeAndDate();
+  void directoryPageViewsShowEntriesAndScaleWithZoom();
   void directoryModelFailedNavigateKeepsPath();
   void directoryModelNavigationDoesNotBlock();
   void directoryModelAppliesAsyncResults();
@@ -65,6 +69,7 @@ private slots:
   void hostOpenTabAtIndexInsertsTab();
   void hostHooksAreSafeAcrossControllerLifetime();
   void selectionUsesPathListAndClearsOnNavigation();
+  void selectionSupportsRangeAndKeyboard();
   void selectionClearsOnNavigation();
   void selectionClearsWhenRowsSwapAfterSupersededNavigation();
   void failedOperationRefreshPreservesSelection();
@@ -448,6 +453,107 @@ void HermesQtUiTest::directoryPageViewModesFormatSizeAndDate()
   QVERIFY(result.toString().contains(QLatin1Char(':')));
 }
 
+void HermesQtUiTest::directoryPageViewsShowEntriesAndScaleWithZoom()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  QVERIFY(writeFile(dir.filePath(QStringLiteral("a.txt")), "a"));
+  QVERIFY(writeFile(dir.filePath(QStringLiteral("b.txt")), "b"));
+  QVERIFY(writeFile(dir.filePath(QStringLiteral("c.txt")), "c"));
+  QVERIFY(QDir().mkpath(dir.filePath(QStringLiteral("zdir"))));
+
+  ShellController controller;
+  controller.navigate(dir.path());
+  DirectoryModel *model = controller.directory();
+  QTRY_COMPARE_WITH_TIMEOUT(model->rowCount(), 4, 5000);
+
+  QQmlApplicationEngine engine;
+  engine.rootContext()->setContextProperty(QStringLiteral("hermes"), &controller);
+  engine.load(QUrl(QStringLiteral("qrc:/qtui/qml/main.qml")));
+  QVERIFY(!engine.rootObjects().isEmpty());
+  QQuickWindow *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
+  QVERIFY(window);
+  window->resize(800, 600);
+  window->show();
+  QCoreApplication::processEvents();
+
+  QObject *page = window->findChild<QObject *>(QStringLiteral("directoryPage"));
+  QVERIFY(page);
+  auto findView = [page](const char *name) {
+    return qobject_cast<QQuickItem *>(page->findChild<QObject *>(QString::fromLatin1(name)));
+  };
+  QQuickItem *list = findView("listView");
+  QQuickItem *details = findView("detailsView");
+  QQuickItem *grid = findView("gridView");
+  QVERIFY(list);
+  QVERIFY(details);
+  QVERIFY(grid);
+
+  // Real rows are needed here: loading an empty directory never instantiates
+  // the delegates, so the view contents were only checked by reading the QML.
+  QVERIFY(list->property("visible").toBool());
+  QCOMPARE(list->property("count").toInt(), 4);
+  QVERIFY(!details->property("visible").toBool());
+  QVERIFY(!grid->property("visible").toBool());
+
+  const double baseRow = page->property("rowHeight").toDouble();
+  const double baseCell = grid->property("cellWidth").toDouble();
+  QVERIFY(baseRow > 0);
+  QVERIFY(baseCell > 0);
+
+  controller.setZoom(1.5);
+  QCoreApplication::processEvents();
+  QVERIFY(qFuzzyCompare(page->property("rowHeight").toDouble(), baseRow * 1.5));
+  QVERIFY(qFuzzyCompare(grid->property("cellWidth").toDouble(), baseCell * 1.5));
+  const double fixedWidth = page->property("fixedColumnWidth").toDouble();
+  QVERIFY(qFuzzyCompare(fixedWidth, (140.0 + 88.0) * 1.5));
+
+  controller.setViewMode(1);
+  QCoreApplication::processEvents();
+  QVERIFY(details->property("visible").toBool());
+  QVERIFY(!list->property("visible").toBool());
+  QVERIFY(!grid->property("visible").toBool());
+  QCOMPARE(details->property("count").toInt(), 4);
+
+  // Delegates are visual children of the view's content item, not QObject
+  // children, so walk the visual tree to reach the instantiated columns.
+  QList<QQuickItem *> texts;
+  std::function<void(QQuickItem *)> collectTexts = [&texts, &collectTexts](QQuickItem *item) {
+    for (QQuickItem *child : item->childItems()) {
+      if (QString::fromLatin1(child->metaObject()->className()).contains("QQuickText"))
+        texts.append(child);
+      collectTexts(child);
+    }
+  };
+  collectTexts(details);
+  QCOMPARE(texts.size(), 12);  // four rows, one Text per configured column
+  const double nameWidth = details->width() - fixedWidth;
+  auto countWidths = [&texts](double expected) {
+    int matches = 0;
+    for (QQuickItem *text : texts) {
+      if (qFuzzyCompare(text->width(), expected))
+        ++matches;
+    }
+    return matches;
+  };
+  QCOMPARE(countWidths(nameWidth), 4);
+  QCOMPARE(countWidths(140.0 * 1.5), 4);
+  QCOMPARE(countWidths(88.0 * 1.5), 4);
+
+  controller.setViewMode(2);
+  QCoreApplication::processEvents();
+  QVERIFY(grid->property("visible").toBool());
+  QVERIFY(!list->property("visible").toBool());
+  QVERIFY(!details->property("visible").toBool());
+  QCOMPARE(grid->property("count").toInt(), 4);
+
+  controller.setViewMode(0);
+  QCoreApplication::processEvents();
+  QVERIFY(list->property("visible").toBool());
+  QVERIFY(!details->property("visible").toBool());
+  QVERIFY(!grid->property("visible").toBool());
+}
+
 void HermesQtUiTest::directoryModelFailedNavigateKeepsPath()
 {
   QTemporaryDir dir;
@@ -785,6 +891,112 @@ void HermesQtUiTest::selectionUsesPathListAndClearsOnNavigation()
   controller.navigate(second.path());
   QTRY_VERIFY_WITH_TIMEOUT(page->property("selectedPaths").toList().isEmpty(), 5000);
   QVERIFY(page->property("selectedPaths").toList().isEmpty());
+}
+
+void HermesQtUiTest::selectionSupportsRangeAndKeyboard()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString subdirectory = QStringLiteral("zdir");
+  QVERIFY(writeFile(dir.filePath(QStringLiteral("a.txt")), "a"));
+  QVERIFY(writeFile(dir.filePath(QStringLiteral("b.txt")), "b"));
+  QVERIFY(writeFile(dir.filePath(QStringLiteral("c.txt")), "c"));
+  QVERIFY(QDir().mkpath(dir.filePath(subdirectory)));
+  // A raw byte that is not valid UTF-8: the model reports the replacement
+  // character, and the page must pass that exact string through to operations.
+  const QByteArray rawPath = dir.path().toUtf8() + "/\xff" "bad.txt";
+  const int fd = ::open(rawPath.constData(), O_CREAT | O_WRONLY | O_TRUNC, 0644);
+  QVERIFY(fd >= 0);
+  QCOMPARE(::close(fd), 0);
+
+  ShellController controller;
+  controller.navigate(dir.path());
+  DirectoryModel *model = controller.directory();
+  QTRY_COMPARE_WITH_TIMEOUT(model->rowCount(), 5, 5000);
+
+  QStringList paths;
+  for (int row = 0; row < model->rowCount(); ++row)
+    paths.append(model->data(model->index(row), DirectoryModel::PathRole).toString());
+  QStringList modelPaths;
+  QVERIFY(QMetaObject::invokeMethod(model, "paths", Qt::DirectConnection,
+                                    Q_RETURN_ARG(QStringList, modelPaths)));
+  QCOMPARE(modelPaths, paths);
+
+  QQmlApplicationEngine engine;
+  engine.rootContext()->setContextProperty(QStringLiteral("hermes"), &controller);
+  engine.load(QUrl(QStringLiteral("qrc:/qtui/qml/main.qml")));
+  QVERIFY(!engine.rootObjects().isEmpty());
+  QQuickWindow *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
+  QVERIFY(window);
+  window->resize(800, 600);
+  window->show();
+  QCoreApplication::processEvents();
+  QObject *page = window->findChild<QObject *>(QStringLiteral("directoryPage"));
+  QVERIFY(page);
+  QQuickItem *list = qobject_cast<QQuickItem *>(
+      page->findChild<QObject *>(QStringLiteral("listView")));
+  QVERIFY(list);
+  // The visible view takes key focus on load; direct calls alone would not
+  // prove that the shortcuts can ever reach the page.
+  QTRY_VERIFY_WITH_TIMEOUT(list->hasActiveFocus(), 2000);
+
+  auto invokeInt = [page](const char *name, int value) {
+    return QMetaObject::invokeMethod(page, name, Q_ARG(QVariant, QVariant(value)));
+  };
+  auto selected = [page] { return page->property("selectedPaths").toList(); };
+  auto expectPaths = [&selected](const QStringList &expected) {
+    QVariantList actual;
+    for (const QString &path : expected)
+      actual.append(path);
+    QCOMPARE(selected(), actual);
+  };
+
+  QVERIFY(invokeInt("setCurrentIndex", 0));
+  QCOMPARE(page->property("currentIndex").toInt(), 0);
+  QVERIFY(QMetaObject::invokeMethod(page, "toggleSelection",
+                                    Q_ARG(QVariant, QVariant(paths.first()))));
+  QVERIFY(invokeInt("selectRange", 3));
+  // The model lists the subdirectory first, so the range spans the first
+  // four rows: subdirectory plus the three regular files.
+  expectPaths(paths.mid(0, 4));
+
+  QVERIFY(QMetaObject::invokeMethod(page, "clearSelection"));
+  QTest::keyClick(window, Qt::Key_Down);
+  QCOMPARE(page->property("currentIndex").toInt(), 1);
+  QTest::keyClick(window, Qt::Key_End);
+  QCOMPARE(page->property("currentIndex").toInt(), paths.size() - 1);
+  QTest::keyClick(window, Qt::Key_Home);
+  QCOMPARE(page->property("currentIndex").toInt(), 0);
+  QTest::keyClick(window, Qt::Key_Space);
+  expectPaths(QStringList(paths.first()));
+  QTest::keyClick(window, Qt::Key_A, Qt::ControlModifier);
+  expectPaths(paths);
+
+  QVERIFY(QMetaObject::invokeMethod(page, "clearSelection"));
+  int invalidRow = -1;
+  for (int row = 0; row < model->rowCount(); ++row) {
+    if (model->data(model->index(row), DirectoryModel::NameRole).toString()
+        .contains(QChar(0xfffd))) {
+      invalidRow = row;
+      break;
+    }
+  }
+  QVERIFY(invalidRow >= 0);
+  const QString invalidPath = model->data(model->index(invalidRow),
+                                          DirectoryModel::PathRole).toString();
+  QVERIFY(invalidPath.contains(QChar(0xfffd)));
+  QVERIFY(QMetaObject::invokeMethod(page, "toggleSelection",
+                                    Q_ARG(QVariant, QVariant(invalidPath))));
+  expectPaths(QStringList(invalidPath));
+
+  const int subdirRow = paths.indexOf(dir.filePath(subdirectory));
+  QVERIFY(subdirRow >= 0);
+  QVERIFY(invokeInt("setCurrentIndex", subdirRow));
+  QCOMPARE(page->property("currentIndex").toInt(), subdirRow);
+  QVERIFY(QMetaObject::invokeMethod(page, "activateCurrent"));
+  QTRY_COMPARE_WITH_TIMEOUT(model->path(), dir.filePath(subdirectory), 5000);
+  // Remove the raw-byte name explicitly: QTemporaryDir cannot enumerate it.
+  QCOMPARE(::unlink(rawPath.constData()), 0);
 }
 
 void HermesQtUiTest::selectionClearsOnNavigation()

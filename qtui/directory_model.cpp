@@ -58,6 +58,15 @@ QHash<int, QByteArray> DirectoryModel::roleNames() const
           {SizeRole, "size"}, {ModifiedRole, "modified"}, {IsDirRole, "isDir"}};
 }
 
+QStringList DirectoryModel::paths() const
+{
+  QStringList result;
+  result.reserve(m_entries.size());
+  for (const Entry &entry : m_entries)
+    result.append(entry.path);
+  return result;
+}
+
 QString DirectoryModel::path() const
 {
   return m_path;

@@ -22,6 +22,8 @@ public:
   int rowCount(const QModelIndex &parent = {}) const override;
   QVariant data(const QModelIndex &index, int role) const override;
   QHash<int, QByteArray> roleNames() const override;
+  // QML cannot call data()/index(), so expose row paths for range selection.
+  Q_INVOKABLE QStringList paths() const;
 
   QString path() const;
   bool navigate(const QString &path);
