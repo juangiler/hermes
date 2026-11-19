@@ -238,8 +238,11 @@ int hermes_core_scan_start_folder_sizes(HermesCore *core, HermesScan *scan);
   bool showHidden() const;
   void setFolderSizes(bool on);    // restarts the scan
   bool folderSizes() const;
-  void setSort(HermesSortKey key, bool desc);  // already exists; restarts the scan
+  void setSort(HermesSortKey key, bool desc);  // explicit direction; restarts the scan
+  void setSortKey(HermesSortKey key);          // the legacy app's policy; restarts the scan
 ```
+
+`setSortKey` reproduces the legacy app's policy for choosing a sort key (`src/app.c:5183-5190`): a new key starts descending for `HERMES_SORT_DATE` and `HERMES_SORT_SIZE` and ascending for every other key, and choosing the key that is already active flips the direction. `setSort(key, desc)` stays the explicit-direction entry point.
 
 The model exposes a `Q_INVOKABLE QStringList sortKeys() const` returning the eight sort keys in engine order, so the QML can build a sort menu without duplicating the list.
 
@@ -250,7 +253,8 @@ In `tools/core-abi-selftest.c` add `scan_folder_sizes_start_returns_zero`: start
 In `tools/qtui-selftest.cpp` add:
 
 - `directoryModelHonoursHiddenToggle`: a directory with `visible.txt` and `.hidden.txt`; navigate with hidden off and assert the row count is 1; call `setShowHidden(true)` and `QTRY_COMPARE(rowCount(), 2)`; assert the hidden entry's name role is `.hidden.txt`.
-- `directoryModelSortsByEveryKey`: a directory with `a.txt`, `b.txt` and the subfolder `sub`; for each of the eight keys call `setSort(key, false)`, wait for the scan to be applied, and assert the first row's name is the expected one for that key (`a.txt` for name and extension, `sub` for type and size with the folder first, the newest file for date and created). The expected values come from the legacy behaviour in `src/app.c:229`.
+- `directoryModelSortsByEveryKey`: a directory with `a.txt`, `b.txt` and the subfolder `sub`; for each of the eight keys call `setSort(key, false)`, wait for the scan to be applied, and assert the first row's name is the expected one for that key. The expectations come from the engine's sort implementation in `src/fs.c`, so with an ascending sort the date and created keys give **oldest first** (`src/fs.c:260-261`, `:272-274`; `cmp_entries` returns `c->desc ? -r : r`). The fixture must give its files distinct modification times, and distinct creation times where the platform records them, so the order is fixed rather than dependent on when the test ran.
+- `directoryModelSortKeyFollowsLegacyPolicy`: choosing a key through `setSortKey` starts descending for the date and size keys and ascending for the others, and choosing the active key again flips the direction.
 - `directoryModelReportsFolderSizes`: a directory with the subfolder `sub` holding one file; navigate with `setFolderSizes(true)`; `QTRY_VERIFY` that the subfolder's size role becomes greater than zero. A size that is not known yet must not read as zero-with-known-flag; the model reports an unknown size as -1.
 
 - [ ] **Step 2: Run both suites and watch them fail**
