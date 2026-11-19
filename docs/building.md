@@ -138,12 +138,13 @@ superseded scan is dropped by generation, so navigating again cannot let an
 older result overwrite newer rows. The recursive folder-size pass still costs
 time on deep trees, even though the scan itself no longer blocks the event loop.
 
-Known limitations of this slice:
+Notes carried forward from this slice:
 
 - A file name that is not valid UTF-8 is decoded to the replacement character
-  by the model, so the path the view holds names a file that does not exist and
-  an operation on that entry fails. Carrying arbitrary bytes through the UTF-16
-  UI is separate work.
+  for display. The model also retains the scanned raw bytes, so an operation
+  targets the exact file when the displayed path maps to one row. If two raw
+  names decode to the same displayed path, the operation is refused with a
+  visible message instead of guessing which file the user meant.
 - The date column relies on `QLocale::dateFormat` and `timeFormat` and the
   `QLocale::toString(QDate, QString)` overload. The Qt suite runs on all four CI
   images, so the formats are exercised on each distribution's Qt version; a
