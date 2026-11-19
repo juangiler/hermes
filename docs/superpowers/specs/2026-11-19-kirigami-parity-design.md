@@ -133,15 +133,22 @@ the GUI thread and can block it for up to ten seconds.
 
 ### S2 - Split panes
 
-- A tab holds a tree of panes instead of a single view. A pane shows one
-  directory; the active pane is the one that receives navigation, selection and
-  commands.
-- Right and bottom splits, splitting by menu and by dragging a tab or a
-  folder to an edge, plus "open in split" and "move to split".
-- The pane tree survives a restart like the legacy session does, through the
+The behaviour to port is the legacy application's, and the legacy's structure
+is a tree of panels, each with its own tab strip - not a tree of panes inside a
+tab. The details, and the two pull requests the slice is delivered in, are in
+`2026-11-20-kirigami-split-panes-design.md`.
+
+- The window holds a tree of panels, split right or down, at most sixteen of
+  them. Every panel owns a stack of tabs and draws its own tab strip, and
+  every tab shows one directory.
+- The active panel is the one that receives navigation, selection and commands.
+- Splitting by menu and by dragging a tab or a folder to an edge, plus "open in
+  split" and "move to split".
+- The panel tree survives a restart like the legacy session does, through the
   existing settings.
-- Exit criteria: a tab splits right and down, a folder opens in a new pane, a
-  pane can be closed, and the layout is restored from the settings file.
+- Exit criteria: a panel splits right and down, a folder opens in a new panel,
+  a panel closes when its last tab closes, and the layout is restored from the
+  settings file.
 
 ### S3 - Sidebar parity
 
