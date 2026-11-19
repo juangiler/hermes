@@ -54,6 +54,7 @@ private slots:
   void folderSizesDoNotReorderSizeSortedRows();
   void directoryModelSortKeyUsesLegacyDirections();
   void directoryViewExposesModesColumnsAndZoom();
+  void toolbarOptionsControlViewModel();
   void directoryPageViewModesFormatSizeAndDate();
   void directoryPageViewsShowEntriesAndScaleWithZoom();
   void directoryModelFailedNavigateKeepsPath();
@@ -450,6 +451,106 @@ void HermesQtUiTest::directoryViewExposesModesColumnsAndZoom()
   QCOMPARE(controller.zoom(), 0.6);
   QCOMPARE(modeChanged.count(), 2);
   QCOMPARE(zoomChanged.count(), 2);
+}
+
+void HermesQtUiTest::toolbarOptionsControlViewModel()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  QVERIFY(writeFile(dir.filePath(QStringLiteral("visible.txt")), "v"));
+  QVERIFY(writeFile(dir.filePath(QStringLiteral(".hidden.txt")), "h"));
+  QVERIFY(QDir().mkpath(dir.filePath(QStringLiteral("sub"))));
+
+  ShellController controller;
+  controller.navigate(dir.path());
+  DirectoryModel *model = controller.directory();
+  QTRY_COMPARE_WITH_TIMEOUT(model->rowCount(), 3, 5000);
+
+  QQmlApplicationEngine engine;
+  engine.rootContext()->setContextProperty(QStringLiteral("hermes"), &controller);
+  engine.load(QUrl(QStringLiteral("qrc:/qtui/qml/main.qml")));
+  QVERIFY(!engine.rootObjects().isEmpty());
+  QQuickWindow *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
+  QVERIFY(window);
+  window->resize(800, 600);
+  window->show();
+  QCoreApplication::processEvents();
+  QObject *page = window->findChild<QObject *>(QStringLiteral("directoryPage"));
+  QVERIFY(page);
+
+  auto find = [window](const char *name) {
+    return window->findChild<QObject *>(QString::fromLatin1(name));
+  };
+  // Repeater delegates are visual children of Row's content item, not QObject
+  // children of the window.
+  auto findVisual = [window](const QString &name) -> QObject * {
+    QList<QQuickItem *> queue{window->contentItem()};
+    while (!queue.isEmpty()) {
+      QQuickItem *item = queue.takeFirst();
+      if (item->objectName() == name)
+        return item;
+      queue.append(item->childItems());
+    }
+    return nullptr;
+  };
+  auto click = [](QObject *button) {
+    return QMetaObject::invokeMethod(button, "click");
+  };
+  QObject *detailsButton = find("detailsViewButton");
+  QVERIFY2(detailsButton, "detailsViewButton");
+  QObject *listButton = find("listViewButton");
+  QVERIFY2(listButton, "listViewButton");
+  QVERIFY(click(detailsButton));
+  QCOMPARE(controller.viewMode(), 1);
+  QCoreApplication::processEvents();
+  auto view = [page](const char *name) {
+    return page->findChild<QObject *>(QString::fromLatin1(name));
+  };
+  QVERIFY(view("detailsView")->property("visible").toBool());
+  QVERIFY(!view("listView")->property("visible").toBool());
+  QVERIFY(click(listButton));
+  QCOMPARE(controller.viewMode(), 0);
+
+  // The controller must proxy the model state for a single toolbar API.
+  QVERIFY(controller.property("showHidden").isValid());
+  QVERIFY(controller.property("showHidden").toBool());
+  QObject *hiddenButton = find("showHiddenButton");
+  QVERIFY2(hiddenButton, "showHiddenButton");
+  QVERIFY(click(hiddenButton));
+  QVERIFY(!controller.property("showHidden").toBool());
+  QVERIFY(!model->showHidden());
+
+  QVERIFY(controller.property("sortKey").isValid());
+  QObject *sortButton = findVisual(QStringLiteral("sortButton_size"));
+  QVERIFY2(sortButton, "sortButton_size");
+  QVERIFY(click(sortButton));
+  QCOMPARE(controller.property("sortKey").toString(), QStringLiteral("size"));
+  QCOMPARE(model->property("sortKey").toString(), QStringLiteral("size"));
+  for (const QString &key : model->sortKeys()) {
+    const QString name = QStringLiteral("sortButton_") + key;
+    QVERIFY2(findVisual(name), qPrintable(name));
+  }
+
+  QObject *sizesButton = find("folderSizesButton");
+  QVERIFY2(sizesButton, "folderSizesButton");
+  QVERIFY(click(sizesButton));
+  QVERIFY(controller.property("folderSizes").toBool());
+  QVERIFY(model->folderSizes());
+
+  QObject *zoomIn = find("zoomInButton");
+  QObject *zoomOut = find("zoomOutButton");
+  QVERIFY2(zoomIn, "zoomInButton");
+  QVERIFY2(zoomOut, "zoomOutButton");
+  const double before = controller.zoom();
+  QVERIFY(click(zoomIn));
+  QVERIFY(controller.zoom() > before);
+  QVERIFY(controller.zoom() <= 2.5);
+  for (int i = 0; i < 20; ++i)
+    QVERIFY(click(zoomIn));
+  QVERIFY(qFuzzyCompare(controller.zoom(), 2.5));
+  for (int i = 0; i < 30; ++i)
+    QVERIFY(click(zoomOut));
+  QVERIFY(qFuzzyCompare(controller.zoom(), 0.6));
 }
 
 void HermesQtUiTest::directoryPageViewModesFormatSizeAndDate()

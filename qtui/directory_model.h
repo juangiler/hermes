@@ -11,6 +11,10 @@ class DirectoryModel : public QAbstractListModel
 {
   Q_OBJECT
 
+  Q_PROPERTY(bool showHidden READ showHidden WRITE setShowHidden NOTIFY showHiddenChanged)
+  Q_PROPERTY(bool folderSizes READ folderSizes WRITE setFolderSizes NOTIFY folderSizesChanged)
+  Q_PROPERTY(QString sortKey READ sortKey WRITE setSortKey NOTIFY sortKeyChanged)
+
 public:
   enum Role { NameRole = Qt::UserRole + 1, PathRole, FlagsRole,
               SizeRole, ModifiedRole, IsDirRole };
@@ -35,9 +39,11 @@ public:
   void setSort(HermesSortKey key, bool desc);
   void setSortKey(HermesSortKey key);
   Q_INVOKABLE QStringList sortKeys() const;
-  void setShowHidden(bool show);
+  QString sortKey() const;
+  Q_INVOKABLE void setSortKey(const QString &key);
+  Q_INVOKABLE void setShowHidden(bool show);
   bool showHidden() const;
-  void setFolderSizes(bool on);
+  Q_INVOKABLE void setFolderSizes(bool on);
   bool folderSizes() const;
 
 public slots:
@@ -48,6 +54,9 @@ signals:
   void pathChanged(const QString &path);
   void navigateFailed(const QString &path);
   void scanFinished();
+  void showHiddenChanged();
+  void folderSizesChanged();
+  void sortKeyChanged();
 
 private:
   // Test seam for the stale-result guard: the integration test cannot force a

@@ -31,6 +31,9 @@ class ShellController : public QObject
   Q_PROPERTY(int viewMode READ viewMode NOTIFY viewModeChanged)   // 0 list, 1 details, 2 grid
   Q_PROPERTY(QVariantList columns READ columns NOTIFY columnsChanged)  // each: {key, width}
   Q_PROPERTY(double zoom READ zoom NOTIFY zoomChanged)             // 0.6 .. 2.5
+  Q_PROPERTY(bool showHidden READ showHidden NOTIFY showHiddenChanged)
+  Q_PROPERTY(bool folderSizes READ folderSizes NOTIFY folderSizesChanged)
+  Q_PROPERTY(QString sortKey READ sortKey NOTIFY sortKeyChanged)
 
 public:
   explicit ShellController(QObject *parent = nullptr);
@@ -46,6 +49,9 @@ public:
   int viewMode() const;
   QVariantList columns() const;
   double zoom() const;
+  bool showHidden() const;
+  bool folderSizes() const;
+  QString sortKey() const;
   HermesCore *core() const;
 
   // The engine's open_tab hook arrives on this method, off the GUI thread.
@@ -60,6 +66,9 @@ public:
   Q_INVOKABLE void setConflictPolicy(HermesConflictPolicy policy);
   Q_INVOKABLE void setViewMode(int mode);
   Q_INVOKABLE void setZoom(double zoom);
+  Q_INVOKABLE void setShowHidden(bool show);
+  Q_INVOKABLE void setFolderSizes(bool on);
+  Q_INVOKABLE void setSortKey(const QString &key);
 
   // Called from the queued operations_changed hook on the GUI thread.
   void recordOperationCompletion(int kind, int errorCount);
@@ -89,6 +98,9 @@ signals:
   void viewModeChanged();
   void columnsChanged();
   void zoomChanged();
+  void showHiddenChanged();
+  void folderSizesChanged();
+  void sortKeyChanged();
 
 private:
   struct TabState {
