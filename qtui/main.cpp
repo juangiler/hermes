@@ -12,6 +12,7 @@
 #include <QQmlContext>
 #include <QStringList>
 #include <QTextStream>
+#include <QTimer>
 #include <QUrl>
 #include <cstring>
 
@@ -20,6 +21,10 @@
 #endif
 
 namespace {
+
+// Backstop for a scan that neither applies nor reports failure. A debug run
+// must always finish; a genuinely slow scan has the whole budget to complete.
+constexpr int kScanWatchdogMs = 30000;
 
 // One window grab is only valid after the scene graph has rendered a frame;
 // grabbing any earlier yields an empty image. The screenshot additionally waits
@@ -31,7 +36,14 @@ public:
       : m_window(window), m_model(model)
   {
     connect(window, &QQuickWindow::afterRendering, this, &FrameGrabber::onAfterRendering);
+    connect(model, &DirectoryModel::navigateFailed, this,
+            [this](const QString &path) { fail(QStringLiteral("cannot scan ") + path); });
     window->installEventFilter(this);
+
+    m_watchdog.setSingleShot(true);
+    connect(&m_watchdog, &QTimer::timeout, this, [this] {
+      fail(QStringLiteral("timed out waiting for the first directory scan"));
+    });
   }
 
   void grabOnce(const QString &file)
@@ -39,10 +51,12 @@ public:
     m_shotFile = file;
     connect(m_model, &DirectoryModel::scanFinished, this, [this] {
       m_scanDone = true;
+      m_watchdog.stop();
       // Applying rows invalidates the scene, but force a frame so a render is
       // guaranteed even when the offscreen platform would otherwise idle.
       m_window->update();
     });
+    m_watchdog.start(kScanWatchdogMs);
   }
 
   void recordTo(const QString &dir)
@@ -50,6 +64,8 @@ public:
     QDir().mkpath(dir);
     m_recordDir = dir;
   }
+
+  bool failed() const { return m_failed; }
 
 protected:
   bool eventFilter(QObject *watched, QEvent *event) override
@@ -61,6 +77,20 @@ protected:
   }
 
 private:
+  // A debug surface that cannot produce its output must report failure, never
+  // idle in the event loop waiting for a signal that will not arrive.
+  void fail(const QString &message)
+  {
+    if (m_failed)
+      return;
+    m_failed = true;
+    m_watchdog.stop();
+    m_shotFile.clear();
+    m_recordDir.clear();
+    qCritical() << message;
+    QCoreApplication::quit();
+  }
+
   void onAfterRendering()
   {
     // grabWindow() may schedule another render; do not re-enter this callback.
@@ -71,10 +101,13 @@ private:
         return;
       m_grabbing = true;
       const QImage image = m_window->grabWindow();
-      image.save(m_shotFile);
+      const QString file = m_shotFile;
       m_shotFile.clear();
       m_grabbing = false;
-      QCoreApplication::quit();
+      if (image.save(file))
+        QCoreApplication::quit();
+      else
+        fail(QStringLiteral("cannot write screenshot ") + file);
       return;
     }
     if (!m_recordDir.isEmpty() && m_recordPending) {
@@ -83,19 +116,22 @@ private:
       const QImage image = m_window->grabWindow();
       const QString file = m_recordDir + QStringLiteral("/frame-%1.png")
                                .arg(++m_recordCount, 4, 10, QLatin1Char('0'));
-      image.save(file);
       m_grabbing = false;
+      if (!image.save(file))
+        fail(QStringLiteral("cannot write recorded frame ") + file);
     }
   }
 
   QQuickWindow *m_window;
   DirectoryModel *m_model;
+  QTimer m_watchdog;
   QString m_shotFile;
   QString m_recordDir;
   int m_recordCount = 0;
   bool m_scanDone = false;
   bool m_recordPending = false;
   bool m_grabbing = false;
+  bool m_failed = false;
 };
 
 } // namespace
@@ -144,28 +180,40 @@ int main(int argc, char *argv[])
       paths.append(QDir::homePath());
     controller.setPaths(paths);
 
-    QQmlApplicationEngine engine;
-    engine.rootContext()->setContextProperty(QStringLiteral("hermes"), &controller);
-    engine.load(QUrl(QStringLiteral("qrc:/qtui/qml/main.qml")));
-    if (engine.rootObjects().isEmpty()) {
-      qCritical() << QStringLiteral("failed to load qrc:/qtui/qml/main.qml");
+    const bool debugMode = !screenshotFile.isEmpty() || !recordDir.isEmpty();
+    // setPaths() leaves the model without a path when the argument cannot be
+    // opened as a directory, and an immediate scan failure restores it too.
+    // No scan will follow, so do not start the event loop at all.
+    if (debugMode && controller.directory()->path().isEmpty()) {
+      qCritical() << QStringLiteral("cannot scan directory for debug mode:")
+                  << (paths.isEmpty() ? QStringLiteral("<none>") : paths.constFirst());
       result = 1;
-    } else if (screenshotFile.isEmpty() && recordDir.isEmpty()) {
-      result = app.exec();
     } else {
-      auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
-      if (!window) {
-        qCritical() << QStringLiteral("debug mode requires a QQuickWindow root object");
+      QQmlApplicationEngine engine;
+      engine.rootContext()->setContextProperty(QStringLiteral("hermes"), &controller);
+      engine.load(QUrl(QStringLiteral("qrc:/qtui/qml/main.qml")));
+      if (engine.rootObjects().isEmpty()) {
+        qCritical() << QStringLiteral("failed to load qrc:/qtui/qml/main.qml");
         result = 1;
-      } else {
-        FrameGrabber grabber(window, controller.directory());
-        window->resize(1280, 800);
-        window->show();
-        if (!screenshotFile.isEmpty())
-          grabber.grabOnce(screenshotFile);
-        if (!recordDir.isEmpty())
-          grabber.recordTo(recordDir);
+      } else if (!debugMode) {
         result = app.exec();
+      } else {
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
+        if (!window) {
+          qCritical() << QStringLiteral("debug mode requires a QQuickWindow root object");
+          result = 1;
+        } else {
+          FrameGrabber grabber(window, controller.directory());
+          window->resize(1280, 800);
+          window->show();
+          if (!screenshotFile.isEmpty())
+            grabber.grabOnce(screenshotFile);
+          if (!recordDir.isEmpty())
+            grabber.recordTo(recordDir);
+          result = app.exec();
+          if (grabber.failed())
+            result = 1;
+        }
       }
     }
   }
