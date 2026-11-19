@@ -136,7 +136,9 @@ int hermes_core_scan_poll(HermesCore *core, HermesScan *scan, HermesListing *out
         copy->name = strdup(e->name);
         copy->name_len = e->name_len;
         copy->flags = e->flags;
-        if (e->flags & ENT_DIR) {
+        // The size pass skips links by design, so a directory link would show
+        // "..." forever. Report the link's own size instead of "unknown".
+        if ((e->flags & ENT_DIR) && !(e->flags & ENT_LINK)) {
             bool size_known;
             (void)entry_dir_size(e, &size_known);
             if (!size_known) copy->flags |= HERMES_ENTRY_SIZE_UNKNOWN;
