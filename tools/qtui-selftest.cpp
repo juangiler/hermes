@@ -7,6 +7,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QImage>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QSignalSpy>
@@ -89,6 +90,7 @@ private slots:
   void tabManagementHasReadableLabels();
   void cliHelpAndVersionNeedNoPlatformPlugin();
   void cliScreenshotWritesAnImage();
+  void cliScreenshotUnscannablePathExitsNonZero();
 
 private:
   using CorePtr = std::unique_ptr<HermesCore, decltype(&hermes_core_destroy)>;
@@ -1519,6 +1521,34 @@ void HermesQtUiTest::cliScreenshotWritesAnImage()
 
   QVERIFY(QFileInfo::exists(shot));
   QVERIFY(QFileInfo(shot).size() > 0);
+  QImage image(shot);
+  QVERIFY(!image.isNull());
+  QCOMPARE(image.size(), QSize(1280, 800));
+}
+
+void HermesQtUiTest::cliScreenshotUnscannablePathExitsNonZero()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+
+  const QString executable = QCoreApplication::applicationDirPath()
+      + QStringLiteral("/hermes-qt");
+  const QString shot = dir.filePath(QStringLiteral("missing-shot.png"));
+  QProcess process;
+  QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
+  environment.insert(QStringLiteral("QT_QPA_PLATFORM"), QStringLiteral("offscreen"));
+  process.setProcessEnvironment(environment);
+  process.start(executable, QStringList({QStringLiteral("--screenshot"), shot,
+                                         dir.filePath(QStringLiteral("missing"))}));
+  // A timeout is a failure: the debug surface must not idle forever on a path
+  // that can never produce a scan result.
+  if (!process.waitForFinished(5000)) {
+    process.kill();
+    process.waitForFinished(1000);
+    QFAIL("screenshot mode hung on an unscannable path");
+  }
+  QVERIFY(process.exitCode() != 0);
+  QVERIFY(!QFileInfo::exists(shot));
 }
 
 QTEST_MAIN(HermesQtUiTest)
