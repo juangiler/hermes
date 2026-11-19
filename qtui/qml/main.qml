@@ -77,97 +77,159 @@ Kirigami.ApplicationWindow {
 
       ToolBar {
         width: parent.width
-        Row {
+        Column {
+          width: parent.width
           spacing: Kirigami.Units.smallSpacing
           anchors.verticalCenter: parent.verticalCenter
-          ToolButton {
-            objectName: "newTabButton"
-            text: "New tab"
-            onClicked: hermes.newTab(hermes.tabs[hermes.currentTab])
-          }
-          ToolButton {
-            text: "Up"
-            onClicked: hermes.up()
-          }
-          ToolButton {
-            text: "Back"
-            enabled: hermes.canGoBack
-            onClicked: hermes.back()
-          }
-          ToolButton {
-            text: "Forward"
-            enabled: hermes.canGoForward
-            onClicked: hermes.forward()
-          }
-          ToolButton {
-            action: Kirigami.Action {
-              text: "New folder"
-              icon.name: "folder-new"
-              onTriggered: newFolderDialog.open()
+          Row {
+            spacing: Kirigami.Units.smallSpacing
+            ToolButton {
+              objectName: "newTabButton"
+              text: "New tab"
+              onClicked: hermes.newTab(hermes.tabs[hermes.currentTab])
             }
-          }
-          ToolButton {
-            action: Kirigami.Action {
-              text: "Rename"
-              icon.name: "edit-rename"
-              enabled: directoryPage.selectedPaths.length === 1
-              onTriggered: {
-                const current = directoryPage.selectedPaths[0];
-                renameName.text = current.substring(current.lastIndexOf("/") + 1);
-                renameDialog.open();
+            ToolButton {
+              text: "Up"
+              onClicked: hermes.up()
+            }
+            ToolButton {
+              text: "Back"
+              enabled: hermes.canGoBack
+              onClicked: hermes.back()
+            }
+            ToolButton {
+              text: "Forward"
+              enabled: hermes.canGoForward
+              onClicked: hermes.forward()
+            }
+            ToolButton {
+              action: Kirigami.Action {
+                text: "New folder"
+                icon.name: "folder-new"
+                onTriggered: newFolderDialog.open()
+              }
+            }
+            ToolButton {
+              action: Kirigami.Action {
+                text: "Rename"
+                icon.name: "edit-rename"
+                enabled: directoryPage.selectedPaths.length === 1
+                onTriggered: {
+                  const current = directoryPage.selectedPaths[0];
+                  renameName.text = current.substring(current.lastIndexOf("/") + 1);
+                  renameDialog.open();
+                }
+              }
+            }
+            ToolButton {
+              action: Kirigami.Action {
+                text: "Copy"
+                icon.name: "edit-copy"
+                enabled: directoryPage.selectedPaths.length > 0
+                onTriggered: {
+                  hermes.copySelection(directoryPage.selectedPaths, false);
+                  directoryPage.clearSelection();
+                }
+              }
+            }
+            ToolButton {
+              action: Kirigami.Action {
+                text: "Cut"
+                icon.name: "edit-cut"
+                enabled: directoryPage.selectedPaths.length > 0
+                onTriggered: {
+                  hermes.copySelection(directoryPage.selectedPaths, true);
+                  directoryPage.clearSelection();
+                }
+              }
+            }
+            ToolButton {
+              objectName: "pasteButton"
+              action: Kirigami.Action {
+                text: "Paste"
+                icon.name: "edit-paste"
+                enabled: hermes.canPaste
+                onTriggered: hermes.pasteIntoCurrentDirectory()
+              }
+            }
+            ToolButton {
+              action: Kirigami.Action {
+                text: "Trash"
+                icon.name: "user-trash"
+                enabled: directoryPage.selectedPaths.length > 0
+                onTriggered: {
+                  hermes.removeEntries(directoryPage.selectedPaths, true);
+                }
+              }
+            }
+            ToolButton {
+              objectName: "deleteButton"
+              action: Kirigami.Action {
+                text: "Delete"
+                icon.name: "edit-delete"
+                enabled: directoryPage.selectedPaths.length > 0
+                onTriggered: {
+                  deleteConfirmDialog.open();
+                }
               }
             }
           }
-          ToolButton {
-            action: Kirigami.Action {
-              text: "Copy"
-              icon.name: "edit-copy"
-              enabled: directoryPage.selectedPaths.length > 0
-              onTriggered: {
-                hermes.copySelection(directoryPage.selectedPaths, false);
-                directoryPage.clearSelection();
+          Row {
+            spacing: Kirigami.Units.smallSpacing
+            ToolButton {
+              objectName: "listViewButton"
+              text: "List"
+              checkable: true
+              checked: hermes.viewMode === 0
+              onClicked: hermes.setViewMode(0)
+            }
+            ToolButton {
+              objectName: "detailsViewButton"
+              text: "Details"
+              checkable: true
+              checked: hermes.viewMode === 1
+              onClicked: hermes.setViewMode(1)
+            }
+            ToolButton {
+              objectName: "gridViewButton"
+              text: "Grid"
+              checkable: true
+              checked: hermes.viewMode === 2
+              onClicked: hermes.setViewMode(2)
+            }
+            ToolButton {
+              objectName: "showHiddenButton"
+              text: "Hidden"
+              checkable: true
+              checked: hermes.showHidden
+              onToggled: hermes.setShowHidden(checked)
+            }
+            ToolButton {
+              objectName: "folderSizesButton"
+              text: "Folder sizes"
+              checkable: true
+              checked: hermes.folderSizes
+              onToggled: hermes.setFolderSizes(checked)
+            }
+            Repeater {
+              model: hermes.directory.sortKeys()
+              delegate: ToolButton {
+                objectName: "sortButton_" + modelData
+                text: modelData
+                checkable: true
+                checked: hermes.sortKey === modelData
+                onClicked: hermes.setSortKey(modelData)
               }
             }
-          }
-          ToolButton {
-            action: Kirigami.Action {
-              text: "Cut"
-              icon.name: "edit-cut"
-              enabled: directoryPage.selectedPaths.length > 0
-              onTriggered: {
-                hermes.copySelection(directoryPage.selectedPaths, true);
-                directoryPage.clearSelection();
-              }
+            ToolButton {
+              objectName: "zoomOutButton"
+              text: "-"
+              onClicked: hermes.setZoom(hermes.zoom - 0.2)
             }
-          }
-          ToolButton {
-            objectName: "pasteButton"
-            action: Kirigami.Action {
-              text: "Paste"
-              icon.name: "edit-paste"
-              enabled: hermes.canPaste
-              onTriggered: hermes.pasteIntoCurrentDirectory()
-            }
-          }
-          ToolButton {
-            action: Kirigami.Action {
-              text: "Trash"
-              icon.name: "user-trash"
-              enabled: directoryPage.selectedPaths.length > 0
-              onTriggered: {
-                hermes.removeEntries(directoryPage.selectedPaths, true);
-              }
-            }
-          }
-          ToolButton {
-            objectName: "deleteButton"
-            action: Kirigami.Action {
-              text: "Delete"
-              icon.name: "edit-delete"
-              enabled: directoryPage.selectedPaths.length > 0
-              onTriggered: {
-                deleteConfirmDialog.open();
-              }
+            ToolButton {
+              objectName: "zoomInButton"
+              text: "+"
+              onClicked: hermes.setZoom(hermes.zoom + 0.2)
             }
           }
         }

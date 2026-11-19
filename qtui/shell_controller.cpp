@@ -152,6 +152,14 @@ ShellController::ShellController(QObject *parent)
     }, Qt::QueuedConnection);
   }, this);
   m_directory = new DirectoryModel(m_core, this);
+  // One toolbar API surface: keep the controller's view options in step when
+  // the model's options change (including through its own QML setters).
+  connect(m_directory, &DirectoryModel::showHiddenChanged,
+          this, &ShellController::showHiddenChanged);
+  connect(m_directory, &DirectoryModel::folderSizesChanged,
+          this, &ShellController::folderSizesChanged);
+  connect(m_directory, &DirectoryModel::sortKeyChanged,
+          this, &ShellController::sortKeyChanged);
 
   // Follow the rows actually on screen: the model emits pathChanged when a
   // scan replaces them with another directory's entries. The watcher is a
@@ -276,6 +284,21 @@ double ShellController::zoom() const
   return m_zoom;
 }
 
+bool ShellController::showHidden() const
+{
+  return m_directory ? m_directory->showHidden() : true;
+}
+
+bool ShellController::folderSizes() const
+{
+  return m_directory ? m_directory->folderSizes() : false;
+}
+
+QString ShellController::sortKey() const
+{
+  return m_directory ? m_directory->sortKey() : QStringLiteral("name");
+}
+
 void ShellController::setViewMode(int mode)
 {
   mode = qBound(0, mode, 2);
@@ -292,6 +315,24 @@ void ShellController::setZoom(double zoom)
     return;
   m_zoom = zoom;
   emit zoomChanged();
+}
+
+void ShellController::setShowHidden(bool show)
+{
+  if (m_directory)
+    m_directory->setShowHidden(show);
+}
+
+void ShellController::setFolderSizes(bool on)
+{
+  if (m_directory)
+    m_directory->setFolderSizes(on);
+}
+
+void ShellController::setSortKey(const QString &key)
+{
+  if (m_directory)
+    m_directory->setSortKey(key);
 }
 
 HermesCore *ShellController::core() const

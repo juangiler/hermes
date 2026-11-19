@@ -3,6 +3,15 @@
 #include <QDir>
 #include <QModelIndex>
 
+namespace {
+// Keep the QML-facing names in engine order next to the enum mapping.
+const char *const kSortKeyNames[] = {"name", "date", "type", "size",
+                                     "created", "ext", "perms", "owner"};
+static_assert(HERMES_SORT_OWNER + 1 ==
+              static_cast<int>(sizeof(kSortKeyNames) / sizeof(kSortKeyNames[0])),
+              "sort key names must match HermesSortKey");
+}
+
 static bool has_pending_folder_sizes(const HermesListing &listing, bool show_hidden)
 {
   for (size_t i = 0; i < listing.count; ++i) {
@@ -285,28 +294,46 @@ bool DirectoryModel::applyScan(const QString &path, quint64 generation,
 
 void DirectoryModel::setSort(HermesSortKey key, bool desc)
 {
+  const bool keyChanged = m_key != key;
   m_key = key;
   m_desc = desc;
+  if (keyChanged)
+    emit sortKeyChanged();
   refresh();
 }
 
 void DirectoryModel::setSortKey(HermesSortKey key)
 {
+  const bool keyChanged = m_key != key;
   if (m_key == key) {
     m_desc = !m_desc;
   } else {
     m_key = key;
     m_desc = key == HERMES_SORT_DATE || key == HERMES_SORT_SIZE;
   }
+  if (keyChanged)
+    emit sortKeyChanged();
   refresh();
 }
 
 QStringList DirectoryModel::sortKeys() const
 {
-  return {QStringLiteral("name"), QStringLiteral("date"),
-          QStringLiteral("type"), QStringLiteral("size"),
-          QStringLiteral("created"), QStringLiteral("ext"),
-          QStringLiteral("perms"), QStringLiteral("owner")};
+  QStringList keys;
+  for (const char *name : kSortKeyNames)
+    keys.append(QString::fromLatin1(name));
+  return keys;
+}
+
+QString DirectoryModel::sortKey() const
+{
+  return QString::fromLatin1(kSortKeyNames[m_key]);
+}
+
+void DirectoryModel::setSortKey(const QString &key)
+{
+  const int index = sortKeys().indexOf(key);
+  if (index >= 0)
+    setSortKey(static_cast<HermesSortKey>(index));
 }
 
 void DirectoryModel::setShowHidden(bool show)
@@ -314,6 +341,7 @@ void DirectoryModel::setShowHidden(bool show)
   if (m_showHidden == show)
     return;
   m_showHidden = show;
+  emit showHiddenChanged();
   refresh();
 }
 
@@ -327,6 +355,7 @@ void DirectoryModel::setFolderSizes(bool on)
   if (m_folderSizes == on)
     return;
   m_folderSizes = on;
+  emit folderSizesChanged();
   refresh();
 }
 
