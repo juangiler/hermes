@@ -12,6 +12,11 @@ will be listed above that history.
   and basic create/rename/remove/copy/move operations through C++ controllers
   and QML. CI builds both UIs on Arch, Fedora, Debian and Ubuntu. Offscreen Qt
   Test runs verify headless plumbing only, not live Plasma 6.6-6.8 behaviour.
+- The Qt directory view now scans on the engine's worker pool, so navigating a
+  large or slow directory no longer freezes the window. It gained list, details
+  and grid views, a column set, a hidden-file toggle, folder sizes, range
+  selection and keyboard navigation, plus `--screenshot FILE` and
+  `HERMES_RECORD` equivalents for `hermes-qt`.
 - Headless Qt 6 D-Bus/portal plumbing against the `hermes_core` C ABI: async
   Settings/OpenURI/Documents clients, FileManager1 and FileChooser service
   stubs, and an opt-in file-chooser role CLI (`--enable-filechooser` /

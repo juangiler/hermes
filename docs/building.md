@@ -126,15 +126,28 @@ their smaller package sets.
 The Qt Test and QML load cases run with `QT_QPA_PLATFORM=offscreen`; they check
 build and headless plumbing only and do **not** prove live KDE Plasma behaviour
 (the target is Plasma 6.6-6.8). Runtime Qt Quick uses the hardware scene graph;
-offscreen/software backends are for tests only. Qt equivalents of the legacy
-`--screenshot` and `HERMES_RECORD` diagnostics are deferred to PR 4; those two
-options still apply to `./build/*/hermes` only.
+offscreen/software backends are for tests only. The Qt frontend now has its own
+`--screenshot FILE` and `HERMES_RECORD` equivalents of the legacy diagnostics;
+those options apply to `hermes-qt`, while the originals still apply to the SDL
+binary at `./build/*/hermes`.
 
-Known limitation: directory scans are synchronous in this shell.
-`hermes_core_scan_sorted()` polls for up to 10,000 one-millisecond intervals,
-and `DirectoryModel::applyScan()` calls it on the GUI thread. A large or slow
-directory can therefore block the Qt event loop until the scan returns.
-Asynchronous scanning is planned for PR 4.
+Directory scans run on the engine's worker pool: `DirectoryModel` starts a
+`hermes_core_scan_start()` handle, polls it from the GUI thread and applies a
+completed result there, keeping the rows on screen until the new ones arrive. A
+superseded scan is dropped by generation, so navigating again cannot let an
+older result overwrite newer rows. The recursive folder-size pass still costs
+time on deep trees, even though the scan itself no longer blocks the event loop.
+
+Known limitations of this slice:
+
+- A file name that is not valid UTF-8 is decoded to the replacement character
+  by the model, so the path the view holds names a file that does not exist and
+  an operation on that entry fails. Carrying arbitrary bytes through the UTF-16
+  UI is separate work.
+- The date column relies on `QLocale::dateFormat` and `timeFormat` and the
+  `QLocale::toString(QDate, QString)` overload. The Qt suite runs on all four CI
+  images, so the formats are exercised on each distribution's Qt version; a
+  live Plasma session remains the only place to confirm the rendered result.
 
 ## Install and package
 
