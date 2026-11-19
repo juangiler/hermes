@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QString>
 #include <QStringList>
+#include <QVariantList>
 #include <QVector>
 #include <atomic>
 
@@ -26,6 +27,9 @@ class ShellController : public QObject
   Q_PROPERTY(bool canGoBack READ canGoBack NOTIFY historyChanged)
   Q_PROPERTY(bool canGoForward READ canGoForward NOTIFY historyChanged)
   Q_PROPERTY(bool canPaste READ canPaste NOTIFY clipboardChanged)
+  Q_PROPERTY(int viewMode READ viewMode NOTIFY viewModeChanged)   // 0 list, 1 details, 2 grid
+  Q_PROPERTY(QVariantList columns READ columns NOTIFY columnsChanged)  // each: {key, width}
+  Q_PROPERTY(double zoom READ zoom NOTIFY zoomChanged)             // 0.6 .. 2.5
 
 public:
   explicit ShellController(QObject *parent = nullptr);
@@ -38,6 +42,9 @@ public:
   bool canGoBack() const;
   bool canGoForward() const;
   bool canPaste() const;
+  int viewMode() const;
+  QVariantList columns() const;
+  double zoom() const;
   HermesCore *core() const;
 
   // The engine's open_tab hook arrives on this method, off the GUI thread.
@@ -50,6 +57,8 @@ public:
   Q_INVOKABLE void copySelection(const QStringList &paths, bool move);
   Q_INVOKABLE void pasteIntoCurrentDirectory();
   Q_INVOKABLE void setConflictPolicy(HermesConflictPolicy policy);
+  Q_INVOKABLE void setViewMode(int mode);
+  Q_INVOKABLE void setZoom(double zoom);
 
   // Called from the queued operations_changed hook on the GUI thread.
   void recordOperationCompletion(int kind, int errorCount);
@@ -76,6 +85,9 @@ signals:
   void operationCompleted(int kind, int errorCount);
   void operationFinished(int kind, bool succeeded, int errorCount);
   void clipboardChanged();
+  void viewModeChanged();
+  void columnsChanged();
+  void zoomChanged();
 
 private:
   struct TabState {
@@ -95,6 +107,9 @@ private:
   QStringList m_clipboard;
   bool m_clipboardMove = false;
   HermesConflictPolicy m_conflictPolicy = HERMES_CONFLICT_RENAME;
+  int m_viewMode = 0;
+  double m_zoom = 1.0;
+  QVariantList m_columns;
   std::atomic<int> m_operationsChangedCount{0};
   std::atomic<int> m_currentTab{-1};
 };

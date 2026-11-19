@@ -48,6 +48,8 @@ private slots:
   void directoryModelSortsByEveryKey();
   void directoryModelReportsFolderSizes();
   void directoryModelSortKeyUsesLegacyDirections();
+  void directoryViewExposesModesColumnsAndZoom();
+  void directoryPageViewModesFormatSizeAndDate();
   void directoryModelFailedNavigateKeepsPath();
   void directoryModelNavigationDoesNotBlock();
   void directoryModelAppliesAsyncResults();
@@ -312,19 +314,33 @@ void HermesQtUiTest::directoryModelReportsFolderSizes()
   const QString sub = dir.filePath(QStringLiteral("sub"));
   QVERIFY(QDir().mkpath(sub));
   QVERIFY(writeFile(QDir(sub).filePath(QStringLiteral("inside.txt")), "content"));
+  // A zero-byte regular file has a real size of 0, not an unknown folder size.
+  QVERIFY(writeFile(dir.filePath(QStringLiteral("empty.txt")), QByteArray()));
 
   CorePtr core = makeCore();
   DirectoryModel model(core.get());
   g_wake_model = &model;
   QVERIFY(model.navigate(dir.path()));
-  QTRY_COMPARE_WITH_TIMEOUT(model.rowCount(), 1, 5000);
-  const QModelIndex folder = model.index(0);
-  QCOMPARE(model.data(folder, DirectoryModel::NameRole).toString(), QStringLiteral("sub"));
+  QTRY_COMPARE_WITH_TIMEOUT(model.rowCount(), 2, 5000);
+
+  auto rowOf = [&model](const QString &name) {
+    for (int row = 0; row < model.rowCount(); ++row)
+      if (model.data(model.index(row), DirectoryModel::NameRole).toString() == name)
+        return row;
+    return -1;
+  };
+  const int folderRow = rowOf(QStringLiteral("sub"));
+  const int fileRow = rowOf(QStringLiteral("empty.txt"));
+  QVERIFY(folderRow >= 0);
+  QVERIFY(fileRow >= 0);
+  const QModelIndex folder = model.index(folderRow);
   QCOMPARE(model.data(folder, DirectoryModel::SizeRole).toLongLong(), -1LL);
+  QCOMPARE(model.data(model.index(fileRow), DirectoryModel::SizeRole).toLongLong(), 0LL);
   model.setFolderSizes(true);
   QVERIFY(model.folderSizes());
   QTRY_VERIFY_WITH_TIMEOUT(model.data(folder, DirectoryModel::SizeRole).toLongLong() > 0,
                            10000);
+  QCOMPARE(model.data(model.index(fileRow), DirectoryModel::SizeRole).toLongLong(), 0LL);
 }
 
 void HermesQtUiTest::directoryModelSortKeyUsesLegacyDirections()
@@ -343,6 +359,93 @@ void HermesQtUiTest::directoryModelSortKeyUsesLegacyDirections()
   QVERIFY(!model.m_desc);
   model.setSortKey(HERMES_SORT_NAME);
   QVERIFY(model.m_desc);
+}
+
+void HermesQtUiTest::directoryViewExposesModesColumnsAndZoom()
+{
+  ShellController controller;
+  QCOMPARE(controller.viewMode(), 0);
+  QCOMPARE(controller.zoom(), 1.0);
+
+  const QVariantList columns = controller.columns();
+  QCOMPARE(columns.size(), 3);
+  QCOMPARE(columns.at(0).toMap().value(QStringLiteral("key")).toString(),
+           QStringLiteral("name"));
+  QCOMPARE(columns.at(1).toMap().value(QStringLiteral("key")).toString(),
+           QStringLiteral("date"));
+  QCOMPARE(columns.at(2).toMap().value(QStringLiteral("key")).toString(),
+           QStringLiteral("size"));
+  // Legacy defaults: the name column takes the remaining width.
+  QCOMPARE(columns.at(1).toMap().value(QStringLiteral("width")).toInt(), 140);
+  QCOMPARE(columns.at(2).toMap().value(QStringLiteral("width")).toInt(), 88);
+
+  QSignalSpy modeChanged(&controller, &ShellController::viewModeChanged);
+  QSignalSpy zoomChanged(&controller, &ShellController::zoomChanged);
+  QVERIFY(modeChanged.isValid());
+  QVERIFY(zoomChanged.isValid());
+
+  controller.setViewMode(1);
+  QCOMPARE(controller.viewMode(), 1);
+  QCOMPARE(modeChanged.count(), 1);
+  controller.setZoom(1.5);
+  QCOMPARE(controller.zoom(), 1.5);
+  QCOMPARE(zoomChanged.count(), 1);
+
+  modeChanged.clear();
+  zoomChanged.clear();
+  controller.setViewMode(99);
+  QCOMPARE(controller.viewMode(), 2);
+  controller.setViewMode(-1);
+  QCOMPARE(controller.viewMode(), 0);
+  controller.setZoom(99.0);
+  QCOMPARE(controller.zoom(), 2.5);
+  controller.setZoom(0.1);
+  QCOMPARE(controller.zoom(), 0.6);
+  QCOMPARE(modeChanged.count(), 2);
+  QCOMPARE(zoomChanged.count(), 2);
+}
+
+void HermesQtUiTest::directoryPageViewModesFormatSizeAndDate()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  ShellController controller;
+  controller.navigate(dir.path());
+  QQmlApplicationEngine engine;
+  engine.rootContext()->setContextProperty(QStringLiteral("hermes"), &controller);
+  engine.load(QUrl(QStringLiteral("qrc:/qtui/qml/main.qml")));
+  QVERIFY(!engine.rootObjects().isEmpty());
+
+  QObject *page = engine.rootObjects().constFirst()->findChild<QObject *>(
+      QStringLiteral("directoryPage"));
+  QVERIFY(page);
+  for (const char *name : {"listView", "detailsView", "gridView"}) {
+    QObject *view = page->findChild<QObject *>(QString::fromLatin1(name));
+    QVERIFY2(view, name);
+  }
+
+  // QML functions are exposed through the meta-object with QVariant arguments.
+  QVariant result;
+  QVERIFY(QMetaObject::invokeMethod(page, "sizeText", Qt::DirectConnection,
+                                    Q_RETURN_ARG(QVariant, result),
+                                    Q_ARG(QVariant, QVariant(-1.0))));
+  const QString unknown = result.toString();
+  QVERIFY(!unknown.isEmpty());
+  QVERIFY(unknown != QStringLiteral("0 B"));
+  QVERIFY(QMetaObject::invokeMethod(page, "sizeText", Qt::DirectConnection,
+                                    Q_RETURN_ARG(QVariant, result),
+                                    Q_ARG(QVariant, QVariant(0.0))));
+  QCOMPARE(result.toString(), QStringLiteral("0 B"));
+
+  QVERIFY(QMetaObject::invokeMethod(page, "dateText", Qt::DirectConnection,
+                                    Q_RETURN_ARG(QVariant, result),
+                                    Q_ARG(QVariant, QVariant(0.0))));
+  QVERIFY(result.toString().isEmpty());
+  QVERIFY(QMetaObject::invokeMethod(page, "dateText", Qt::DirectConnection,
+                                    Q_RETURN_ARG(QVariant, result),
+                                    Q_ARG(QVariant, QVariant(1700000000.0))));
+  QVERIFY(!result.toString().isEmpty());
+  QVERIFY(result.toString().contains(QLatin1Char(':')));
 }
 
 void HermesQtUiTest::directoryModelFailedNavigateKeepsPath()
