@@ -82,6 +82,9 @@ HermesScan *hermes_core_scan_start(HermesCore *core, const char *path,
 int hermes_core_scan_poll(HermesCore *core, HermesScan *scan, HermesListing *out);
 void hermes_core_scan_cancel(HermesScan *scan);
 void hermes_core_scan_free(HermesScan *scan);
+// Start recursive sizes for the folders in a completed scan. Poll the scan
+// again to observe sizes as the engine publishes them.
+int hermes_core_scan_start_folder_sizes(HermesCore *core, HermesScan *scan);
 int hermes_core_scan_sorted(HermesCore *core, const char *path, HermesSortKey key, bool desc, HermesListing *out);
 int hermes_core_mkdir(HermesCore *core, const char *parent, const char *name);
 int hermes_core_rename(HermesCore *core, const char *from, const char *to);

@@ -21,6 +21,7 @@
 #include <QtTest>
 #include <memory>
 #include <thread>
+#include <QThread>
 
 static DirectoryModel *g_wake_model;
 
@@ -43,6 +44,10 @@ private slots:
   void directoryModelListsSortedEntries();
   void directoryModelReportsRoles();
   void directoryModelPreservesUtf8Names();
+  void directoryModelHonoursHiddenToggle();
+  void directoryModelSortsByEveryKey();
+  void directoryModelReportsFolderSizes();
+  void directoryModelSortKeyUsesLegacyDirections();
   void directoryModelFailedNavigateKeepsPath();
   void directoryModelNavigationDoesNotBlock();
   void directoryModelAppliesAsyncResults();
@@ -214,6 +219,129 @@ void HermesQtUiTest::directoryModelPreservesUtf8Names()
   QTRY_COMPARE_WITH_TIMEOUT(model.rowCount(), 1, 5000);
   QCOMPARE(model.data(model.index(0), DirectoryModel::NameRole).toString(), name);
   QCOMPARE(model.data(model.index(0), DirectoryModel::PathRole).toString(), dir.filePath(name));
+}
+
+void HermesQtUiTest::directoryModelHonoursHiddenToggle()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  QVERIFY(writeFile(dir.filePath(QStringLiteral("visible.txt")), "v"));
+  QVERIFY(writeFile(dir.filePath(QStringLiteral(".hidden.txt")), "h"));
+
+  CorePtr core = makeCore();
+  DirectoryModel model(core.get());
+  g_wake_model = &model;
+  model.setShowHidden(false);
+  QVERIFY(!model.showHidden());
+  QVERIFY(model.navigate(dir.path()));
+  QTRY_COMPARE_WITH_TIMEOUT(model.rowCount(), 1, 5000);
+  QCOMPARE(entryNames(&model), QStringList({QStringLiteral("visible.txt")}));
+
+  model.setShowHidden(true);
+  QVERIFY(model.showHidden());
+  QTRY_COMPARE_WITH_TIMEOUT(model.rowCount(), 2, 5000);
+  QVERIFY(entryNames(&model).contains(QStringLiteral(".hidden.txt")));
+}
+
+void HermesQtUiTest::directoryModelSortsByEveryKey()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  QVERIFY(writeFile(dir.filePath(QStringLiteral("b.txt")), "b"));
+  QThread::msleep(1100); // the engine records creation times at whole-second precision
+  QVERIFY(writeFile(dir.filePath(QStringLiteral("a.txt")), "aaa"));
+  QVERIFY(QDir().mkpath(dir.filePath(QStringLiteral("sub"))));
+
+  const QDateTime old = QDateTime::fromSecsSinceEpoch(1577836800, QTimeZone::UTC);
+  const QDateTime newer = QDateTime::fromSecsSinceEpoch(1609459200, QTimeZone::UTC);
+  for (const auto &entry : {qMakePair(QStringLiteral("a.txt"), old),
+                            qMakePair(QStringLiteral("b.txt"), newer)}) {
+    QFile file(dir.filePath(entry.first));
+    QVERIFY(file.open(QIODevice::ReadWrite));
+    QVERIFY(file.setFileTime(entry.second, QFileDevice::FileModificationTime));
+    const auto permissions = entry.first == QStringLiteral("a.txt")
+        ? QFileDevice::ReadOwner | QFileDevice::WriteOwner
+        : QFileDevice::ReadOwner | QFileDevice::WriteOwner
+            | QFileDevice::ReadGroup | QFileDevice::ReadOther;
+    QVERIFY(file.setPermissions(permissions));
+  }
+
+  const QDateTime birthA = QFileInfo(dir.filePath(QStringLiteral("a.txt")))
+                               .birthTime(QTimeZone::UTC);
+  const QDateTime birthB = QFileInfo(dir.filePath(QStringLiteral("b.txt")))
+                               .birthTime(QTimeZone::UTC);
+  QString oldestCreated = QStringLiteral("a.txt");
+  if (birthA.isValid() && birthB.isValid() && birthB < birthA)
+    oldestCreated = QStringLiteral("b.txt");
+
+  CorePtr core = makeCore();
+  DirectoryModel model(core.get());
+  g_wake_model = &model;
+  QSignalSpy finished(&model, &DirectoryModel::scanFinished);
+  QVERIFY(model.navigate(dir.path()));
+  QTRY_COMPARE_WITH_TIMEOUT(model.rowCount(), 3, 5000);
+  QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 5000);
+  QCOMPARE(model.sortKeys(),
+           QStringList({QStringLiteral("name"), QStringLiteral("date"),
+                        QStringLiteral("type"), QStringLiteral("size"),
+                        QStringLiteral("created"), QStringLiteral("ext"),
+                        QStringLiteral("perms"), QStringLiteral("owner")}));
+
+  const QStringList fixed = {QStringLiteral("sub"), QStringLiteral("a.txt"),
+                             QStringLiteral("b.txt")};
+  const QStringList sizeOrder = {QStringLiteral("sub"), QStringLiteral("b.txt"),
+                                 QStringLiteral("a.txt")};
+  const QStringList createdOrder = {QStringLiteral("sub"), oldestCreated,
+                                    oldestCreated == QStringLiteral("a.txt")
+                                        ? QStringLiteral("b.txt")
+                                        : QStringLiteral("a.txt")};
+  for (int key = HERMES_SORT_NAME; key <= HERMES_SORT_OWNER; ++key) {
+    model.setSort(static_cast<HermesSortKey>(key), false);
+    QTRY_COMPARE_WITH_TIMEOUT(finished.count(), key + 2, 5000);
+    const QStringList expected = key == HERMES_SORT_SIZE ? sizeOrder
+        : key == HERMES_SORT_CREATED ? createdOrder : fixed;
+    QCOMPARE(entryNames(&model), expected);
+  }
+}
+
+void HermesQtUiTest::directoryModelReportsFolderSizes()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString sub = dir.filePath(QStringLiteral("sub"));
+  QVERIFY(QDir().mkpath(sub));
+  QVERIFY(writeFile(QDir(sub).filePath(QStringLiteral("inside.txt")), "content"));
+
+  CorePtr core = makeCore();
+  DirectoryModel model(core.get());
+  g_wake_model = &model;
+  QVERIFY(model.navigate(dir.path()));
+  QTRY_COMPARE_WITH_TIMEOUT(model.rowCount(), 1, 5000);
+  const QModelIndex folder = model.index(0);
+  QCOMPARE(model.data(folder, DirectoryModel::NameRole).toString(), QStringLiteral("sub"));
+  QCOMPARE(model.data(folder, DirectoryModel::SizeRole).toLongLong(), -1LL);
+  model.setFolderSizes(true);
+  QVERIFY(model.folderSizes());
+  QTRY_VERIFY_WITH_TIMEOUT(model.data(folder, DirectoryModel::SizeRole).toLongLong() > 0,
+                           10000);
+}
+
+void HermesQtUiTest::directoryModelSortKeyUsesLegacyDirections()
+{
+  CorePtr core = makeCore();
+  DirectoryModel model(core.get());
+
+  model.setSortKey(HERMES_SORT_DATE);
+  QCOMPARE(model.m_key, HERMES_SORT_DATE);
+  QVERIFY(model.m_desc);
+  model.setSortKey(HERMES_SORT_SIZE);
+  QCOMPARE(model.m_key, HERMES_SORT_SIZE);
+  QVERIFY(model.m_desc);
+  model.setSortKey(HERMES_SORT_NAME);
+  QCOMPARE(model.m_key, HERMES_SORT_NAME);
+  QVERIFY(!model.m_desc);
+  model.setSortKey(HERMES_SORT_NAME);
+  QVERIFY(model.m_desc);
 }
 
 void HermesQtUiTest::directoryModelFailedNavigateKeepsPath()

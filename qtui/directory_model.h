@@ -4,6 +4,7 @@
 #include <QByteArray>
 #include <QHash>
 #include <QString>
+#include <QStringList>
 #include <QVector>
 
 class DirectoryModel : public QAbstractListModel
@@ -25,6 +26,12 @@ public:
   QString path() const;
   bool navigate(const QString &path);
   void setSort(HermesSortKey key, bool desc);
+  void setSortKey(HermesSortKey key);
+  Q_INVOKABLE QStringList sortKeys() const;
+  void setShowHidden(bool show);
+  bool showHidden() const;
+  void setFolderSizes(bool on);
+  bool folderSizes() const;
 
 public slots:
   void refresh();
@@ -66,5 +73,7 @@ private:
   bool m_desc = false;
   bool m_showHidden = true;
   bool m_folderSizes = false;
+  bool m_scanApplied = false;
+  bool m_scanFolderSizesActive = false;
   quint64 m_generation = 0;
 };

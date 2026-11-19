@@ -3,6 +3,20 @@
 #include <QDir>
 #include <QModelIndex>
 
+static bool has_pending_folder_sizes(const HermesListing &listing, bool show_hidden)
+{
+  for (size_t i = 0; i < listing.count; ++i) {
+    const HermesEntry &entry = listing.items[i];
+    if (!(entry.flags & HERMES_ENTRY_DIR) || (entry.flags & HERMES_ENTRY_LINK))
+      continue;
+    if (!show_hidden && (entry.flags & HERMES_ENTRY_HIDDEN))
+      continue;
+    if (entry.flags & HERMES_ENTRY_SIZE_UNKNOWN)
+      return true;
+  }
+  return false;
+}
+
 DirectoryModel::DirectoryModel(HermesCore *core, QObject *parent)
   : QAbstractListModel(parent), m_core(core)
 {
@@ -28,7 +42,10 @@ QVariant DirectoryModel::data(const QModelIndex &index, int role) const
   case NameRole: return entry.name;
   case PathRole: return entry.path;
   case FlagsRole: return static_cast<int>(entry.flags);
-  case SizeRole: return entry.size;
+  case SizeRole:
+    return (entry.flags & HERMES_ENTRY_SIZE_UNKNOWN)
+        ? QVariant::fromValue<qlonglong>(-1)
+        : QVariant::fromValue(entry.size);
   case ModifiedRole: return entry.modified;
   case IsDirRole: return (entry.flags & HERMES_ENTRY_DIR) != 0;
   default: return {};
@@ -88,14 +105,16 @@ void DirectoryModel::pollScan()
   const QString path = m_scanPath;
   const QString previousPath = m_scanPreviousPath;
   const quint64 generation = m_scanGeneration;
-  HermesScan *scan = m_scan;
-  m_scan = nullptr;
-  m_scanPath.clear();
-  m_scanPreviousPath.clear();
-  m_scanGeneration = 0;
-  hermes_core_scan_free(scan);
 
   if (result < 0) {
+    HermesScan *scan = m_scan;
+    m_scan = nullptr;
+    m_scanPath.clear();
+    m_scanPreviousPath.clear();
+    m_scanGeneration = 0;
+    m_scanApplied = false;
+    m_scanFolderSizesActive = false;
+    hermes_core_scan_free(scan);
     hermes_listing_free(&listing);
     if (generation == m_generation && path == m_path) {
       m_path = m_rowsPath.isEmpty() ? previousPath : m_rowsPath;
@@ -104,9 +123,32 @@ void DirectoryModel::pollScan()
     return;
   }
 
-  if (applyScan(path, generation, listing, previousPath))
+  const bool firstResult = !m_scanApplied;
+  if (firstResult && m_folderSizes)
+    m_scanFolderSizesActive =
+        hermes_core_scan_start_folder_sizes(m_core, m_scan) == 0;
+
+  const QString appliedPreviousPath = firstResult ? previousPath : path;
+  const bool applied = applyScan(path, generation, listing, appliedPreviousPath);
+  if (applied && firstResult) {
+    m_scanApplied = true;
     emit scanFinished();
+  }
+
+  const bool sizesPending = applied && m_scanFolderSizesActive
+      && has_pending_folder_sizes(listing, m_showHidden);
   hermes_listing_free(&listing);
+  if (sizesPending)
+    return;
+
+  HermesScan *scan = m_scan;
+  m_scan = nullptr;
+  m_scanPath.clear();
+  m_scanPreviousPath.clear();
+  m_scanGeneration = 0;
+  m_scanApplied = false;
+  m_scanFolderSizesActive = false;
+  hermes_core_scan_free(scan);
 }
 
 bool DirectoryModel::startScan(const QString &path, quint64 generation,
@@ -123,6 +165,8 @@ bool DirectoryModel::startScan(const QString &path, quint64 generation,
   m_scanPath = path;
   m_scanPreviousPath = previousPath;
   m_scanGeneration = generation;
+  m_scanApplied = false;
+  m_scanFolderSizesActive = false;
   return true;
 }
 
@@ -136,6 +180,8 @@ void DirectoryModel::cancelScan()
   m_scanPath.clear();
   m_scanPreviousPath.clear();
   m_scanGeneration = 0;
+  m_scanApplied = false;
+  m_scanFolderSizesActive = false;
 }
 
 bool DirectoryModel::applyScan(const QString &path, quint64 generation,
@@ -155,11 +201,31 @@ bool DirectoryModel::applyScan(const QString &path, quint64 generation,
     entries.append({name, dir.filePath(name), item.flags, item.size, item.mtime});
   }
 
-  beginResetModel();
-  m_entries.swap(entries);
+  bool sameRows = m_rowsPath == path && m_entries.size() == entries.size();
+  for (qsizetype i = 0; sameRows && i < entries.size(); ++i)
+    sameRows = m_entries.at(i).name == entries.at(i).name
+        && m_entries.at(i).path == entries.at(i).path;
+
+  if (sameRows) {
+    for (qsizetype i = 0; i < entries.size(); ++i) {
+      Entry &current = m_entries[i];
+      const Entry &updated = entries.at(i);
+      if (current.flags == updated.flags && current.size == updated.size
+          && current.modified == updated.modified)
+        continue;
+      current.flags = updated.flags;
+      current.size = updated.size;
+      current.modified = updated.modified;
+      emit dataChanged(index(static_cast<int>(i)), index(static_cast<int>(i)),
+                       {FlagsRole, SizeRole, ModifiedRole, IsDirRole});
+    }
+  } else {
+    beginResetModel();
+    m_entries.swap(entries);
+    endResetModel();
+  }
   m_path = path;
   m_rowsPath = path;
-  endResetModel();
   if (previousPath != path)
     emit pathChanged(m_path);
   return true;
@@ -170,4 +236,49 @@ void DirectoryModel::setSort(HermesSortKey key, bool desc)
   m_key = key;
   m_desc = desc;
   refresh();
+}
+
+void DirectoryModel::setSortKey(HermesSortKey key)
+{
+  if (m_key == key) {
+    m_desc = !m_desc;
+  } else {
+    m_key = key;
+    m_desc = key == HERMES_SORT_DATE || key == HERMES_SORT_SIZE;
+  }
+  refresh();
+}
+
+QStringList DirectoryModel::sortKeys() const
+{
+  return {QStringLiteral("name"), QStringLiteral("date"),
+          QStringLiteral("type"), QStringLiteral("size"),
+          QStringLiteral("created"), QStringLiteral("ext"),
+          QStringLiteral("perms"), QStringLiteral("owner")};
+}
+
+void DirectoryModel::setShowHidden(bool show)
+{
+  if (m_showHidden == show)
+    return;
+  m_showHidden = show;
+  refresh();
+}
+
+bool DirectoryModel::showHidden() const
+{
+  return m_showHidden;
+}
+
+void DirectoryModel::setFolderSizes(bool on)
+{
+  if (m_folderSizes == on)
+    return;
+  m_folderSizes = on;
+  refresh();
+}
+
+bool DirectoryModel::folderSizes() const
+{
+  return m_folderSizes;
 }

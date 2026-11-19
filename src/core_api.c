@@ -147,6 +147,20 @@ int hermes_core_scan_poll(HermesCore *core, HermesScan *scan, HermesListing *out
     return 1;
 }
 
+int hermes_core_scan_start_folder_sizes(HermesCore *core, HermesScan *scan) {
+    if (!core_live(core) || !scan || !scan->listing) return -1;
+    Listing *L = scan->listing;
+    if (atomic_load(&L->state) != LST_COMPLETE) return -1;
+    if (L->dirsize_started) return 0;
+
+    bool visible = true;
+    bool hidden = scan->options.show_hidden;
+    L->dirsize_started = true;
+    L->dirsize_hidden = hidden;
+    dirsize_start(L, visible, hidden, false, "", "", "");
+    return 0;
+}
+
 void hermes_core_scan_cancel(HermesScan *scan) {
     if (scan && scan->listing) atomic_store(&scan->listing->cancel, 1);
 }

@@ -320,6 +320,34 @@ static void scan_hidden_option_includes_dotfiles(void) {
     remove_scan_fixture(dir);
 }
 
+static void scan_folder_sizes_start_returns_zero(void) {
+    char dir[] = "/tmp/hermes-core-abi-folder-size-XXXXXX";
+    assert(mkdtemp(dir));
+    char sub[PATH_MAX], file[PATH_MAX];
+    snprintf(sub, sizeof sub, "%s/sub", dir);
+    assert(mkdir(sub, 0755) == 0);
+    snprintf(file, sizeof file, "%s/one.txt", sub);
+    write_content(file, "x", 1);
+
+    HermesCore *core = hermes_core_create(wake_single, NULL);
+    assert(core);
+    HermesScanOptions options = {HERMES_SORT_NAME, false, true, true};
+    HermesScan *scan = hermes_core_scan_start(core, dir, &options);
+    assert(scan);
+    HermesListing out = {0};
+    assert(poll_scan_until_done(core, scan, &out) == 1);
+    assert(out.count == 1);
+    assert(!strcmp(out.items[0].name, "sub"));
+    assert(hermes_core_scan_start_folder_sizes(core, scan) == 0);
+
+    hermes_listing_free(&out);
+    hermes_core_scan_free(scan);
+    hermes_core_destroy(core);
+    assert(!unlink(file));
+    assert(!rmdir(sub));
+    assert(!rmdir(dir));
+}
+
 static void scan_supports_every_sort_key(void) {
     char dir[] = "/tmp/hermes-core-abi-sort-keys-XXXXXX";
     assert(mkdtemp(dir));
@@ -559,6 +587,7 @@ int main(void) {
     test_scan_sorted();
     scan_start_poll_returns_listing();
     scan_hidden_option_includes_dotfiles();
+    scan_folder_sizes_start_returns_zero();
     scan_supports_every_sort_key();
     scan_free_is_safe_while_running();
     test_ops_mkdir_rename_remove();
