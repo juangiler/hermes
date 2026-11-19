@@ -234,22 +234,39 @@ bool DirectoryModel::applyScan(const QString &path, quint64 generation,
     entries.append({name, dir.filePath(name), rawPath, item.flags, item.size, item.mtime});
   }
 
-  bool sameRows = m_rowsPath == path && m_entries.size() == entries.size();
-  for (qsizetype i = 0; sameRows && i < entries.size(); ++i)
-    sameRows = m_entries.at(i).name == entries.at(i).name
-        && m_entries.at(i).path == entries.at(i).path;
+  // Match by raw bytes, never by the decoded display name: two names may
+  // decode to the same string, and a size pass may return them in a new order.
+  QVector<qsizetype> oldRows(entries.size(), -1);
+  bool sameRows = m_rowsPath == path && m_rowsKey == m_key && m_rowsDesc == m_desc
+      && m_entries.size() == entries.size();
+  if (sameRows) {
+    QHash<QByteArray, qsizetype> currentRows;
+    for (qsizetype i = 0; i < m_entries.size(); ++i)
+      currentRows.insert(m_entries.at(i).rawPath, i);
+    QVector<bool> used(m_entries.size(), false);
+    for (qsizetype i = 0; i < entries.size(); ++i) {
+      const auto it = currentRows.constFind(entries.at(i).rawPath);
+      if (it == currentRows.constEnd() || used.at(it.value())) {
+        sameRows = false;
+        break;
+      }
+      used[it.value()] = true;
+      oldRows[i] = it.value();
+    }
+  }
 
   if (sameRows) {
     for (qsizetype i = 0; i < entries.size(); ++i) {
-      Entry &current = m_entries[i];
       const Entry &updated = entries.at(i);
+      Entry &current = m_entries[oldRows.at(i)];
       if (current.flags == updated.flags && current.size == updated.size
           && current.modified == updated.modified)
         continue;
       current.flags = updated.flags;
       current.size = updated.size;
       current.modified = updated.modified;
-      emit dataChanged(index(static_cast<int>(i)), index(static_cast<int>(i)),
+      const int row = static_cast<int>(oldRows.at(i));
+      emit dataChanged(index(row), index(row),
                        {FlagsRole, SizeRole, ModifiedRole, IsDirRole});
     }
   } else {
@@ -259,6 +276,8 @@ bool DirectoryModel::applyScan(const QString &path, quint64 generation,
   }
   m_path = path;
   m_rowsPath = path;
+  m_rowsKey = m_key;
+  m_rowsDesc = m_desc;
   if (rowsPathChanged)
     emit pathChanged(m_path);
   return true;
