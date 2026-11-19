@@ -31,7 +31,7 @@ Five input classes or failure modes this spec implies that no task's tests would
 2. The same directory is refreshed while a scan of it is still running: the view must show one set of rows, never two, and never a half-updated list (Task 2).
 3. Hidden entries (dotfiles) are toggled on while a directory is displayed: entries appear and disappear consistently, and a hidden entry is never reachable by a path that was never listed (Task 3).
 4. Folder sizes arrive after the rows are shown: the size column fills in without the list reordering under the user's cursor, and a size that is not yet known is not rendered as zero (Task 3).
-5. A file name that is not valid UTF-8 is listed and selected: the page must carry the path the model produced through to the selection unchanged, without re-encoding it. The model's own handling of such names is a separate matter - it decodes an invalid byte sequence to U+FFFD, so the selected path names a file that does not exist and an operation on it fails rather than reaching the intended file. That limitation is out of scope for this slice and is recorded as a known limitation for the port docs; the page's obligation is only that it does not make the mangling worse (Task 5).
+5. A file name that is not valid UTF-8 is listed and selected: the page must carry the path the model produced through to the selection unchanged, without re-encoding it. The model decodes an invalid byte sequence to U+FFFD for display but also retains the scanned raw bytes. An operation resolves the displayed path back to those bytes and targets the exact file when the mapping is unique; when two raw names decode to the same displayed path it is refused with a visible message (Task 5).
 
 ---
 
@@ -383,7 +383,7 @@ In `qtui/qml/DirectoryPage.qml`:
 
 The path strings that reach the model come from the C ABI as UTF-8 byte arrays. The page must not re-encode them: keep passing the `PathRole` value through unchanged. The existing test `directoryModelPreservesUtf8Names` covers the model side for valid UTF-8 names; add the selection side to the new test by selecting an entry whose name is not valid UTF-8 and asserting the selected path is exactly the path the model reports.
 
-Note the boundary this test pins: the model decodes an invalid byte sequence to U+FFFD, so the selected path names a file that does not exist and an operation on it fails rather than reaching the intended file. Carrying arbitrary bytes through a UTF-16 QML string is not possible, so preserving them is a separate piece of work on the model side, not something the page can do; it is recorded as a known limitation.
+Note the boundary this test pins: the model decodes an invalid byte sequence to U+FFFD for display but keeps the scanned raw bytes. Operations resolve the displayed path back to those bytes; if two rows decode to the same displayed path, the operation is refused with a visible message instead of guessing which file the user meant. The page still passes `PathRole` through unchanged as the selection key.
 
 - [ ] **Step 5: Run the Qt suite**
 
@@ -540,7 +540,7 @@ In `CHANGELOG.md`, add an "Unreleased" bullet describing the user-visible result
 
 In `docs/building.md` (or `docs/architecture.md`), record two limitations so they are visible and carried forward:
 
-- A file name that is not valid UTF-8 is decoded to the replacement character by the model, so the path the view holds names a file that does not exist. An operation on such an entry fails; preserving arbitrary bytes through the UTF-16 UI is separate work.
+- A file name that is not valid UTF-8 is decoded to the replacement character for display, while the model retains the scanned raw bytes. An operation targets that exact file when the displayed path maps to one row, and is refused with a visible message when two raw names decode to the same displayed path.
 - The date column relies on `QLocale::dateFormat` and `timeFormat` and the `QLocale::toString(QDate, QString)` overload. The Qt suite runs on all four CI images, so the formats are exercised on each distribution's Qt version; a live Plasma session remains the only place to confirm the rendered result.
 
 - [ ] **Step 5: Verify the docs build**
