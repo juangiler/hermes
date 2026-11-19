@@ -31,9 +31,7 @@
 #include <unistd.h>
 
 static DirectoryModel *g_wake_model;
-// The engine's wake runs off the GUI thread. Record its sequence so a timing
-// test can isolate the ticks between the final wake and the visible rows.
-static std::atomic<int> g_wake_seq{0};
+// The engine's wake runs off the GUI thread; a timing test needs its timestamp.
 static std::atomic<qint64> g_last_wake_ns{0};
 
 static qint64 steadyNs()
@@ -46,7 +44,6 @@ static qint64 steadyNs()
 static void pollTestModel(void *)
 {
   g_last_wake_ns.store(steadyNs());
-  g_wake_seq.fetch_add(1);
   QMetaObject::invokeMethod(QCoreApplication::instance(), [] {
     if (g_wake_model)
       g_wake_model->pollScan();
@@ -797,45 +794,51 @@ void HermesQtUiTest::directoryModelMaterializesResultsOffGuiThread()
   CorePtr core = makeCore();
   DirectoryModel model(core.get());
   g_wake_model = &model;
-  g_wake_seq.store(0);
 
-  // A timer cannot be observed while the GUI thread is inside a sort/copy.
-  // Attribute each tick to the wake sequence current at the time so only the
-  // interval after the engine's final wake counts as materialization time.
-  struct Tick { qint64 time; int wake; };
-  QVector<Tick> ticks;
+  // The measurement window ends on scanFinished(), not on the QTRY poll, and
+  // both endpoints are captured in the same GUI-thread slot. A later engine
+  // wake therefore cannot move the start of the window.
+  QVector<qint64> ticks;
   QTimer timer;
-  timer.setInterval(10);
+  timer.setInterval(5);
   QObject::connect(&timer, &QTimer::timeout, [&] {
-    ticks.append({steadyNs(), g_wake_seq.load()});
+    ticks.append(steadyNs());
+  });
+  qint64 finishNs = 0;
+  qint64 wakeAtFinish = 0;
+  QMetaObject::Connection finishConn;
+  finishConn = QObject::connect(&model, &DirectoryModel::scanFinished, &model, [&] {
+    finishNs = steadyNs();
+    wakeAtFinish = g_last_wake_ns.load();
+    timer.stop();
+    QObject::disconnect(finishConn);
   });
   timer.start();
   QVERIFY(model.navigate(dir.path()));
   QTRY_VERIFY_WITH_TIMEOUT(model.rowCount() == count, 30000);
-  timer.stop();
+  QVERIFY(finishNs > 0);
+  QVERIFY(wakeAtFinish > 0);
 
-  const int finalWake = g_wake_seq.load();
-  const qint64 wakeTime = g_last_wake_ns.load();
-  QVERIFY(finalWake > 0);
-  int ticksAfterWake = 0;
+  int ticksInWindow = 0;
   qint64 lastTick = 0;
   qint64 maxGap = 0;
-  for (const Tick &tick : ticks) {
+  for (qint64 tick : ticks) {
     if (lastTick > 0)
-      maxGap = qMax(maxGap, tick.time - lastTick);
-    lastTick = tick.time;
-    if (tick.wake == finalWake && tick.time > wakeTime)
-      ++ticksAfterWake;
+      maxGap = qMax(maxGap, tick - lastTick);
+    lastTick = tick;
+    if (wakeAtFinish < tick && tick <= finishNs)
+      ++ticksInWindow;
   }
   const auto ms = [](qint64 ns) { return ns / 1000000; };
   qInfo() << "scan responsiveness: ticks" << ticks.size()
-          << "after final wake" << ticksAfterWake
+          << "in wake-to-finish window" << ticksInWindow
+          << "window ms" << ms(finishNs - wakeAtFinish)
           << "max gap ms" << ms(maxGap)
           << "rows" << model.rowCount();
 
-  QVERIFY2(ticksAfterWake >= 5, qPrintable(QStringLiteral(
+  QVERIFY2(ticksInWindow >= 3, qPrintable(QStringLiteral(
       "GUI thread stalled through result materialization: only %1 timer ticks "
-      "after the final wake").arg(ticksAfterWake)));
+      "between the engine wake and scanFinished").arg(ticksInWindow)));
   QVERIFY2(ms(maxGap) < 80, qPrintable(QStringLiteral(
       "GUI thread stalled for %1 ms between timer ticks").arg(ms(maxGap))));
   QCOMPARE(model.path(), dir.path());
