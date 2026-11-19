@@ -832,6 +832,14 @@ void HermesQtUiTest::tabManagementHasReadableLabels()
   engine.load(QUrl(QStringLiteral("qrc:/qtui/qml/main.qml")));
   QVERIFY(!engine.rootObjects().isEmpty());
   QObject *window = engine.rootObjects().constFirst();
+  // Show the window before driving the toolbar. An unshown window leaves the
+  // Kirigami page disabled on KF6 6.13, and a disabled button ignores
+  // programmatic clicks, so the tab would never be created there.
+  if (QQuickWindow *quickWindow = qobject_cast<QQuickWindow *>(window)) {
+    quickWindow->resize(800, 600);
+    quickWindow->show();
+  }
+  QCoreApplication::processEvents();
 
   QObject *newTab = window->findChild<QObject *>(QStringLiteral("newTabButton"));
   QVERIFY(newTab);
