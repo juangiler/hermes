@@ -348,6 +348,39 @@ static void scan_folder_sizes_start_returns_zero(void) {
     assert(!rmdir(dir));
 }
 
+static void scan_directory_link_has_known_size(void) {
+    char dir[] = "/tmp/hermes-core-abi-dirlink-XXXXXX";
+    assert(mkdtemp(dir));
+    char sub[PATH_MAX], file[PATH_MAX], link[PATH_MAX];
+    snprintf(sub, sizeof sub, "%s/sub", dir);
+    assert(mkdir(sub, 0755) == 0);
+    snprintf(file, sizeof file, "%s/one.txt", sub);
+    write_content(file, "x", 1);
+    snprintf(link, sizeof link, "%s/link", dir);
+    assert(symlink(sub, link) == 0);
+
+    HermesCore *core = hermes_core_create(wake_single, NULL);
+    assert(core);
+    HermesListing out = {0};
+    assert(hermes_core_scan_sorted(core, dir, HERMES_SORT_NAME, false, &out) == 0);
+    assert(out.count == 2);
+    bool found = false;
+    for (size_t i = 0; i < out.count; i++) {
+        if (strcmp(out.items[i].name, "link")) continue;
+        found = true;
+        assert(out.items[i].flags & HERMES_ENTRY_DIR);
+        assert(out.items[i].flags & HERMES_ENTRY_LINK);
+        assert(!(out.items[i].flags & HERMES_ENTRY_SIZE_UNKNOWN));
+    }
+    assert(found);
+    hermes_listing_free(&out);
+    hermes_core_destroy(core);
+    assert(!unlink(link));
+    assert(!unlink(file));
+    assert(!rmdir(sub));
+    assert(!rmdir(dir));
+}
+
 static void scan_cancel_poll_is_terminal(void) {
     char dir[] = "/tmp/hermes-core-abi-cancel-XXXXXX";
     assert(mkdtemp(dir));
@@ -606,6 +639,7 @@ int main(void) {
     scan_start_poll_returns_listing();
     scan_hidden_option_includes_dotfiles();
     scan_folder_sizes_start_returns_zero();
+    scan_directory_link_has_known_size();
     scan_cancel_poll_is_terminal();
     scan_supports_every_sort_key();
     scan_free_is_safe_while_running();
