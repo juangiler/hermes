@@ -88,6 +88,7 @@ private slots:
   void permanentDeleteRequiresConfirmation();
   void tabManagementHasReadableLabels();
   void cliHelpAndVersionNeedNoPlatformPlugin();
+  void cliScreenshotWritesAnImage();
 
 private:
   using CorePtr = std::unique_ptr<HermesCore, decltype(&hermes_core_destroy)>;
@@ -1497,6 +1498,27 @@ void HermesQtUiTest::cliHelpAndVersionNeedNoPlatformPlugin()
     else
       QVERIFY(output.contains("Usage:"));
   }
+}
+
+void HermesQtUiTest::cliScreenshotWritesAnImage()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  QVERIFY(writeFile(dir.filePath(QStringLiteral("a.txt")), "a"));
+
+  const QString executable = QCoreApplication::applicationDirPath()
+      + QStringLiteral("/hermes-qt");
+  const QString shot = dir.filePath(QStringLiteral("shot.png"));
+  QProcess process;
+  QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
+  environment.insert(QStringLiteral("QT_QPA_PLATFORM"), QStringLiteral("offscreen"));
+  process.setProcessEnvironment(environment);
+  process.start(executable, QStringList({QStringLiteral("--screenshot"), shot, dir.path()}));
+  QVERIFY(process.waitForFinished(10000));
+  QCOMPARE(process.exitCode(), 0);
+
+  QVERIFY(QFileInfo::exists(shot));
+  QVERIFY(QFileInfo(shot).size() > 0);
 }
 
 QTEST_MAIN(HermesQtUiTest)
