@@ -31,22 +31,17 @@ void reportLaunchFailure(ShellController *controller, const QString &operation)
       QStringLiteral("Could not start %1.").arg(operation));
 }
 
-// Keep the UTF-8 byte arrays alive for the whole C ABI call; only collect the
-// raw pointers once the storage vector can no longer reallocate.
-QVector<const char *> utf8Pointers(const QStringList &paths, QVector<QByteArray> &storage)
+// Keep the byte arrays alive for the whole C ABI call; only collect the raw
+// pointers once the storage vector can no longer reallocate.
+QVector<const char *> rawPointers(const QVector<QByteArray> &storage)
 {
-  storage.clear();
-  storage.reserve(paths.size());
-  for (const QString &path : paths) {
-    const QByteArray utf8 = path.toUtf8();
-    if (utf8.isEmpty())
-      return {};
-    storage.append(utf8);
-  }
   QVector<const char *> pointers;
   pointers.reserve(storage.size());
-  for (const QByteArray &utf8 : storage)
-    pointers.append(utf8.constData());
+  for (const QByteArray &bytes : storage) {
+    if (bytes.isEmpty())
+      return {};
+    pointers.append(bytes.constData());
+  }
   return pointers;
 }
 }
@@ -319,19 +314,73 @@ bool ShellController::createFolder(const QString &name)
   return true;
 }
 
+bool ShellController::resolveRawPaths(const QStringList &displayedPaths,
+                                      QVector<QByteArray> &rawPaths)
+{
+  rawPaths.clear();
+  rawPaths.reserve(displayedPaths.size());
+  for (const QString &path : displayedPaths) {
+    QByteArray raw;
+    const DirectoryModel::RawPathResult result = m_directory
+        ? m_directory->rawPathFor(path, &raw)
+        : DirectoryModel::RawPathResult::NotListed;
+    if (result == DirectoryModel::RawPathResult::Ambiguous) {
+      emit operationFailed(QStringLiteral(
+          "Entries with the same displayed name cannot be told apart; the operation was not started."));
+      return false;
+    }
+    // NotListed paths did not come from this model, so their own bytes are all
+    // the caller can mean.
+    if (raw.isEmpty())
+      raw = path.toUtf8();
+    if (raw.isEmpty()) {
+      reportLaunchFailure(this, QStringLiteral("identifying the entries"));
+      return false;
+    }
+    rawPaths.append(raw);
+  }
+  return true;
+}
+
+bool ShellController::copyRawEntries(const QVector<QByteArray> &rawPaths,
+                                     const QString &destDir, bool move)
+{
+  const QByteArray utf8Dest = destDir.toUtf8();
+  const QVector<const char *> pointers = rawPointers(rawPaths);
+  if (utf8Dest.isEmpty() || pointers.size() != rawPaths.size()) {
+    reportLaunchFailure(this, QStringLiteral("copying entries"));
+    return false;
+  }
+  if (hermes_core_copy(m_core, pointers.constData(),
+                       static_cast<size_t>(pointers.size()), utf8Dest.constData(),
+                       move, m_conflictPolicy) != 0) {
+    reportLaunchFailure(this, QStringLiteral("copying entries"));
+    return false;
+  }
+  return true;
+}
+
 bool ShellController::renameEntry(const QString &from, const QString &to)
 {
-  const QByteArray utf8From = from.toUtf8();
-  const QByteArray utf8To = to.toUtf8();
   const QString fromParent = QDir::cleanPath(QFileInfo(from).absolutePath());
   const QString toParent = QDir::cleanPath(QFileInfo(to).absolutePath());
-  if (utf8From.isEmpty() || !validLeafName(QFileInfo(to).fileName())
+  if (!validLeafName(QFileInfo(to).fileName())
       || fromParent != toParent || !m_directory
       || fromParent != QDir::cleanPath(m_directory->path())) {
     emit operationFailed(QStringLiteral("Rename must use a single name in the displayed directory."));
     return false;
   }
-  if (hermes_core_rename(m_core, utf8From.constData(), utf8To.constData()) != 0) {
+  QVector<QByteArray> rawPaths;
+  if (!resolveRawPaths(QStringList({from}), rawPaths))
+    return false;
+  const QByteArray &rawFrom = rawPaths.constFirst();
+  const qsizetype slash = rawFrom.lastIndexOf('/');
+  if (slash <= 0) {
+    emit operationFailed(QStringLiteral("Rename must use a single name in the displayed directory."));
+    return false;
+  }
+  const QByteArray rawTo = rawFrom.left(slash) + "/" + QFileInfo(to).fileName().toUtf8();
+  if (hermes_core_rename(m_core, rawFrom.constData(), rawTo.constData()) != 0) {
     reportLaunchFailure(this, QStringLiteral("renaming the entry"));
     return false;
   }
@@ -340,14 +389,16 @@ bool ShellController::renameEntry(const QString &from, const QString &to)
 
 bool ShellController::removeEntries(const QStringList &paths, bool trash)
 {
-  QVector<QByteArray> storage;
-  const QVector<const char *> utf8Paths = utf8Pointers(paths, storage);
-  if (utf8Paths.size() != paths.size()) {
+  QVector<QByteArray> rawPaths;
+  if (!resolveRawPaths(paths, rawPaths))
+    return false;
+  const QVector<const char *> pointers = rawPointers(rawPaths);
+  if (pointers.size() != rawPaths.size()) {
     reportLaunchFailure(this, QStringLiteral("removing entries"));
     return false;
   }
-  if (hermes_core_remove(m_core, utf8Paths.constData(),
-                         static_cast<size_t>(utf8Paths.size()), trash) != 0) {
+  if (hermes_core_remove(m_core, pointers.constData(),
+                         static_cast<size_t>(pointers.size()), trash) != 0) {
     reportLaunchFailure(this, QStringLiteral("removing entries"));
     return false;
   }
@@ -356,25 +407,18 @@ bool ShellController::removeEntries(const QStringList &paths, bool trash)
 
 bool ShellController::copyEntries(const QStringList &paths, const QString &destDir, bool move)
 {
-  const QByteArray utf8Dest = destDir.toUtf8();
-  QVector<QByteArray> storage;
-  const QVector<const char *> utf8Paths = utf8Pointers(paths, storage);
-  if (utf8Dest.isEmpty() || utf8Paths.size() != paths.size()) {
-    reportLaunchFailure(this, QStringLiteral("copying entries"));
+  QVector<QByteArray> rawPaths;
+  if (!resolveRawPaths(paths, rawPaths))
     return false;
-  }
-  if (hermes_core_copy(m_core, utf8Paths.constData(),
-                       static_cast<size_t>(utf8Paths.size()), utf8Dest.constData(),
-                       move, m_conflictPolicy) != 0) {
-    reportLaunchFailure(this, QStringLiteral("copying entries"));
-    return false;
-  }
-  return true;
+  return copyRawEntries(rawPaths, destDir, move);
 }
 
 void ShellController::copySelection(const QStringList &paths, bool move)
 {
-  m_clipboard = paths;
+  QVector<QByteArray> rawPaths;
+  if (!resolveRawPaths(paths, rawPaths))
+    return;
+  m_clipboard = rawPaths;
   m_clipboardMove = move;
   emit clipboardChanged();
 }
@@ -383,7 +427,7 @@ void ShellController::pasteIntoCurrentDirectory()
 {
   if (!m_directory || m_clipboard.isEmpty())
     return;
-  copyEntries(m_clipboard, m_directory->path(), m_clipboardMove);
+  copyRawEntries(m_clipboard, m_directory->path(), m_clipboardMove);
 }
 
 void ShellController::setConflictPolicy(HermesConflictPolicy policy)

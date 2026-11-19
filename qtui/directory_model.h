@@ -16,6 +16,10 @@ public:
               SizeRole, ModifiedRole, IsDirRole };
   Q_ENUM(Role)
 
+  // A displayed path can name two different files when raw names decode to the
+  // same QString. Operations must refuse that case instead of guessing.
+  enum class RawPathResult { Unique, Ambiguous, NotListed };
+
   explicit DirectoryModel(HermesCore *core, QObject *parent = nullptr);
   ~DirectoryModel() override;
 
@@ -24,6 +28,7 @@ public:
   QHash<int, QByteArray> roleNames() const override;
   // QML cannot call data()/index(), so expose row paths for range selection.
   Q_INVOKABLE QStringList paths() const;
+  RawPathResult rawPathFor(const QString &displayedPath, QByteArray *rawPath) const;
 
   QString path() const;
   bool navigate(const QString &path);
@@ -58,6 +63,7 @@ private:
   struct Entry {
     QString name;
     QString path;
+    QByteArray rawPath;
     unsigned char flags;
     quint64 size;
     qint64 modified;
