@@ -11,6 +11,7 @@
 #include <QMetaObject>
 #include <QStandardPaths>
 #include <QUrl>
+#include <QVariantMap>
 #include <mutex>
 
 namespace {
@@ -179,6 +180,17 @@ ShellController::ShellController(QObject *parent)
     emitHistory();
   });
   m_places = new PlacesModel(this);
+
+  // Legacy column defaults (name,date:140,size:88). Persistence belongs to the
+  // settings slice, so these live only in the controller for now.
+  m_columns = QVariantList({
+      QVariantMap{{QStringLiteral("key"), QStringLiteral("name")},
+                  {QStringLiteral("width"), 0}},
+      QVariantMap{{QStringLiteral("key"), QStringLiteral("date")},
+                  {QStringLiteral("width"), 140}},
+      QVariantMap{{QStringLiteral("key"), QStringLiteral("size")},
+                  {QStringLiteral("width"), 88}},
+  });
 }
 
 ShellController::~ShellController()
@@ -235,6 +247,39 @@ bool ShellController::canGoForward() const
   return current >= 0 && current < m_tabs.size()
       && m_tabs.at(current).historyIndex >= 0
       && m_tabs.at(current).historyIndex + 1 < m_tabs.at(current).history.size();
+}
+
+int ShellController::viewMode() const
+{
+  return m_viewMode;
+}
+
+QVariantList ShellController::columns() const
+{
+  return m_columns;
+}
+
+double ShellController::zoom() const
+{
+  return m_zoom;
+}
+
+void ShellController::setViewMode(int mode)
+{
+  mode = qBound(0, mode, 2);
+  if (m_viewMode == mode)
+    return;
+  m_viewMode = mode;
+  emit viewModeChanged();
+}
+
+void ShellController::setZoom(double zoom)
+{
+  zoom = qBound(0.6, zoom, 2.5);
+  if (qFuzzyCompare(m_zoom, zoom))
+    return;
+  m_zoom = zoom;
+  emit zoomChanged();
 }
 
 HermesCore *ShellController::core() const
