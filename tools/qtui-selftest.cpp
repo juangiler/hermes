@@ -59,6 +59,7 @@ private slots:
   void directoryModelAppliesAsyncResults();
   void directoryModelKeepsRowsWhenTheDirectoryDisappears();
   void directoryModelRefreshDoesNotDuplicateRows();
+  void directoryModelRefreshesWhenTheDirectoryChanges();
   void hostOpenUrisCreatesTabs();
   void navigationHistoryBackForward();
   void upAndFailedPathKeepState();
@@ -654,6 +655,21 @@ void HermesQtUiTest::directoryModelRefreshDoesNotDuplicateRows()
   model.refresh();
   QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 2, 5000);
   QCOMPARE(model.rowCount(), 2);
+}
+
+void HermesQtUiTest::directoryModelRefreshesWhenTheDirectoryChanges()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  QVERIFY(writeFile(dir.filePath(QStringLiteral("first.txt")), "x"));
+
+  ShellController controller;
+  controller.navigate(dir.path());
+  DirectoryModel *model = controller.directory();
+  QTRY_COMPARE_WITH_TIMEOUT(model->rowCount(), 1, 5000);
+
+  QVERIFY(writeFile(dir.filePath(QStringLiteral("second.txt")), "y"));
+  QTRY_VERIFY_WITH_TIMEOUT(model->rowCount() == 2, 10000);
 }
 
 void HermesQtUiTest::hostOpenUrisCreatesTabs()
