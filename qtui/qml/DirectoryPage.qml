@@ -7,6 +7,8 @@ Kirigami.Page {
   title: "Directory"
 
   property var selectedPaths: []
+  // Row indices are model rows; all three views show the same order.
+  property int currentIndex: 0
   // Zoom scales rows and the fixed columns; the name column absorbs the rest.
   property real rowHeight: Kirigami.Units.gridUnit * 2 * hermes.zoom
   property real fixedColumnWidth: {
@@ -17,6 +19,23 @@ Kirigami.Page {
         total += column.width * hermes.zoom;
     }
     return total;
+  }
+
+  function currentView() {
+    if (hermes.viewMode === 1)
+      return detailsView;
+    if (hermes.viewMode === 2)
+      return gridView;
+    return listView;
+  }
+
+  // Shortcuts only arrive while the visible view holds key focus.
+  function focusVisibleView() {
+    var view = page.currentView();
+    if (view && view.visible)
+      view.forceActiveFocus();
+    else
+      page.forceActiveFocus();
   }
 
   function toggleSelection(path) {
@@ -31,7 +50,86 @@ Kirigami.Page {
 
   function clearSelection() {
     page.selectedPaths = [];
+    page.currentIndex = 0;
   }
+
+  function selectRange(index) {
+    var paths = hermes.directory.paths();
+    if (paths.length === 0)
+      return;
+    var anchor = Math.max(0, Math.min(page.currentIndex, paths.length - 1));
+    var from = Math.max(0, Math.min(anchor, index));
+    var to = Math.min(paths.length - 1, Math.max(anchor, index));
+    var chosen = [];
+    for (var i = from; i <= to; ++i)
+      chosen.push(paths[i]);
+    page.selectedPaths = chosen;
+  }
+
+  function selectAll() {
+    page.selectedPaths = hermes.directory.paths().slice();
+  }
+
+  function setCurrentIndex(index) {
+    page.currentIndex = index;
+    var view = page.currentView();
+    if (!view || index < 0 || index >= view.count)
+      return;
+    if (hermes.viewMode === 2)
+      view.positionViewAtIndex(index, GridView.Contain);
+    else
+      view.positionViewAtIndex(index, ListView.Contain);
+  }
+
+  function activateCurrent() {
+    var paths = hermes.directory.paths();
+    if (page.currentIndex >= 0 && page.currentIndex < paths.length)
+      hermes.openEntry(paths[page.currentIndex]);
+  }
+
+  function clickEntry(index, path, modifiers) {
+    if (modifiers & Qt.ShiftModifier)
+      selectRange(index);
+    else if (modifiers & Qt.ControlModifier)
+      toggleSelection(path);
+    else
+      page.selectedPaths = [path];
+    setCurrentIndex(index);
+  }
+
+  function handleKey(event) {
+    var paths = hermes.directory.paths();
+    var count = paths.length;
+    if (count === 0)
+      return;
+    var index = page.currentIndex;
+    if (event.key === Qt.Key_Up) {
+      setCurrentIndex(Math.max(0, index - 1));
+    } else if (event.key === Qt.Key_Down) {
+      setCurrentIndex(Math.min(count - 1, index + 1));
+    } else if (event.key === Qt.Key_Home) {
+      setCurrentIndex(0);
+    } else if (event.key === Qt.Key_End) {
+      setCurrentIndex(count - 1);
+    } else if (event.key === Qt.Key_Space) {
+      if (index >= 0 && index < count)
+        toggleSelection(paths[index]);
+    } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+      activateCurrent();
+    } else if (event.key === Qt.Key_A && (event.modifiers & Qt.ControlModifier)) {
+      selectAll();
+    } else {
+      return;
+    }
+    event.accepted = true;
+  }
+
+  onVisibleChanged: {
+    if (visible)
+      page.focusVisibleView();
+  }
+
+  Component.onCompleted: page.focusVisibleView()
 
   // -1 means the recursive folder size is still being computed; never show it
   // as a zero-byte file. Match the legacy unit formatting for known sizes.
@@ -76,11 +174,17 @@ Kirigami.Page {
 
   // List mode: one line per entry with an icon, name and size.
   ListView {
+    id: listView
     objectName: "listView"
     anchors.fill: parent
     visible: hermes.viewMode === 0
     model: hermes.directory
     clip: true
+    Keys.onPressed: function(event) { page.handleKey(event) }
+    onVisibleChanged: {
+      if (visible)
+        forceActiveFocus();
+    }
 
     delegate: Item {
       width: ListView.view.width
@@ -125,7 +229,7 @@ Kirigami.Page {
 
       MouseArea {
         anchors.fill: parent
-        onClicked: page.toggleSelection(model.path)
+        onClicked: page.clickEntry(index, model.path, mouse.modifiers)
         onDoubleClicked: hermes.openEntry(model.path)
       }
     }
@@ -133,11 +237,17 @@ Kirigami.Page {
 
   // Details mode: one Text per configured column, laid out by a Repeater.
   ListView {
+    id: detailsView
     objectName: "detailsView"
     anchors.fill: parent
     visible: hermes.viewMode === 1
     model: hermes.directory
     clip: true
+    Keys.onPressed: function(event) { page.handleKey(event) }
+    onVisibleChanged: {
+      if (visible)
+        forceActiveFocus();
+    }
 
     delegate: Item {
       width: ListView.view.width
@@ -176,7 +286,7 @@ Kirigami.Page {
 
       MouseArea {
         anchors.fill: parent
-        onClicked: page.toggleSelection(model.path)
+        onClicked: page.clickEntry(index, model.path, mouse.modifiers)
         onDoubleClicked: hermes.openEntry(model.path)
       }
     }
@@ -184,6 +294,7 @@ Kirigami.Page {
 
   // Grid mode: tiles with a large icon, the name and the size.
   GridView {
+    id: gridView
     objectName: "gridView"
     anchors.fill: parent
     visible: hermes.viewMode === 2
@@ -191,6 +302,11 @@ Kirigami.Page {
     cellWidth: Kirigami.Units.gridUnit * 9 * hermes.zoom
     cellHeight: Kirigami.Units.gridUnit * 7 * hermes.zoom
     clip: true
+    Keys.onPressed: function(event) { page.handleKey(event) }
+    onVisibleChanged: {
+      if (visible)
+        forceActiveFocus();
+    }
 
     delegate: Item {
       width: GridView.view.cellWidth
@@ -239,7 +355,7 @@ Kirigami.Page {
 
       MouseArea {
         anchors.fill: parent
-        onClicked: page.toggleSelection(model.path)
+        onClicked: page.clickEntry(index, model.path, mouse.modifiers)
         onDoubleClicked: hermes.openEntry(model.path)
       }
     }
