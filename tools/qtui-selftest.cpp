@@ -78,6 +78,7 @@ private slots:
   void directoryModelRejectsStaleScanResults();
   void operationsCreateRenameAndTrash();
   void operationsHandleUtf8Names();
+  void ambiguousRawNamesRefuseDestructiveOperation();
   void createAndRenameRejectNonLeafNames();
   void operationFailuresAreReported();
   void operationsUseConfiguredConflictPolicy();
@@ -1199,6 +1200,64 @@ void HermesQtUiTest::operationsHandleUtf8Names()
   QVERIFY(!entryNames(controller.directory()).contains(name));
   QVERIFY(entryNames(controller.directory()).contains(renamed));
   QVERIFY(QFileInfo::exists(dir.filePath(renamed)));
+}
+
+void HermesQtUiTest::ambiguousRawNamesRefuseDestructiveOperation()
+{
+  QTemporaryDir first;
+  QTemporaryDir second;
+  QVERIFY(first.isValid());
+  QVERIFY(second.isValid());
+  // Distinct raw names that both decode to the same displayed U+FFFD spelling.
+  const QByteArray rawName("a\xff" "b");
+  const QByteArray replacementName = QByteArray("a") + QByteArray::fromHex("efbfbd") + "b";
+  const QByteArray rawFirst = first.path().toUtf8() + "/" + rawName;
+  const QByteArray replacementFirst = first.path().toUtf8() + "/" + replacementName;
+  const QByteArray rawSecond = second.path().toUtf8() + "/" + rawName;
+  auto makeRawFile = [](const QByteArray &path) {
+    const int fd = ::open(path.constData(), O_CREAT | O_WRONLY | O_TRUNC, 0644);
+    if (fd < 0)
+      return false;
+    const bool written = ::write(fd, "x", 1) == 1;
+    return ::close(fd) == 0 && written;
+  };
+  QVERIFY(makeRawFile(rawFirst));
+  QVERIFY(makeRawFile(replacementFirst));
+  QVERIFY(makeRawFile(rawSecond));
+
+  ShellController controller;
+  controller.navigate(first.path());
+  DirectoryModel *model = controller.directory();
+  QTRY_COMPARE_WITH_TIMEOUT(model->rowCount(), 2, 5000);
+  QString displayed;
+  int sharedRows = 0;
+  for (int row = 0; row < model->rowCount(); ++row) {
+    const QString path = model->data(model->index(row), DirectoryModel::PathRole).toString();
+    if (displayed.isEmpty())
+      displayed = path;
+    if (path == displayed)
+      ++sharedRows;
+  }
+  QCOMPARE(sharedRows, 2);
+  QVERIFY(displayed.contains(QChar(0xfffd)));
+
+  QSignalSpy failures(&controller, &ShellController::operationFailed);
+  QVERIFY(!controller.removeEntries(QStringList({displayed}), false));
+  QCOMPARE(failures.count(), 1);
+  QCOMPARE(controller.operationsChangedCount(), 0);
+  QCOMPARE(::access(rawFirst.constData(), F_OK), 0);
+  QCOMPARE(::access(replacementFirst.constData(), F_OK), 0);
+
+  controller.navigate(second.path());
+  QTRY_COMPARE_WITH_TIMEOUT(model->rowCount(), 1, 5000);
+  const QString unique = model->data(model->index(0), DirectoryModel::PathRole).toString();
+  QVERIFY(controller.removeEntries(QStringList({unique}), false));
+  waitForOperation(&controller);
+  QVERIFY(::access(rawSecond.constData(), F_OK) != 0);
+
+  // QTemporaryDir cannot enumerate these raw byte names during its cleanup.
+  QCOMPARE(::unlink(rawFirst.constData()), 0);
+  QCOMPARE(::unlink(replacementFirst.constData()), 0);
 }
 
 void HermesQtUiTest::createAndRenameRejectNonLeafNames()

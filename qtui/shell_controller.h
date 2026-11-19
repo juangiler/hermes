@@ -1,6 +1,7 @@
 #pragma once
 #include "core_api.h"
 #include "core_host.h"
+#include <QByteArray>
 #include <QObject>
 #include <QString>
 #include <QStringList>
@@ -98,13 +99,17 @@ private:
 
   bool goTo(const QString &path, bool record, int historyIndex = -2);
   void emitHistory();
+  bool resolveRawPaths(const QStringList &displayedPaths, QVector<QByteArray> &rawPaths);
+  bool copyRawEntries(const QVector<QByteArray> &rawPaths, const QString &destDir, bool move);
 
   HermesCore *m_core = nullptr;
   DirectoryModel *m_directory = nullptr;
   PlacesModel *m_places = nullptr;
   OpenUriClient *m_openUri = nullptr;
   QVector<TabState> m_tabs;
-  QStringList m_clipboard;
+  // Raw bytes, so a paste after a directory change still targets the entries
+  // the user originally selected.
+  QVector<QByteArray> m_clipboard;
   bool m_clipboardMove = false;
   HermesConflictPolicy m_conflictPolicy = HERMES_CONFLICT_RENAME;
   int m_viewMode = 0;

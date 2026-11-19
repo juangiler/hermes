@@ -67,6 +67,26 @@ QStringList DirectoryModel::paths() const
   return result;
 }
 
+DirectoryModel::RawPathResult DirectoryModel::rawPathFor(
+    const QString &displayedPath, QByteArray *rawPath) const
+{
+  int matches = 0;
+  QByteArray found;
+  for (const Entry &entry : m_entries) {
+    if (entry.path != displayedPath)
+      continue;
+    ++matches;
+    found = entry.rawPath;
+  }
+  if (matches > 1)
+    return RawPathResult::Ambiguous;
+  if (matches == 0)
+    return RawPathResult::NotListed;
+  if (rawPath)
+    *rawPath = found;
+  return RawPathResult::Unique;
+}
+
 QString DirectoryModel::path() const
 {
   return m_path;
@@ -203,10 +223,15 @@ bool DirectoryModel::applyScan(const QString &path, quint64 generation,
   QVector<Entry> entries;
   entries.reserve(static_cast<qsizetype>(listing.count));
   const QDir dir(path);
+  const QByteArray dirBytes = path.toUtf8();
   for (size_t i = 0; i < listing.count; ++i) {
     const HermesEntry &item = listing.items[i];
-    const QString name = QString::fromUtf8(item.name, static_cast<qsizetype>(item.name_len));
-    entries.append({name, dir.filePath(name), item.flags, item.size, item.mtime});
+    const QByteArray rawName(item.name, static_cast<qsizetype>(item.name_len));
+    const QString name = QString::fromUtf8(rawName);
+    // Display may replace malformed bytes with U+FFFD; operations still need
+    // the exact bytes the engine scanned, so keep them alongside the path.
+    const QByteArray rawPath = dirBytes + "/" + rawName;
+    entries.append({name, dir.filePath(name), rawPath, item.flags, item.size, item.mtime});
   }
 
   bool sameRows = m_rowsPath == path && m_entries.size() == entries.size();
