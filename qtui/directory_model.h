@@ -16,6 +16,7 @@ public:
   Q_ENUM(Role)
 
   explicit DirectoryModel(HermesCore *core, QObject *parent = nullptr);
+  ~DirectoryModel() override;
 
   int rowCount(const QModelIndex &parent = {}) const override;
   QVariant data(const QModelIndex &index, int role) const override;
@@ -27,18 +28,23 @@ public:
 
 public slots:
   void refresh();
+  void pollScan();
 
 signals:
   void pathChanged(const QString &path);
   void navigateFailed(const QString &path);
+  void scanFinished();
 
 private:
   // Test seam for the stale-result guard: the integration test cannot force a
-  // queued scan to finish after a newer navigation with the synchronous ABI.
+  // queued scan to finish after a newer navigation.
   friend class HermesQtUiTest;
 
   bool applyScan(const QString &path, quint64 generation,
-                 const QString &previousPath = QString());
+                 const HermesListing &listing, const QString &previousPath);
+  bool startScan(const QString &path, quint64 generation,
+                 const QString &previousPath);
+  void cancelScan();
 
   struct Entry {
     QString name;
@@ -49,9 +55,16 @@ private:
   };
 
   HermesCore *m_core;
+  HermesScan *m_scan = nullptr;
+  QString m_scanPath;
+  QString m_scanPreviousPath;
+  quint64 m_scanGeneration = 0;
   QVector<Entry> m_entries;
   QString m_path;
+  QString m_rowsPath;
   HermesSortKey m_key = HERMES_SORT_NAME;
   bool m_desc = false;
+  bool m_showHidden = true;
+  bool m_folderSizes = false;
   quint64 m_generation = 0;
 };

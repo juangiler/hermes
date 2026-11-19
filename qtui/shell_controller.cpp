@@ -151,10 +151,33 @@ ShellController::ShellController(QObject *parent)
     QMetaObject::invokeMethod(controller, [controller] {
       hermes_core_drain(controller->m_core);
       if (controller->m_directory)
-        controller->m_directory->refresh();
+        controller->m_directory->pollScan();
     }, Qt::QueuedConnection);
   }, this);
   m_directory = new DirectoryModel(m_core, this);
+  connect(m_directory, &DirectoryModel::navigateFailed, this,
+          [this](const QString &failedPath) {
+    const int current = currentTab();
+    if (current < 0 || current >= m_tabs.size())
+      return;
+    TabState &tab = m_tabs[current];
+    const QString restoredPath = m_directory->path();
+    if (tab.path != failedPath || restoredPath.isEmpty() || restoredPath == failedPath)
+      return;
+
+    int historyIndex = -1;
+    for (int i = 0; i < tab.history.size(); ++i)
+      if (tab.history.at(i) == restoredPath)
+        historyIndex = i;
+    if (historyIndex < 0)
+      return;
+
+    tab.path = restoredPath;
+    tab.history.remove(historyIndex + 1, tab.history.size() - historyIndex - 1);
+    tab.historyIndex = historyIndex;
+    emit tabsChanged();
+    emitHistory();
+  });
   m_places = new PlacesModel(this);
 }
 

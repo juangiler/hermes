@@ -8,6 +8,11 @@ DirectoryModel::DirectoryModel(HermesCore *core, QObject *parent)
 {
 }
 
+DirectoryModel::~DirectoryModel()
+{
+  cancelScan();
+}
+
 int DirectoryModel::rowCount(const QModelIndex &parent) const
 {
   return parent.isValid() ? 0 : m_entries.size();
@@ -43,12 +48,11 @@ QString DirectoryModel::path() const
 
 bool DirectoryModel::navigate(const QString &path)
 {
-  // Claim the target before scanning so a queued refresh from an older scan
-  // cannot overwrite the newer directory.
   const QString previous = m_path;
+  cancelScan();
   const quint64 generation = ++m_generation;
   m_path = path;
-  if (applyScan(path, generation, previous))
+  if (startScan(path, generation, previous))
     return true;
 
   if (m_generation == generation && m_path == path) {
@@ -63,25 +67,83 @@ void DirectoryModel::refresh()
   if (m_path.isEmpty())
     return;
   const QString path = m_path;
-  const quint64 generation = m_generation;
-  if (!applyScan(path, generation, path))
+  cancelScan();
+  const quint64 generation = ++m_generation;
+  if (!startScan(path, generation, path)) {
+    m_path = path;
     emit navigateFailed(path);
+  }
 }
 
-bool DirectoryModel::applyScan(const QString &path, quint64 generation,
+void DirectoryModel::pollScan()
+{
+  if (!m_scan)
+    return;
+
+  HermesListing listing{};
+  const int result = hermes_core_scan_poll(m_core, m_scan, &listing);
+  if (result == 0)
+    return;
+
+  const QString path = m_scanPath;
+  const QString previousPath = m_scanPreviousPath;
+  const quint64 generation = m_scanGeneration;
+  HermesScan *scan = m_scan;
+  m_scan = nullptr;
+  m_scanPath.clear();
+  m_scanPreviousPath.clear();
+  m_scanGeneration = 0;
+  hermes_core_scan_free(scan);
+
+  if (result < 0) {
+    hermes_listing_free(&listing);
+    if (generation == m_generation && path == m_path) {
+      m_path = m_rowsPath.isEmpty() ? previousPath : m_rowsPath;
+      emit navigateFailed(path);
+    }
+    return;
+  }
+
+  if (applyScan(path, generation, listing, previousPath))
+    emit scanFinished();
+  hermes_listing_free(&listing);
+}
+
+bool DirectoryModel::startScan(const QString &path, quint64 generation,
                                const QString &previousPath)
 {
   const QByteArray utf8 = path.toUtf8();
-  HermesListing listing{};
-  if (hermes_core_scan_sorted(m_core, utf8.constData(), m_key, m_desc, &listing) != 0) {
-    hermes_listing_free(&listing);
+  const HermesScanOptions options = {
+    m_key, m_desc, m_showHidden, m_folderSizes
+  };
+  m_scan = hermes_core_scan_start(m_core, utf8.constData(), &options);
+  if (!m_scan)
     return false;
-  }
 
+  m_scanPath = path;
+  m_scanPreviousPath = previousPath;
+  m_scanGeneration = generation;
+  return true;
+}
+
+void DirectoryModel::cancelScan()
+{
+  if (!m_scan)
+    return;
+  hermes_core_scan_cancel(m_scan);
+  hermes_core_scan_free(m_scan);
+  m_scan = nullptr;
+  m_scanPath.clear();
+  m_scanPreviousPath.clear();
+  m_scanGeneration = 0;
+}
+
+bool DirectoryModel::applyScan(const QString &path, quint64 generation,
+                               const HermesListing &listing,
+                               const QString &previousPath)
+{
   if (generation != m_generation || path != m_path) {
-    // The scan completed after a newer navigation; drop its stale rows.
-    hermes_listing_free(&listing);
-    return true;
+    return false;
   }
 
   QVector<Entry> entries;
@@ -92,11 +154,11 @@ bool DirectoryModel::applyScan(const QString &path, quint64 generation,
     const QString name = QString::fromUtf8(item.name, static_cast<qsizetype>(item.name_len));
     entries.append({name, dir.filePath(name), item.flags, item.size, item.mtime});
   }
-  hermes_listing_free(&listing);
 
   beginResetModel();
   m_entries.swap(entries);
   m_path = path;
+  m_rowsPath = path;
   endResetModel();
   if (previousPath != path)
     emit pathChanged(m_path);

@@ -22,7 +22,15 @@
 #include <memory>
 #include <thread>
 
-static void noWake(void *) {}
+static DirectoryModel *g_wake_model;
+
+static void pollTestModel(void *)
+{
+  QMetaObject::invokeMethod(QCoreApplication::instance(), [] {
+    if (g_wake_model)
+      g_wake_model->pollScan();
+  }, Qt::QueuedConnection);
+}
 
 class HermesQtUiTest : public QObject
 {
@@ -30,11 +38,16 @@ class HermesQtUiTest : public QObject
 
 private slots:
   void initTestCase();
+  void cleanup();
   void qmlMainLoadsOffscreen();
   void directoryModelListsSortedEntries();
   void directoryModelReportsRoles();
   void directoryModelPreservesUtf8Names();
   void directoryModelFailedNavigateKeepsPath();
+  void directoryModelNavigationDoesNotBlock();
+  void directoryModelAppliesAsyncResults();
+  void directoryModelKeepsRowsWhenTheDirectoryDisappears();
+  void directoryModelRefreshDoesNotDuplicateRows();
   void hostOpenUrisCreatesTabs();
   void navigationHistoryBackForward();
   void upAndFailedPathKeepState();
@@ -76,7 +89,7 @@ private:
 
 HermesQtUiTest::CorePtr HermesQtUiTest::makeCore()
 {
-  return CorePtr(hermes_core_create(noWake, nullptr), &hermes_core_destroy);
+  return CorePtr(hermes_core_create(pollTestModel, nullptr), &hermes_core_destroy);
 }
 
 bool HermesQtUiTest::writeFile(const QString &path, const QByteArray &data)
@@ -117,6 +130,11 @@ void HermesQtUiTest::initTestCase()
   qputenv("XDG_DATA_HOME", m_data_dir.path().toUtf8());
 }
 
+void HermesQtUiTest::cleanup()
+{
+  g_wake_model = nullptr;
+}
+
 void HermesQtUiTest::qmlMainLoadsOffscreen()
 {
   ShellController controller;
@@ -136,8 +154,9 @@ void HermesQtUiTest::directoryModelListsSortedEntries()
 
   CorePtr core = makeCore();
   DirectoryModel model(core.get());
+  g_wake_model = &model;
   QVERIFY(model.navigate(dir.path()));
-  QCOMPARE(model.rowCount(), 3);
+  QTRY_COMPARE_WITH_TIMEOUT(model.rowCount(), 3, 5000);
   QVERIFY(model.data(model.index(0), DirectoryModel::IsDirRole).toBool());
   QCOMPARE(model.data(model.index(0), DirectoryModel::NameRole).toString(), QStringLiteral("zdir"));
   QCOMPARE(model.data(model.index(1), DirectoryModel::NameRole).toString(), QStringLiteral("a.txt"));
@@ -145,7 +164,10 @@ void HermesQtUiTest::directoryModelListsSortedEntries()
 
   model.setSort(HERMES_SORT_NAME, true);
   model.refresh();
-  QCOMPARE(model.rowCount(), 3);
+  QTRY_COMPARE_WITH_TIMEOUT(entryNames(&model),
+                            QStringList({QStringLiteral("zdir"),
+                                         QStringLiteral("b.txt"),
+                                         QStringLiteral("a.txt")}), 5000);
   QCOMPARE(model.data(model.index(0), DirectoryModel::NameRole).toString(), QStringLiteral("zdir"));
   QCOMPARE(model.data(model.index(1), DirectoryModel::NameRole).toString(), QStringLiteral("b.txt"));
   QCOMPARE(model.data(model.index(2), DirectoryModel::NameRole).toString(), QStringLiteral("a.txt"));
@@ -164,7 +186,9 @@ void HermesQtUiTest::directoryModelReportsRoles()
 
   CorePtr core = makeCore();
   DirectoryModel model(core.get());
+  g_wake_model = &model;
   QVERIFY(model.navigate(dir.path()));
+  QTRY_COMPARE_WITH_TIMEOUT(model.rowCount(), 1, 5000);
   QCOMPARE(model.path(), dir.path());
 
   const QModelIndex row = model.index(0, 0);
@@ -185,8 +209,9 @@ void HermesQtUiTest::directoryModelPreservesUtf8Names()
 
   CorePtr core = makeCore();
   DirectoryModel model(core.get());
+  g_wake_model = &model;
   QVERIFY(model.navigate(dir.path()));
-  QCOMPARE(model.rowCount(), 1);
+  QTRY_COMPARE_WITH_TIMEOUT(model.rowCount(), 1, 5000);
   QCOMPARE(model.data(model.index(0), DirectoryModel::NameRole).toString(), name);
   QCOMPARE(model.data(model.index(0), DirectoryModel::PathRole).toString(), dir.filePath(name));
 }
@@ -199,20 +224,98 @@ void HermesQtUiTest::directoryModelFailedNavigateKeepsPath()
 
   CorePtr core = makeCore();
   DirectoryModel model(core.get());
+  g_wake_model = &model;
   QVERIFY(model.navigate(dir.path()));
+  QTRY_COMPARE_WITH_TIMEOUT(model.rowCount(), 1, 5000);
   const int rows = model.rowCount();
   const QString name = model.data(model.index(0), DirectoryModel::NameRole).toString();
   const QString missing = dir.filePath(QStringLiteral("missing"));
 
   QSignalSpy failed(&model, &DirectoryModel::navigateFailed);
   QSignalSpy changed(&model, &DirectoryModel::pathChanged);
-  QVERIFY(!model.navigate(missing));
+  QVERIFY(model.navigate(missing));
+  QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 1, 5000);
   QCOMPARE(failed.count(), 1);
   QCOMPARE(failed.takeFirst().at(0).toString(), missing);
   QCOMPARE(changed.count(), 0);
   QCOMPARE(model.path(), dir.path());
   QCOMPARE(model.rowCount(), rows);
   QCOMPARE(model.data(model.index(0), DirectoryModel::NameRole).toString(), name);
+}
+
+void HermesQtUiTest::directoryModelNavigationDoesNotBlock()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  for (int i = 0; i < 5000; ++i)
+    QVERIFY(writeFile(dir.filePath(QStringLiteral("file-%1").arg(i)), "x"));
+
+  CorePtr core = makeCore();
+  DirectoryModel model(core.get());
+  g_wake_model = &model;
+  QVERIFY(model.navigate(dir.path()));
+  QCOMPARE(model.rowCount(), 0);
+  QTRY_VERIFY_WITH_TIMEOUT(model.rowCount() == 5000, 10000);
+}
+
+void HermesQtUiTest::directoryModelAppliesAsyncResults()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  QVERIFY(writeFile(dir.filePath(QStringLiteral("b.txt")), "b"));
+  QVERIFY(writeFile(dir.filePath(QStringLiteral("a.txt")), "a"));
+
+  CorePtr core = makeCore();
+  DirectoryModel model(core.get());
+  g_wake_model = &model;
+  QSignalSpy finished(&model, &DirectoryModel::scanFinished);
+  QVERIFY(model.navigate(dir.path()));
+  QTRY_COMPARE_WITH_TIMEOUT(model.rowCount(), 2, 5000);
+  QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 5000);
+  QCOMPARE(model.data(model.index(0), DirectoryModel::NameRole).toString(),
+           QStringLiteral("a.txt"));
+}
+
+void HermesQtUiTest::directoryModelKeepsRowsWhenTheDirectoryDisappears()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  QVERIFY(writeFile(dir.filePath(QStringLiteral("kept.txt")), "x"));
+
+  CorePtr core = makeCore();
+  DirectoryModel model(core.get());
+  g_wake_model = &model;
+  QVERIFY(model.navigate(dir.path()));
+  QTRY_COMPARE_WITH_TIMEOUT(model.rowCount(), 1, 5000);
+  const QString previousPath = model.path();
+  QSignalSpy failed(&model, &DirectoryModel::navigateFailed);
+  QVERIFY(dir.remove());
+  model.refresh();
+  QCOMPARE(model.rowCount(), 1);
+  QCOMPARE(model.data(model.index(0), DirectoryModel::NameRole).toString(),
+           QStringLiteral("kept.txt"));
+  QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 1, 5000);
+  QCOMPARE(model.path(), previousPath);
+}
+
+void HermesQtUiTest::directoryModelRefreshDoesNotDuplicateRows()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  QVERIFY(writeFile(dir.filePath(QStringLiteral("a.txt")), "a"));
+  QVERIFY(writeFile(dir.filePath(QStringLiteral("b.txt")), "b"));
+
+  CorePtr core = makeCore();
+  DirectoryModel model(core.get());
+  g_wake_model = &model;
+  QSignalSpy finished(&model, &DirectoryModel::scanFinished);
+  QVERIFY(model.navigate(dir.path()));
+  QTRY_COMPARE_WITH_TIMEOUT(model.rowCount(), 2, 5000);
+  QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 5000);
+  model.refresh();
+  model.refresh();
+  QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 2, 5000);
+  QCOMPARE(model.rowCount(), 2);
 }
 
 void HermesQtUiTest::hostOpenUrisCreatesTabs()
@@ -277,6 +380,7 @@ void HermesQtUiTest::upAndFailedPathKeepState()
   QCOMPARE(controller.directory()->path(), dir.path());
 
   controller.navigate(dir.filePath(QStringLiteral("missing")));
+  QTRY_COMPARE_WITH_TIMEOUT(controller.directory()->path(), dir.path(), 5000);
   QCOMPARE(controller.directory()->path(), dir.path());
   QVERIFY(!controller.canGoForward());
 }
@@ -310,7 +414,7 @@ void HermesQtUiTest::navigationIgnoresStaleDirectoryResults()
 
   ShellController controller;
   controller.navigate(first.path());
-  QCOMPARE(controller.directory()->rowCount(), 1);
+  QTRY_COMPARE_WITH_TIMEOUT(controller.directory()->rowCount(), 1, 5000);
 
   controller.navigate(second.path());
   hermes_core_drain(controller.core());
@@ -447,6 +551,7 @@ void HermesQtUiTest::selectionUsesPathListAndClearsOnNavigation()
                                     Q_ARG(QVariant, QVariant(first.filePath(QStringLiteral("other"))))));
   QCOMPARE(page->property("selectedPaths").toList().size(), 2);
   controller.navigate(second.path());
+  QTRY_VERIFY_WITH_TIMEOUT(page->property("selectedPaths").toList().isEmpty(), 5000);
   QVERIFY(page->property("selectedPaths").toList().isEmpty());
 }
 
@@ -477,6 +582,7 @@ void HermesQtUiTest::selectionClearsOnNavigation()
   QCOMPARE(page->property("selectedPaths").toList().size(), 1);
 
   controller.navigate(second.path());
+  QTRY_VERIFY_WITH_TIMEOUT(page->property("selectedPaths").toList().isEmpty(), 5000);
   QVERIFY(page->property("selectedPaths").toList().isEmpty());
 }
 
@@ -522,20 +628,27 @@ void HermesQtUiTest::directoryModelRejectsStaleScanResults()
 
   CorePtr core = makeCore();
   DirectoryModel model(core.get());
+  g_wake_model = &model;
   QVERIFY(model.navigate(current.path()));
-  QCOMPARE(model.rowCount(), 2);
+  QTRY_COMPARE_WITH_TIMEOUT(model.rowCount(), 2, 5000);
   const QString firstName = model.data(model.index(0), DirectoryModel::NameRole).toString();
 
-  // Both calls scan successfully; only the generation/path check can reject them.
-  QVERIFY(model.applyScan(current.path(), model.m_generation - 1));
+  // Only the generation/path guard may reject this successfully fetched result.
+  HermesListing listing{};
+  const QByteArray currentPath = current.path().toUtf8();
+  QCOMPARE(hermes_core_scan_sorted(core.get(), currentPath.constData(),
+                                   HERMES_SORT_NAME, false, &listing), 0);
+  QVERIFY(!model.applyScan(current.path(), model.m_generation - 1, listing,
+                           current.path()));
   QCOMPARE(model.path(), current.path());
   QCOMPARE(model.rowCount(), 2);
   QCOMPARE(model.data(model.index(0), DirectoryModel::NameRole).toString(), firstName);
 
-  QVERIFY(model.applyScan(other.path(), model.m_generation));
+  QVERIFY(!model.applyScan(other.path(), model.m_generation, listing, current.path()));
   QCOMPARE(model.path(), current.path());
   QCOMPARE(model.rowCount(), 2);
   QCOMPARE(model.data(model.index(0), DirectoryModel::NameRole).toString(), firstName);
+  hermes_listing_free(&listing);
 }
 
 void HermesQtUiTest::operationsCreateRenameAndTrash()
@@ -761,6 +874,7 @@ void HermesQtUiTest::failedHistoryNavigationKeepsCursor()
   QVERIFY(controller.canGoBack());
 
   controller.back();
+  QTRY_COMPARE_WITH_TIMEOUT(controller.directory()->path(), root.path(), 5000);
   QCOMPARE(controller.directory()->path(), root.path());
   QVERIFY(controller.canGoBack());
   QVERIFY(!controller.canGoForward());
