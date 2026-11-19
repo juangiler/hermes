@@ -1,6 +1,7 @@
 #include "shell_controller.h"
 
 #include "directory_model.h"
+#include "directory_watcher.h"
 #include "open_uri_client.h"
 #include "places_model.h"
 
@@ -156,6 +157,22 @@ ShellController::ShellController(QObject *parent)
     }, Qt::QueuedConnection);
   }, this);
   m_directory = new DirectoryModel(m_core, this);
+
+  // Follow the rows actually on screen: the model emits pathChanged when a
+  // scan replaces them with another directory's entries. The watcher is a
+  // child of the controller, so it is unwatched when the controller dies.
+  auto *watcher = new DirectoryWatcher(this);
+  connect(watcher, &DirectoryWatcher::changed, this, [this] {
+    refreshDirectory();
+  });
+  connect(m_directory, &DirectoryModel::pathChanged, this,
+          [watcher](const QString &path) {
+    if (path.isEmpty())
+      watcher->unwatch();
+    else
+      watcher->watch(path);
+  });
+
   connect(m_directory, &DirectoryModel::navigateFailed, this,
           [this](const QString &failedPath) {
     const int current = currentTab();

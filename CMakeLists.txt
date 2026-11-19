@@ -56,6 +56,7 @@ if(HERMES_BUILD_QT_UI)
   add_library(hermes-kirigami-ui STATIC
       qtui/hermes-qt.qrc
       qtui/directory_model.cpp
+      qtui/directory_watcher.cpp
       qtui/places_model.cpp
       qtui/shell_controller.cpp)
   set_target_properties(hermes-kirigami-ui PROPERTIES AUTOMOC ON)
