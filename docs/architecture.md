@@ -61,10 +61,19 @@
   build the SDL app.
 - `src/core_api.h` is the small C ABI (`hermes_core_create`, `hermes_core_scan`,
   `hermes_core_drain`, `hermes_core_destroy`, `hermes_listing_free`,
-  `hermes_core_set_host`) that a non-SDL frontend links against. `src/core_host.h`
-  carries the host callbacks the engine uses for UI-side decisions, with inert
-  defaults for headless use. A C++ frontend installs its table through
-  `hermes_core_set_host()`; the SDL app assigns its own table directly at startup.
+  `hermes_core_set_host`) that a non-SDL frontend links against. Scans are
+  exposed both as a synchronous wrapper (`hermes_core_scan_sorted()`, for
+  unchanged callers) and as an async handle: `hermes_core_scan_start()` takes
+  `HermesScanOptions` (sort key, direction, hidden entries, folder sizes) and
+  returns a `HermesScan` that the frontend polls with `hermes_core_scan_poll()`
+  and releases with `hermes_core_scan_cancel()` / `hermes_core_scan_free()`;
+  `hermes_core_scan_start_folder_sizes()` starts the engine's recursive size
+  pass on a completed scan. The eight `HermesSortKey` values map to the legacy
+  sort fields, and `HERMES_ENTRY_SIZE_UNKNOWN` marks a folder whose recursive
+  size is not known yet. `src/core_host.h` carries the host callbacks the engine
+  uses for UI-side decisions, with inert defaults for headless use. A C++
+  frontend installs its table through `hermes_core_set_host()`; the SDL app
+  assigns its own table directly at startup.
 - `tools/core-selftest.c` exercises the engine and the public ABI without SDL
   or a display server, including permission-denied scans, unusual filenames
   and cross-device copies. It is built by the `hermes-core-selftest` target.
@@ -104,13 +113,25 @@
   `QQmlApplicationEngine` that loads `qrc:/qtui/qml/main.qml`, installs the
   controller as the `hermes` context property, and handles `--version`/`--help`.
 - `qtui/shell_controller.*` owns migration state: places, tab list and focus,
-  per-tab history, clipboard, conflict policy and operation completion. It
-  installs the `core_host.h` hooks so engine callbacks (including open-tab
-  requests off the GUI thread) reach QML-safe slots, and exposes invokable
-  create/rename/remove/copy/move calls that delegate to the C ABI.
-- `qtui/directory_model.*` is a `QAbstractListModel` over `hermes_core_scan()`:
-  typed name/path/size/date roles, sorted entries and a generation guard so a
-  stale queued scan cannot overwrite a newer navigation. QML never scans disks.
+  per-tab history, view mode (list/details/grid), the column set and zoom, plus
+  clipboard, conflict policy and operation completion. It installs the
+  `core_host.h` hooks so engine callbacks (including open-tab requests off the
+  GUI thread) reach QML-safe slots, exposes invokable
+  create/rename/remove/copy/move calls that delegate to the C ABI, and owns the
+  directory watcher so an on-disk change asks the model for a refresh.
+- `qtui/directory_watcher.*` watches the current directory on disk with a
+  debounced `QFileSystemWatcher` and reports changes to the controller; the
+  controller owns it so the model can still be used headless.
+- `qtui/directory_model.*` is a `QAbstractListModel` over the asynchronous
+  `hermes_core_scan_start()` / `hermes_core_scan_poll()` handle: `navigate()`
+  and `refresh()` start a scan and return, and `pollScan()` applies a completed
+  result on the GUI thread while the rows on screen stay until the new ones
+  arrive. A generation guard drops a superseded result, and a failed scan keeps
+  the previous rows and emits `navigateFailed`. It exposes typed
+  name/path/size/date roles, the hidden-entry and folder-size toggles, the sort
+  key and direction (including the legacy key policy), the eight sort keys and
+  the ordered path list; `scanFinished()` fires once a result is applied. QML
+  never scans disks.
 - `qtui/places_model.*` supplies the GlobalDrawer labels and paths.
 - `qtui/qml/main.qml` owns the `Kirigami.ApplicationWindow`, places drawer, tab
   strip, navigation/operation controls and dialogs; `qtui/qml/DirectoryPage.qml`
