@@ -221,6 +221,9 @@ ShellController::~ShellController()
     if (g_controller == this)
       g_controller = nullptr;
   }
+  // The scan worker polls handles owned by this core; join it first.
+  if (m_directory)
+    m_directory->stopWorker();
   hermes_core_destroy(m_core);
   m_core = nullptr;
 }
