@@ -95,7 +95,31 @@
   backend and its FileChooser interface as data files, not system-wide config.
 - `tools/portal-selftest.cpp` drives the clients, services and config through
   a private session bus, built as `hermes-portal-selftest`; see
-  [Building](building.md). There is no Kirigami/QML shell or picker yet.
+  [Building](building.md). The QML shell lives in `qtui/`; no picker window
+  exists yet.
+
+### Qt/Kirigami shell
+
+- `qtui/main.cpp` is the `hermes-qt` entry point: a `QGuiApplication` and
+  `QQmlApplicationEngine` that loads `qrc:/qtui/qml/main.qml`, installs the
+  controller as the `hermes` context property, and handles `--version`/`--help`.
+- `qtui/shell_controller.*` owns migration state: places, tab list and focus,
+  per-tab history, clipboard, conflict policy and operation completion. It
+  installs the `core_host.h` hooks so engine callbacks (including open-tab
+  requests off the GUI thread) reach QML-safe slots, and exposes invokable
+  create/rename/remove/copy/move calls that delegate to the C ABI.
+- `qtui/directory_model.*` is a `QAbstractListModel` over `hermes_core_scan()`:
+  typed name/path/size/date roles, sorted entries and a generation guard so a
+  stale queued scan cannot overwrite a newer navigation. QML never scans disks.
+- `qtui/places_model.*` supplies the GlobalDrawer labels and paths.
+- `qtui/qml/main.qml` owns the `Kirigami.ApplicationWindow`, places drawer, tab
+  strip, navigation/operation controls and dialogs; `qtui/qml/DirectoryPage.qml`
+  owns the directory list, selection and single/double-click behaviour. Both
+  bind to C++ models/controller only and use the hardware scene graph, with no
+  `Canvas` or `QPainter`.
+- `tools/qtui-selftest.cpp` is the Qt Test suite for the model, controller and
+  offscreen QML load, built as `hermes-qt-selftest`. Offscreen runs prove
+  plumbing, not live Plasma behaviour; see [Building](building.md).
 
 ## Repository layout
 
@@ -109,5 +133,9 @@
   holds generated distributable artifacts.
 - `build.sh` remains the unity-build entry point. `install.sh` consumes an
   explicitly selected mode/binary and supports `DESTDIR` staging.
+- `CMakeLists.txt` builds `hermes_core`, the portal library and, when
+  `HERMES_BUILD_QT_UI=ON`, the `qtui/` frontend plus the legacy SDL target.
+  `HERMES_DEFAULT_UI` is a temporary install alias for `hermes`, removed with
+  the SDL UI in PR 5.
 - `tools/source-archive.sh` packages an explicit source allowlist, including
   working-tree edits but not local Git metadata, build products or home data.

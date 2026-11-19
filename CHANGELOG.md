@@ -7,6 +7,11 @@ will be listed above that history.
 ## Unreleased
 
 **New**
+- Kirigami shell: the new `hermes-qt` executable renders a native Plasma window
+  with a places drawer, tab strip, directory view, up/back/forward navigation
+  and basic create/rename/remove/copy/move operations through C++ controllers
+  and QML. CI builds both UIs on Arch, Fedora, Debian and Ubuntu. Offscreen Qt
+  Test runs verify headless plumbing only, not live Plasma 6.6-6.8 behaviour.
 - Headless Qt 6 D-Bus/portal plumbing against the `hermes_core` C ABI: async
   Settings/OpenURI/Documents clients, FileManager1 and FileChooser service
   stubs, and an opt-in file-chooser role CLI (`--enable-filechooser` /
@@ -27,7 +32,12 @@ will be listed above that history.
 - `refactor(core)`: the SDL-free engine is now available as a `hermes_core` C
   library behind a small ABI, with host callbacks and headless self-tests. The
   SDL application and its behaviour are unchanged; this is groundwork for the
-  Qt/Kirigami port.
+  Qt/Kirigami port. The ABI now also exposes sorted directory scans and
+  engine-backed create/rename/remove/copy/move operations for the Qt shell.
+- CMake's `HERMES_DEFAULT_UI` is a temporary migration install flag: `legacy`
+  (the default) installs the SDL binary as `hermes`, `kirigami` installs the
+  Qt binary instead. Both executables are built in either case; the flag and
+  the legacy target disappear with the SDL UI in PR 5.
 
 ## 0.0.1
 

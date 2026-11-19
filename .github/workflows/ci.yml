@@ -33,11 +33,13 @@ jobs:
       - name: Install dependencies
         run: |
           case "${{ matrix.image }}" in
-            archlinux*) pacman -Syu --noconfirm --needed base-devel git pkgconf cmake sdl3 freetype2 harfbuzz fontconfig libarchive libvterm fuse3 openssl ;;
-            fedora*)    dnf install -y gcc git pkgconf-pkg-config cmake SDL3-devel freetype-devel harfbuzz-devel fontconfig-devel libarchive-devel libvterm-devel fuse3-devel openssl-devel ;;
+            archlinux*) pacman -Syu --noconfirm --needed base-devel git pkgconf cmake sdl3 freetype2 harfbuzz fontconfig libarchive libvterm fuse3 openssl qt6-base qt6-declarative kirigami extra-cmake-modules qqc2-desktop-style ;;
+            fedora*)    dnf install -y gcc git pkgconf-pkg-config cmake SDL3-devel freetype-devel harfbuzz-devel fontconfig-devel libarchive-devel libvterm-devel fuse3-devel openssl-devel qt6-qtbase-devel qt6-qtdeclarative-devel kf6-kirigami-devel extra-cmake-modules kf6-qqc2-desktop-style ;;
             debian*|ubuntu*)
               apt-get update
-              DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential git pkg-config cmake libsdl3-dev libfreetype-dev libharfbuzz-dev libfontconfig-dev libarchive-dev libvterm-dev libfuse3-dev libssl-dev ;;
+              # qml6-module-org-kde-breeze is the Plasma style; without it QQC2
+              # falls back to Fusion and Kirigami's platform plugin is skipped.
+              DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential git pkg-config cmake libsdl3-dev libfreetype-dev libharfbuzz-dev libfontconfig-dev libarchive-dev libvterm-dev libfuse3-dev libssl-dev qt6-base-dev qt6-declarative-dev libkirigami-dev extra-cmake-modules qml6-module-org-kde-kirigami qml6-module-org-kde-desktop qml6-module-org-kde-breeze ;;
           esac
       - uses: actions/checkout@v4
       - name: Build (package mode)
@@ -45,6 +47,14 @@ jobs:
           ./build.sh package 2>&1 | tee build.log
           if grep -q 'warning:' build.log; then echo "::error::compiler warnings"; exit 1; fi
           ./build/package/hermes --version
+      - name: Build both UIs (CMake)
+        run: |
+          cmake -S . -B build/cmake-ui -DHERMES_BUILD_QT_UI=ON -DHERMES_DEFAULT_UI=legacy
+          cmake --build build/cmake-ui --target hermes-legacy hermes-qt hermes-qt-selftest 2>&1 | tee cmake-ui-build.log
+          if grep -q 'warning:' cmake-ui-build.log; then echo "::error::Qt UI compiler warnings"; exit 1; fi
+          QT_QPA_PLATFORM=offscreen ./build/cmake-ui/hermes-qt-selftest
+          cmake -S . -B build/cmake-ui-qt -DHERMES_BUILD_QT_UI=ON -DHERMES_DEFAULT_UI=kirigami
+          cmake --build build/cmake-ui-qt --target hermes-qt
 
   # Informational only until phase 5 of the Qt/Kirigami port: exercises the
   # headless core library that the future frontend will link against.
@@ -64,7 +74,7 @@ jobs:
           chown -R tester .
           su tester -c '
             set -e
-            cmake -S . -B build/cmake
+            cmake -S . -B build/cmake -DHERMES_BUILD_QT_UI=OFF
             cmake --build build/cmake --target hermes-core-selftest hermes-core-abi-selftest hermes-cpp-probe
             ./build/cmake/hermes-core-selftest
             ./build/cmake/hermes-core-abi-selftest
@@ -86,7 +96,7 @@ jobs:
           chown -R tester .
           su tester -c '
             set -e
-            cmake -S . -B build/cmake
+            cmake -S . -B build/cmake -DHERMES_BUILD_QT_UI=OFF
             sh tools/portal-selftest.sh'
 
   # Debug build (ASan/UBSan) + the headless self-tests. A restricted seccomp profile
