@@ -400,10 +400,17 @@ it needs no recursive allocation in C.
 - **The tab names need a line of their own.** The legacy's format has nowhere
   to put a name the user gave a tab, so the core's session line set grows one
   more line for it. The legacy application ignores a line it does not know, so
-  it reads such a session without trouble; what it does not do is write it
-  back, because it rewrites the file from its own state. A tab name is
-  therefore lost if the legacy application saves the settings afterwards -
-  the one cost of a name the legacy has no place for.
+  it reads such a session without trouble.
+- **The session is a snapshot of the current state, never an accumulation.**
+  What is written is the tabs that exist now, their names and their panes. A
+  tab that was closed is simply not in it - closing a tab takes it out of the
+  session exactly as it takes it out of the window - and the next save writes
+  what is there, not what was once there.
+- **The write-back keeps what the writer is not writing.** The core owns the
+  file, so a writer supplies the groups it owns and the core preserves the
+  rest: the Qt application's tab names survive a legacy application's save,
+  and the legacy's own settings survive the Qt application's. That removes the
+  only cost the new shape had.
 - **When the session is written.** The shell marks the settings dirty when a
   tab's tree, a tab or the active tab changes, and saves on a three second
   debounce after the last change, then once more at shutdown. That is the
