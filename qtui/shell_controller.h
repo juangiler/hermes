@@ -4,10 +4,13 @@
 #include "pane_tree.h"
 #include <QByteArray>
 #include <QObject>
+#include <QRect>
+#include <QSharedPointer>
 #include <QSize>
 #include <QString>
 #include <QStringList>
 #include <QVariantList>
+#include <QVariantMap>
 #include <QVector>
 #include <atomic>
 
@@ -16,39 +19,29 @@ class DirectoryWatcher;
 class OpenUriClient;
 class PlacesModel;
 
-// TEMPORARY (Task 2 removes this): the shipped QML and the controller still
-// speak the panel-shaped tree API. Adapt it onto PaneTree so the tree data
-// change lands without rewriting the controller in the same commit.
-using PanelTab = PaneState;
+// The window's tab strip owns one tree of panes per tab. PaneTree is move-only
+// (its nodes are unique_ptrs), so QVector holds it indirectly; each TabState
+// still constructs its own tree and never shares it with another tab.
+struct TabState {
+  QSharedPointer<PaneTree> tree;
+  QString customName;
 
-struct Panel {
-  QVector<PanelTab> tabs;
-  int currentTab = 0;
-  DirectoryModel *model = nullptr;
-  DirectoryWatcher *watcher = nullptr;
+  TabState() : tree(new PaneTree) {}
 };
 
-class PanelTree {
+// The shipped QML tab strip treats each entry of `tabs` as a path string. A
+// tab entry is still a QVariantMap for the C++ API, but this gadget gives it a
+// QString conversion so that binding keeps working until Task 3 rewrites it.
+struct TabEntry : QVariantMap {
+  Q_GADGET
  public:
-  static constexpr int MaxPanels = PaneTree::MaxPanes;
-
-  enum class Zone { Left, Right, Top, Bottom };
-
-  PanelTree();
-  QVector<Panel> &panels();
-  const QVector<Panel> &panels() const;
-  int activePanel() const;
-  void setActivePanel(int index);
-
-  int splitPanel(int panelIndex, Zone zone, int tabIndex, const QString &path);
-  void closePanel(int panelIndex);
-  QVector<int> panelsInReadingOrder() const;
-  QVector<QRect> layout(const QSize &area) const;
-
- private:
-  PaneTree m_tree;
-  QVector<Panel> m_panes;
+  explicit TabEntry(const QVariantMap &map = QVariantMap()) : QVariantMap(map) {}
+  Q_INVOKABLE QString toString() const
+  {
+    return value(QStringLiteral("path")).toString();
+  }
 };
+Q_DECLARE_METATYPE(TabEntry)
 
 // Install the Qt host table before any HermesCore is created. The controller
 // also does this in its constructor so standalone consumers (tests) get hooks.
@@ -58,14 +51,11 @@ class ShellController : public QObject
 {
   Q_OBJECT
 
-  // The QML still binds to these until the panel-aware QML lands; they read
-  // through to the active panel. The panel properties are the real API.
-  Q_PROPERTY(DirectoryModel *directory READ directory NOTIFY activePanelChanged)
+  Q_PROPERTY(QVariantList tabs READ tabs NOTIFY tabsChanged)       // one map per tab
+  Q_PROPERTY(int activeTab READ activeTab NOTIFY activeTabChanged)
+  Q_PROPERTY(QVariantList panes READ panes NOTIFY tabsChanged)     // active tab's panes
+  Q_PROPERTY(DirectoryModel *directory READ directory NOTIFY focusedPaneChanged)
   Q_PROPERTY(PlacesModel *places READ places CONSTANT)
-  Q_PROPERTY(QVariantList panels READ panels NOTIFY panelsChanged)
-  Q_PROPERTY(int activePanel READ activePanel NOTIFY activePanelChanged)
-  Q_PROPERTY(QStringList tabs READ tabs NOTIFY tabsChanged)
-  Q_PROPERTY(int currentTab READ currentTab NOTIFY currentTabChanged)
   Q_PROPERTY(bool canGoBack READ canGoBack NOTIFY historyChanged)
   Q_PROPERTY(bool canGoForward READ canGoForward NOTIFY historyChanged)
   Q_PROPERTY(bool canPaste READ canPaste NOTIFY clipboardChanged)
@@ -76,16 +66,24 @@ class ShellController : public QObject
   Q_PROPERTY(bool folderSizes READ folderSizes NOTIFY folderSizesChanged)
   Q_PROPERTY(QString sortKey READ sortKey NOTIFY sortKeyChanged)
 
-public:
+  // TEMPORARY compatibility shims for the shipped QML and the S1 tests. Task 3
+  // removes them when it rewrites the QML against tabs/panes.
+  Q_PROPERTY(QVariantList panels READ panels NOTIFY panelsChanged)
+  Q_PROPERTY(int activePanel READ activePanel NOTIFY activePanelChanged)
+  Q_PROPERTY(QStringList legacyTabs READ legacyTabs NOTIFY tabsChanged)
+  Q_PROPERTY(int currentTab READ currentTab NOTIFY currentTabChanged)
+
+ public:
   explicit ShellController(QObject *parent = nullptr);
   ~ShellController() override;
 
-  DirectoryModel *directory() const;  // the active panel's model
+  int activeTab() const;
+  QVariantList tabs() const;
+  QVariantList panes() const;
+  DirectoryModel *directory() const;  // the focused pane's model
   PlacesModel *places() const;
-  QVariantList panels() const;
-  int activePanel() const;
-  QStringList tabs() const;  // the active panel's tab paths
-  int currentTab() const;    // the active panel's showing tab
+  QStringList legacyTabs() const;
+  int currentTab() const;
   bool canGoBack() const;
   bool canGoForward() const;
   bool canPaste() const;
@@ -97,18 +95,24 @@ public:
   QString sortKey() const;
   HermesCore *core() const;
 
-  Q_INVOKABLE void activatePanel(int panelId);
-  Q_INVOKABLE void selectTab(int panelId, int tabIndex);
-  Q_INVOKABLE void closeTab(int panelId, int tabIndex);
-  Q_INVOKABLE void newTabInPanel(int panelId);
-  Q_INVOKABLE void splitActiveRight();
-  Q_INVOKABLE void splitActiveDown();
+  Q_INVOKABLE void selectTab(int index);
+  Q_INVOKABLE void closeTab(int index);
+  Q_INVOKABLE void newTab();
+  Q_INVOKABLE void renameTab(int index, const QString &name);
+  Q_INVOKABLE void setFocusedPane(int paneId);
+  Q_INVOKABLE void closeFocusedPane();
+  Q_INVOKABLE void splitFocusedRight();
+  Q_INVOKABLE void splitFocusedDown();
   Q_INVOKABLE void openInSplit(const QString &path, bool right);
-  Q_INVOKABLE void moveTabToSplit(int panelId, int tabIndex, bool right);
-  Q_INVOKABLE void cyclePanel(int direction);
-
-  // The size of the area the panels are laid out in; the QML reports it.
+  Q_INVOKABLE void cyclePane(int direction);
   Q_INVOKABLE void setContentSize(int width, int height);
+
+  Q_INVOKABLE QStringList selectedPaths(int paneId) const;
+  Q_INVOKABLE void setSelectedPaths(int paneId, const QStringList &paths);
+  Q_INVOKABLE int currentIndex(int paneId) const;
+  Q_INVOKABLE void setCurrentIndex(int paneId, int index);
+  Q_INVOKABLE int anchorIndex(int paneId) const;
+  Q_INVOKABLE void setAnchorIndex(int paneId, int index);
 
   // The engine's open_tab hook arrives on this method, off the GUI thread.
   void openTabFromHost(const QString &path, int index, bool focus);
@@ -132,24 +136,33 @@ public:
   int operationsChangedCount() const;
   void resetOperationsChangedCount();
 
-public slots:
+ public slots:
   void setPaths(const QStringList &paths);
   void navigate(const QString &path);
   void openEntry(const QString &path);
-  // Active-panel shims: kept so the shipped QML and the host hook keep working
-  // until the panel-aware QML binds to the commands above directly.
+  // Compatibility slot: the shipped QML passes the path it wants opened.
   void newTab(const QString &path);
-  void closeTab(int index);
-  void selectTab(int index);
   void up();
   void back();
   void forward();
 
-signals:
-  void panelsChanged();
-  void activePanelChanged();
+  // TEMPORARY panel-shaped shims; see the properties above.
+  int activePanel() const;
+  QVariantList panels() const;
+  void activatePanel(int paneId);
+  void selectTab(int paneId, int tabIndex);
+  void closeTab(int paneId, int tabIndex);
+  void newTabInPanel(int paneId);
+  void splitActiveRight();
+  void splitActiveDown();
+  void moveTabToSplit(int paneId, int tabIndex, bool right);
+  void cyclePanel(int direction);
+
+ signals:
   void tabsChanged();
-  void currentTabChanged();
+  void activeTabChanged();
+  void focusedPaneChanged();
+  void paneClosed(const QRect &rect);
   void historyChanged();
   void operationFailed(const QString &message);
   void operationCompleted(int kind, int errorCount);
@@ -161,28 +174,36 @@ signals:
   void showHiddenChanged();
   void folderSizesChanged();
   void sortKeyChanged();
+  void panelsChanged();
+  void activePanelChanged();
+  void currentTabChanged();
 
-private:
+ private:
   bool goTo(const QString &path, bool record, int historyIndex = -2);
   void emitHistory();
   bool resolveRawPaths(const QStringList &displayedPaths, QVector<QByteArray> &rawPaths);
   bool copyRawEntries(const QVector<QByteArray> &rawPaths, const QString &destDir, bool move);
 
-  Panel *panelAt(int id);
-  const Panel *panelAt(int id) const;
+  TabState *tabAt(int index);
+  const TabState *tabAt(int index) const;
+  Pane *paneAt(int tabIndex, int paneId);
+  const Pane *paneAt(int tabIndex, int paneId) const;
+  Pane *focusedPane();
+  const Pane *focusedPane() const;
+  PaneState *focusedState();
+  const PaneState *focusedState() const;
   DirectoryModel *activeModel() const;
-  PanelTab *activeTab();
-  const PanelTab *activeTab() const;
   void syncCurrentTab();
-  void emitPanelsChanged();
-  void createPanelResources(int panelId);
-  static void destroyPanelResources(Panel &panel);
-  int splitPanel(int panelId, PanelTree::Zone zone, int tabIndex, const QString &path);
-  void insertTabInPanel(int panelId, const QString &path, int index, bool focus);
-  void closeWholePanel(int panelId);
+  void emitTabsChanged();
+  void createPaneResources(int tabIndex, int paneId);
+  static void destroyPaneResources(Pane &pane);
+  int splitPane(PaneTree::Zone zone, const QString &path);
+  void insertTab(const QString &path, int index, bool focus);
+  QStringList tabPaths() const;
 
   HermesCore *m_core = nullptr;
-  PanelTree m_tree;
+  QVector<TabState> m_tabs;
+  int m_active_tab = 0;
   QSize m_contentSize;
   PlacesModel *m_places = nullptr;
   OpenUriClient *m_openUri = nullptr;
@@ -195,7 +216,7 @@ private:
   double m_zoom = 1.0;
   QVariantList m_columns;
   std::atomic<int> m_operationsChangedCount{0};
-  // A mirror of the active panel's showing tab: hostCurrentTab() reads it on
-  // the engine thread, so it must not touch the tree.
+  // A mirror of the active tab index: hostCurrentTab() reads it on the engine
+  // thread and must never touch the tab vector or the pane tree.
   std::atomic<int> m_currentTab{-1};
 };
