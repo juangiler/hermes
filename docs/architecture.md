@@ -131,7 +131,9 @@
   create/rename/remove/copy/move calls that delegate to the C ABI. An on-disk
   change asks the affected pane's model for a refresh; split tabs are reported
   for the `MULTI` badge and closing a pane emits its old rectangle for QML's
-  collapse animation.
+  collapse animation. In `qtui/qml/PaneView.qml`, each pane's geometry is
+  animated as the tree relayouts on split/close, and a newly opened pane fades
+  in via `paneOpenAnimation`.
 - `qtui/directory_watcher.*` watches the current directory on disk with a
   debounced `QFileSystemWatcher` and reports changes to the controller; the
   controller owns it so the model can still be used headless.
