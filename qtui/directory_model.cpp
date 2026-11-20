@@ -384,6 +384,7 @@ bool DirectoryModel::applySnapshot(ScanSnapshot snapshot)
     beginResetModel();
     m_entries.swap(entries);
     endResetModel();
+    emit rowsReplaced();
   }
   m_path = config.path;
   m_rowsPath = config.path;
