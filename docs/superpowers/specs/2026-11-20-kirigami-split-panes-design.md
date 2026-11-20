@@ -379,6 +379,10 @@ it needs no recursive allocation in C.
 - The tab strip's label for a tab is its focused pane's display name, or the
   name the user gave it, and a badge reading `MULTI` sits next to the name of
   every tab that holds more than one pane.
+- **The split animates.** A pane that splits and a pane that closes get a
+  motion treatment, as the master design's motion requirements ask for. The
+  animation is drawn on top of content that is already there and never delays
+  it: the new pane's rows appear as soon as they are ready.
 - Every new widget carries an `objectName`, as the S1 widgets do, so the tests
   can drive it.
 

@@ -226,6 +226,56 @@ to the current behaviour rather than blocking startup or a file operation.
    and delete the old UI sources. Full parity from step 4 is the gate for
    deleting SDL sources.
 
+## Visual language and motion requirements
+
+The port is not only a port of behaviour. The user asked for **very nice
+animations and a modern, flat, customizable interface**, and that is a
+requirement on every slice, not a coat of paint for the last one. It is
+recorded here, beside the other cross-cutting requirements, so that no slice
+can ship without it and no slice has to invent it.
+
+**The visual language.** Modern and flat: flat surfaces rather than bevels and
+decorative gradients, rounded corners, generous spacing, a clear type scale, and
+one consistent set of spacing and sizing values. The values live in **one
+place** - a shared theme or component set the screens use - so that changing
+the look means changing that one place and not editing every screen. The
+legacy's custom renderer is not ported, so nothing about its look survives
+except through the free hand given here.
+
+**Customizable.** The user can change it: the accent colour, the density, the
+icon size, the font size and the motion level are settings, and the settings
+slice (S10) puts them in a page. A value that is configurable must be read
+from one place rather than hardcoded, so that changing it takes effect
+everywhere.
+
+**Motion.** Every screen the port adds gets a motion treatment, so that the
+application feels alive rather than stepped: the rows changing after a scan, a
+pane splitting and a pane closing, a tab switching, the drawer opening, the
+`MULTI` badge appearing. The motion is QML property animations and
+`Transition`s, drawn through the hardware scene graph like everything else.
+
+**Motion never delays content.** This is the rule that keeps the two
+requirements compatible. The rows appear the moment they are ready, as the
+legacy requires ("swapping rows in without a flicker"); an animation is drawn
+on top of content that is already there, never in front of content that is
+not. No animation may wait for the engine, block the GUI thread, or delay a
+result the user is waiting for.
+
+**Performance.** The user asked for godlike speed in navigation and searching.
+The asynchronous model is what delivers it: the GUI thread never waits for the
+engine, and a scan, a search or a cloud operation happens while the window
+stays responsive. The visual work must not cost that: animations run on the
+render thread, and no screen may do expensive work in a binding or allocate
+per frame.
+
+**Reduced motion.** Where the platform exposes a reduced-motion preference, the
+application honours it, and the motion level is a setting besides, so a user
+who wants the application still can have it without motion.
+
+**The parity checklist.** S12 compares the two applications page by page. That
+comparison is the checklist for the visual work as well as for the layout, so
+a screen that is functionally right but looks unfinished is caught there.
+
 ## Preview and thumbnail requirements
 
 Today `src/preview.c` decodes images with stb_image, reads freedesktop
