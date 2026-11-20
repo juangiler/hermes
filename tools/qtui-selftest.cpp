@@ -115,6 +115,10 @@ private slots:
   void panelTreeRefusesTheSixteenthPanel();
   void panelTreeClosesAPanelAndTheSiblingTakesTheSpace();
   void panelTreeLayoutSplitsTheArea();
+  void panelTreeKeepsTheCurrentTabWhenMovingAnEarlierTab();
+  void panelTreeActivatesTheNewPanelOnSplit();
+  void panelTreeClosesTheActivePanelIntoTheSiblingSubtree();
+  void panelTreeRefusedSplitLeavesTheTabsUntouched();
 
 private:
   using CorePtr = std::unique_ptr<HermesCore, decltype(&hermes_core_destroy)>;
@@ -1982,6 +1986,101 @@ void HermesQtUiTest::panelTreeLayoutSplitsTheArea()
   QCOMPARE(v.size(), 2);
   QCOMPARE(v.at(0), QRect(0, 0, 800, 300));
   QCOMPARE(v.at(1), QRect(0, 301, 800, 299));
+}
+
+void HermesQtUiTest::panelTreeKeepsTheCurrentTabWhenMovingAnEarlierTab()
+{
+  const auto fill = [](PanelTree &tree, int count) {
+    tree.panels()[0].tabs.clear();
+    for (int i = 0; i < count; ++i) {
+      PanelTab tab;
+      tab.path = QStringLiteral("/%1").arg(i);
+      tree.panels()[0].tabs.append(tab);
+    }
+  };
+
+  // The cursor belongs to its tab: moving tab 0 out of [A,B,C,D] leaves C at
+  // index 1, so the panel must follow it rather than keep pointing at D.
+  PanelTree earlier;
+  fill(earlier, 4);
+  earlier.panels()[0].currentTab = 2;
+  QCOMPARE(earlier.splitPanel(0, PanelTree::Zone::Right, 0, QString()), 1);
+  QCOMPARE(earlier.panels().at(0).tabs.size(), 3);
+  QCOMPARE(earlier.panels().at(0).currentTab, 1);
+  QCOMPARE(earlier.panels().at(0).tabs.at(1).path, QStringLiteral("/2"));
+  QCOMPARE(earlier.panels().at(1).tabs.at(0).path, QStringLiteral("/0"));
+  QCOMPARE(earlier.panels().at(1).currentTab, 0);
+
+  // Moving the current tab selects its neighbour: the next one when present.
+  PanelTree next;
+  fill(next, 3);
+  next.panels()[0].currentTab = 0;
+  QCOMPARE(next.splitPanel(0, PanelTree::Zone::Right, 0, QString()), 1);
+  QCOMPARE(next.panels().at(0).currentTab, 0);
+  QCOMPARE(next.panels().at(0).tabs.at(0).path, QStringLiteral("/1"));
+
+  // And the previous one when the moved tab was last.
+  PanelTree previous;
+  fill(previous, 3);
+  previous.panels()[0].currentTab = 2;
+  QCOMPARE(previous.splitPanel(0, PanelTree::Zone::Right, 2, QString()), 1);
+  QCOMPARE(previous.panels().at(0).currentTab, 1);
+  QCOMPARE(previous.panels().at(0).tabs.at(1).path, QStringLiteral("/1"));
+}
+
+void HermesQtUiTest::panelTreeActivatesTheNewPanelOnSplit()
+{
+  PanelTree tree;
+  QCOMPARE(tree.activePanel(), 0);
+  QCOMPARE(tree.splitPanel(0, PanelTree::Zone::Right, -1, QString()), 1);
+  QCOMPARE(tree.activePanel(), 1);
+  QCOMPARE(tree.splitPanel(1, PanelTree::Zone::Bottom, -1, QString()), 2);
+  QCOMPARE(tree.activePanel(), 2);
+}
+
+void HermesQtUiTest::panelTreeClosesTheActivePanelIntoTheSiblingSubtree()
+{
+  PanelTree tree;
+  QCOMPARE(tree.splitPanel(0, PanelTree::Zone::Right, -1, QStringLiteral("/right")), 1);
+  QCOMPARE(tree.splitPanel(0, PanelTree::Zone::Bottom, -1, QStringLiteral("/below")), 2);
+  QCOMPARE(tree.panelsInReadingOrder(), QVector<int>({0, 2, 1}));
+  tree.setActivePanel(0);
+  QCOMPARE(tree.activePanel(), 0);
+
+  tree.closePanel(0);
+  QCOMPARE(tree.panels().size(), 2);
+  QCOMPARE(tree.panels().at(1).tabs.at(0).path, QStringLiteral("/below"));
+  // The sibling subtree's first panel becomes index 1 after the shift.
+  QCOMPARE(tree.activePanel(), 1);
+}
+
+void HermesQtUiTest::panelTreeRefusedSplitLeavesTheTabsUntouched()
+{
+  PanelTree tree;
+  PanelTab only;
+  only.path = QStringLiteral("/only");
+  only.history = QStringList({QStringLiteral("/older"), QStringLiteral("/only")});
+  only.historyIndex = 1;
+  only.selectedPaths = QStringList({QStringLiteral("/only/picked")});
+  only.currentIndex = 3;
+  only.anchorIndex = 2;
+  tree.panels()[0].tabs.clear();
+  tree.panels()[0].tabs.append(only);
+  tree.panels()[0].currentTab = 0;
+
+  const PanelNode *rootBefore = tree.root();
+  QCOMPARE(tree.splitPanel(0, PanelTree::Zone::Right, 0, QStringLiteral("/new")), -1);
+  QCOMPARE(tree.panels().size(), 1);
+  QCOMPARE(tree.root(), rootBefore);
+  QCOMPARE(tree.panels().at(0).currentTab, 0);
+  QCOMPARE(tree.panels().at(0).tabs.size(), 1);
+  const PanelTab &tab = tree.panels().at(0).tabs.at(0);
+  QCOMPARE(tab.path, QStringLiteral("/only"));
+  QCOMPARE(tab.history, QStringList({QStringLiteral("/older"), QStringLiteral("/only")}));
+  QCOMPARE(tab.historyIndex, 1);
+  QCOMPARE(tab.selectedPaths, QStringList({QStringLiteral("/only/picked")}));
+  QCOMPARE(tab.currentIndex, 3);
+  QCOMPARE(tab.anchorIndex, 2);
 }
 
 QTEST_MAIN(HermesQtUiTest)
