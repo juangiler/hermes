@@ -157,12 +157,27 @@ dropped, and the panel named by `active_panel` is activated if it survived.
 - Terminal tabs and the terminal dock under a folder (S8).
 - The legacy's tree view inside a pane (the legacy has one; the Qt directory
   view does not, and adding it is not part of this slice).
-- Per-panel view options beyond the per-tab view mode the legacy already
-  persists. The shell-level options built in S1 - view mode, columns, zoom,
-  hidden entries, folder sizes, sort key - stay shell-level in S2a; the legacy
-  keeps the view mode per tab, and S2b restores that per-tab view mode from the
-  `ptab` line's fourth field.
+- Per-pane view options beyond what S1 built. The shell-level options - view
+  mode, columns, zoom, hidden entries, folder sizes, sort key - stay
+  shell-level.
 - Making the Kirigami application the default UI (S12).
+
+## The SDL application is scaffolding
+
+The legacy SDL3 application is temporary. The port's last step deletes it, and
+the SDL sources are not to be kept. Nothing in this slice is designed to keep
+it alive, to extend it, or to preserve a format for its sake: where the two
+applications differ, the new shape wins and the legacy adapts.
+
+Two things follow from that, and they are the reason the shared settings and
+the session are treated differently here. The **shared settings** - the sort
+defaults, the window size, the servers, the devices, the keybindings - stay in
+the legacy's format and file, because they are one configuration that both
+applications read and write while the legacy still exists, and because the
+legacy must keep working. The **session** is the Qt application's own, in its
+own file and its own format, because the legacy's session format cannot
+express a list of tabs each holding a tree of panes, and because a mapping
+that only the legacy could read has no value once the legacy is gone.
 
 ## Anti-goals
 
@@ -373,44 +388,33 @@ it needs no recursive allocation in C.
   `settings.conf`, merges it per key group and writes it back, so the legacy
   application's multi-process safety is preserved and the Qt application gets
   the same guarantee. The legacy application calls the core instead of doing
-  the file handling itself; its behaviour does not change.
-- The core owns the layout format: parse a `layout=` string into a flat node
-  array and serialize a node array back into that string, with the legacy's
-  exact spelling. It also owns the whole session line set - `layout=`, the
-  `ptab=` lines and `active_panel=` - so the format has one implementation.
-- **What the new shape can restore, and what it cannot.** The legacy's session
-  describes a window of panels, each with its own tab stack. The new shape has
-  one strip, so the per-panel stacks have no home. The mapping is: the legacy's
-  panel tree becomes the first restored tab's pane tree, with each of its
-  leaves showing the directory that panel was showing; the legacy's other tabs
-  come back as further tabs, each with a single pane. The split arrangement
-  and every directory are restored; the legacy's *arrangement of strips* is
-  not, because a single strip cannot hold it. That loss is the price of the
-  shape, and it is recorded here rather than discovered later.
-- The Qt shell writes `layout=`, one `ptab=` line per tab, and `active_panel=`
-  when the session is saved, and restores the tree from them when it starts. A
-  missing or corrupt layout falls back to a single pane, and tabs whose folder
-  no longer exists are dropped, as the legacy does.
-- The `ptab=` line the Qt side writes carries three fields - the panel id, the
-  current flag and the path - and leaves out the legacy's optional fourth
-  field, which holds per-tab view options the Qt side does not have. The
-  legacy's parser tolerates its absence (`src/settings.c:687` guards it with
-  `n == 4`), so a session written by the Qt application never shrinks the
-  legacy application's rows.
-- **The tab names need a line of their own.** The legacy's format has nowhere
-  to put a name the user gave a tab, so the core's session line set grows one
-  more line for it. The legacy application ignores a line it does not know, so
-  it reads such a session without trouble.
+  the file handling itself; its behaviour does not change. This also means the
+  file handling does not have to move again when the SDL application is
+  deleted.
+- **The session itself is the Qt application's own.** The legacy's session
+  format describes a window of panels, each with its own stack of tabs, and
+  the new shape is a list of tabs, each with a tree of panes - the legacy's
+  format cannot express it, and a lossy mapping buys nothing once the legacy
+  application is gone. So the Qt application writes its own session: its tabs,
+  their names, their focused panes and their pane trees, in its own file,
+  written whole and atomically. The legacy's `layout=`, `ptab=` and
+  `active_panel=` lines stay the legacy application's business; the Qt
+  application neither writes nor reads them.
+- **The shared settings still use the legacy's format and file.** The sort
+  defaults, the window size, the servers, the devices and the keybindings are
+  one configuration that both applications read and write during the
+  transition, and they stay exactly as they are. Only the session - which is
+  application state rather than configuration - becomes the Qt
+  application's own.
 - **The session is a snapshot of the current state, never an accumulation.**
   What is written is the tabs that exist now, their names and their panes. A
   tab that was closed is simply not in it - closing a tab takes it out of the
   session exactly as it takes it out of the window - and the next save writes
   what is there, not what was once there.
 - **The write-back keeps what the writer is not writing.** The core owns the
-  file, so a writer supplies the groups it owns and the core preserves the
-  rest: the Qt application's tab names survive a legacy application's save,
-  and the legacy's own settings survive the Qt application's. That removes the
-  only cost the new shape had.
+  settings file, so a writer supplies the groups it owns and the core
+  preserves the rest: the two applications do not undo each other's settings
+  while both exist.
 - **When the session is written.** The shell marks the settings dirty when a
   tab's tree, a tab or the active tab changes, and saves on a three second
   debounce after the last change, then once more at shutdown. That is the
