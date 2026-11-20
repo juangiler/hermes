@@ -155,8 +155,10 @@ dropped, and the panel named by `active_panel` is activated if it survived.
 - Everything renders through Qt Quick's hardware scene graph: no `Canvas`, no
   `QPainter`, no `QGraphicsView`, and no forced software backend.
 - Qt 6.11 is what the build container carries. `QtQuick.Controls` is already
-  linked, so `SplitView` is available without a new dependency; no CI package
-  addition is expected.
+  linked, so no CI package addition is expected.
+- QML cannot render a tree of splits by instantiating a type recursively: the
+  compiler rejects it, and the URL-loading workaround hangs. The layout is
+  therefore computed in C++ and the QML places the panels.
 - KDE Plasma 6.6 - 6.8 is the target. Verified means builds and headless tests;
   live Plasma behaviour is target-only.
 
@@ -259,9 +261,21 @@ it needs no recursive allocation in C.
 
 - The window's content becomes a tree of panel views. Each panel view draws its
   own tab strip and the directory content for its current tab.
-- The tree is drawn with `SplitView` from `QtQuick.Controls`. A horizontal split
-  is a `SplitView` with its children side by side, a vertical split has them
-  stacked, and the split's ratio is the legacy's ratio.
+- **The controller lays the panels out, and the QML places them.** The tree is
+  walked in C++ and each panel gets a rectangle, the way the legacy computes
+  its panel rectangles in `layout()` (`src/app.c:1603`). The QML binds one view
+  per panel and positions it. This replaces an earlier plan to render the tree
+  with nested `SplitView`s and a recursive QML component: a spike showed that
+  QML refuses a type that instantiates itself ("Node is instantiated
+  recursively"), and the workaround - loading the type by URL instead of by
+  name - loops forever and hangs the application. Neither is acceptable in a
+  file manager's window, and the legacy's own arrangement is computed in C
+  anyway.
+- The legacy never lets the user drag a divider: the split ratio is only ever
+  set to 0.5 (`src/app.c:5398` and `:5656`), and the format stores the ratio so
+  that a saved one is honoured when the session is restored. The Qt side lays
+  the panels out the same way and persists the ratio it read, so the two
+  applications agree about the saved layout.
 - The directory content becomes reusable: the three views, the size and date
   formatting, the selection and the keyboard handling move into a component
   that takes a panel as a property, so every panel renders the same thing from
