@@ -59,6 +59,7 @@ The failure modes a person using a split window would hit, that no task's tests 
 #include <memory>
 
 class DirectoryModel;
+class DirectoryWatcher;
 
 // One tab on a panel's strip: the directory it shows and the state that
 // belongs to that tab rather than to the panel.
@@ -71,11 +72,14 @@ struct PanelTab {
   int anchorIndex = 0;        // the selection anchor
 };
 
-// A panel: a strip of tabs and the tab that is showing.
+// A panel: a strip of tabs and the tab that is showing. The model and the
+// watcher belong to the panel but are owned by the controller, which creates
+// them with the panel and deletes them when it closes.
 struct Panel {
   QVector<PanelTab> tabs;
   int currentTab = 0;
-  DirectoryModel *model = nullptr;   // owned by the controller
+  DirectoryModel *model = nullptr;
+  DirectoryWatcher *watcher = nullptr;
 };
 
 // A node of the split tree. A leaf holds a panel; a split holds two children
@@ -279,7 +283,7 @@ In `tools/qtui-selftest.cpp`:
 
 - `windowShowsOnePanelPerTreeNode`: load the QML, split the active panel right, and assert that two panel views exist. The panel views carry the object name `panelView_<id>`, so the test finds `panelView_0` and `panelView_1`.
 - `eachPanelHasItsOwnTabStrip`: with two panels, each panel view contains a tab strip - the object name `panelTabs_<id>` - and the strips show different tabs.
-- `aPanelViewShowsItsOwnDirectory`: two panels showing different directories; the directory view of each shows its own rows, found by the object name `directoryView_<id>`.
+- `aPanelViewShowsItsOwnDirectory`: two panels showing different directories; the directory view of each shows its own rows, found by the object name `directoryView_<panelId>`.
 - `theToolbarActsOnTheActivePanel`: switching the view mode with the toolbar changes the active panel's view mode, and the other panel keeps its own.
 
 - [ ] **Step 2: Run the tests to verify they fail**
@@ -294,7 +298,7 @@ Expected: the tests fail, because there is one panel view and no per-panel strip
 
 `qtui/qml/PanelView.qml` (new): a `Column` with the panel's tab strip on top and the directory content below. The strip is a `Row` of `ToolButton`s over the panel's tabs, each with the object name `panelTab_<panelId>_<tabIndex>` and a close button `panelTabClose_<panelId>_<tabIndex>`, plus a new tab button `panelNewTab_<panelId>`. Clicking a tab calls `hermes.selectTab(panelId, tabIndex)`; the close button calls `hermes.closeTab(panelId, tabIndex)`; the new tab button calls `hermes.newTabInPanel(panelId)`.
 
-`qtui/qml/DirectoryPage.qml` becomes the reusable directory content: an `Item` with the three views (list, details, grid), the size and date helpers and the keyboard handling, taking the model to show as a property. Its `objectName` becomes `directoryView`. The `Kirigami.Page` wrapper goes away, because a panel is not a page.
+`qtui/qml/DirectoryPage.qml` becomes the reusable directory content: an `Item` with the three views (list, details, grid), the size and date helpers and the keyboard handling, taking the model to show as a property. Its `Kirigami.Page` wrapper goes away, because a panel is not a page. Each instance sets its `objectName` to `directoryView_<panelId>`, so the tests can tell the panels' views apart.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
