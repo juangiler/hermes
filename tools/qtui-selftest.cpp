@@ -85,6 +85,7 @@ private slots:
   void navigationIgnoresStaleDirectoryResults();
   void closeTabBeforeCurrentKeepsFocusedTab();
   void focusFreeHostTabKeepsValidCursor();
+  void hostOpenTabWithoutFocusKeepsAValidActiveTab();
   void hostOpenTabAtIndexInsertsTab();
   void hostHooksAreSafeAcrossControllerLifetime();
   void selectionUsesPathListAndClearsOnNavigation();
@@ -1186,6 +1187,25 @@ void HermesQtUiTest::focusFreeHostTabKeepsValidCursor()
   const int current = controller.activeTab();
   QVERIFY(current >= 0 && current < tabPaths(controller).size());
   QCOMPARE(tabPaths(controller).at(current), child);
+}
+
+void HermesQtUiTest::hostOpenTabWithoutFocusKeepsAValidActiveTab()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+
+  ShellController controller;
+  QCOMPARE(controller.tabs().size(), 1);
+  QCOMPARE(controller.activeTab(), 0);
+
+  // The engine's -1/unfocused case: the initial blank tab is filled in place,
+  // so no tab is added and the active index must remain valid.
+  controller.openTabFromHost(dir.path(), -1, false);
+  QCOMPARE(controller.tabs().size(), 1);
+  QCOMPARE(controller.activeTab(), 0);
+  QVERIFY(controller.directory() != nullptr);
+  QCOMPARE(controller.directory()->path(), dir.path());
+  QCOMPARE(tabPaths(controller), QStringList({dir.path()}));
 }
 
 void HermesQtUiTest::hostOpenTabAtIndexInsertsTab()

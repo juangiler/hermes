@@ -869,6 +869,7 @@ void ShellController::insertTab(const QString &path, int index, bool focus)
 
   // The first blank tab is filled rather than left behind in the strip.
   int target = index;
+  bool inserted = false;
   if (m_tabs.size() == 1 && tabAt(0)->tree->panes()[0].state.path.isEmpty()) {
     *tabAt(0) = std::move(tab);
     target = 0;
@@ -876,13 +877,16 @@ void ShellController::insertTab(const QString &path, int index, bool focus)
     if (target < 0 || target > m_tabs.size())
       target = m_tabs.size();
     m_tabs.insert(target, std::move(tab));
+    inserted = true;
   }
 
   createPaneResources(target, 0);  // every tab's pane follows its own directory
 
   if (focus || m_active_tab < 0) {
     m_active_tab = target;
-  } else if (m_active_tab >= target) {
+  } else if (inserted && m_active_tab >= target) {
+    // Only a real insertion shifts the existing tabs; filling the blank tab
+    // replaces tab 0 in place and must leave the active index alone.
     ++m_active_tab;
   }
   emitTabsChanged();
