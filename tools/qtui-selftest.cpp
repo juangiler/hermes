@@ -107,6 +107,12 @@ private slots:
   void failedHistoryNavigationKeepsCursor();
   void permanentDeleteRequiresConfirmation();
   void tabManagementHasReadableLabels();
+  void windowShowsOnePanePerTreeLeaf();
+  void switchingTabsShowsThatTabsPaneTree();
+  void multiBadgeAppearsOnlyForSplitTabs();
+  void renameTabUpdatesTheLabel();
+  void splitAndCloseAreAnimated();
+  void theToolbarActsOnTheFocusedPane();
   void cliHelpAndVersionNeedNoPlatformPlugin();
   void cliScreenshotWritesAnImage();
   void cliScreenshotUnscannablePathExitsNonZero();
@@ -142,6 +148,13 @@ private:
   static QStringList entryNames(DirectoryModel *model);
   static QByteArray fileContents(const QString &path);
   static void waitForOperation(ShellController *controller);
+  // Delegates are visual children of their view's content item, so a plain
+  // findChild() can miss them; walk the visual tree as well when driving QML.
+  static QObject *findNamed(QObject *root, const QString &name);
+  static QObject *findVisual(QObject *root, const QString &name);
+  static QList<QObject *> findVisualPrefix(QObject *root, const QString &prefix);
+  static bool click(QObject *item);
+  static QQuickWindow *loadWindow(QQmlApplicationEngine &engine, ShellController *controller);
   // tabs() and panes() are the QML-facing view of the state; these keep the
   // tests honest about what they actually publish rather than reaching into
   // the controller's private tree.
@@ -189,6 +202,77 @@ QByteArray HermesQtUiTest::fileContents(const QString &path)
 {
   QFile file(path);
   return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
+}
+
+QObject *HermesQtUiTest::findVisual(QObject *root, const QString &name)
+{
+  if (!root)
+    return nullptr;
+  QList<QQuickItem *> queue;
+  if (QQuickWindow *window = qobject_cast<QQuickWindow *>(root))
+    queue.append(window->contentItem());
+  else if (QQuickItem *item = qobject_cast<QQuickItem *>(root))
+    queue.append(item);
+  else
+    return nullptr;
+  while (!queue.isEmpty()) {
+    QQuickItem *item = queue.takeFirst();
+    if (item->objectName() == name)
+      return item;
+    queue.append(item->childItems());
+  }
+  return nullptr;
+}
+
+QObject *HermesQtUiTest::findNamed(QObject *root, const QString &name)
+{
+  if (!root)
+    return nullptr;
+  if (QObject *object = root->findChild<QObject *>(name))
+    return object;
+  return findVisual(root, name);
+}
+
+QList<QObject *> HermesQtUiTest::findVisualPrefix(QObject *root, const QString &prefix)
+{
+  QList<QObject *> found;
+  if (!root)
+    return found;
+  QList<QQuickItem *> queue;
+  if (QQuickWindow *window = qobject_cast<QQuickWindow *>(root))
+    queue.append(window->contentItem());
+  else if (QQuickItem *item = qobject_cast<QQuickItem *>(root))
+    queue.append(item);
+  else
+    return found;
+  while (!queue.isEmpty()) {
+    QQuickItem *item = queue.takeFirst();
+    if (item->objectName().startsWith(prefix))
+      found.append(item);
+    queue.append(item->childItems());
+  }
+  return found;
+}
+
+bool HermesQtUiTest::click(QObject *item)
+{
+  return item && QMetaObject::invokeMethod(item, "click");
+}
+
+QQuickWindow *HermesQtUiTest::loadWindow(QQmlApplicationEngine &engine,
+                                         ShellController *controller)
+{
+  engine.rootContext()->setContextProperty(QStringLiteral("hermes"), controller);
+  engine.load(QUrl(QStringLiteral("qrc:/qtui/qml/main.qml")));
+  QQuickWindow *window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
+  if (!window)
+    return nullptr;
+  // An unshown Kirigami page disables its buttons on KF6, so programmatic
+  // clicks only drive the real window once it is visible.
+  window->resize(800, 600);
+  window->show();
+  QCoreApplication::processEvents();
+  return window;
 }
 
 void HermesQtUiTest::waitForOperation(ShellController *controller)
@@ -618,7 +702,7 @@ void HermesQtUiTest::toolbarOptionsControlViewModel()
   window->resize(800, 600);
   window->show();
   QCoreApplication::processEvents();
-  QObject *page = window->findChild<QObject *>(QStringLiteral("directoryPage"));
+  QObject *page = findNamed(window, QStringLiteral("directoryPane_0"));
   QVERIFY(page);
 
   auto find = [window](const char *name) {
@@ -714,8 +798,8 @@ void HermesQtUiTest::directoryPageViewModesFormatSizeAndDate()
   engine.load(QUrl(QStringLiteral("qrc:/qtui/qml/main.qml")));
   QVERIFY(!engine.rootObjects().isEmpty());
 
-  QObject *page = engine.rootObjects().constFirst()->findChild<QObject *>(
-      QStringLiteral("directoryPage"));
+  QObject *page = findNamed(engine.rootObjects().constFirst(),
+                            QStringLiteral("directoryPane_0"));
   QVERIFY(page);
   for (const char *name : {"listView", "detailsView", "gridView"}) {
     QObject *view = page->findChild<QObject *>(QString::fromLatin1(name));
@@ -770,7 +854,7 @@ void HermesQtUiTest::directoryPageViewsShowEntriesAndScaleWithZoom()
   window->show();
   QCoreApplication::processEvents();
 
-  QObject *page = window->findChild<QObject *>(QStringLiteral("directoryPage"));
+  QObject *page = findNamed(window, QStringLiteral("directoryPane_0"));
   QVERIFY(page);
   auto findView = [page](const char *name) {
     return qobject_cast<QQuickItem *>(page->findChild<QObject *>(QString::fromLatin1(name)));
@@ -1273,7 +1357,7 @@ void HermesQtUiTest::selectionUsesPathListAndClearsOnNavigation()
   window->resize(800, 600);
   window->show();
   QCoreApplication::processEvents();
-  QObject *page = window->findChild<QObject *>(QStringLiteral("directoryPage"));
+  QObject *page = findNamed(window, QStringLiteral("directoryPane_0"));
   QVERIFY(page);
 
   const QString selectedPath = first.filePath(separatorName);
@@ -1330,7 +1414,7 @@ void HermesQtUiTest::selectionSupportsRangeAndKeyboard()
   window->resize(800, 600);
   window->show();
   QCoreApplication::processEvents();
-  QObject *page = window->findChild<QObject *>(QStringLiteral("directoryPage"));
+  QObject *page = findNamed(window, QStringLiteral("directoryPane_0"));
   QVERIFY(page);
   QQuickItem *list = qobject_cast<QQuickItem *>(
       page->findChild<QObject *>(QStringLiteral("listView")));
@@ -1418,7 +1502,7 @@ void HermesQtUiTest::selectionClearsOnNavigation()
   window->resize(800, 600);
   window->show();
   QCoreApplication::processEvents();
-  QObject *page = window->findChild<QObject *>(QStringLiteral("directoryPage"));
+  QObject *page = findNamed(window, QStringLiteral("directoryPane_0"));
   QVERIFY(page);
   QVERIFY(QMetaObject::invokeMethod(page, "toggleSelection",
                                     Q_ARG(QVariant, QVariant(selectedPath))));
@@ -1446,8 +1530,8 @@ void HermesQtUiTest::selectionClearsWhenRowsSwapAfterSupersededNavigation()
   engine.rootContext()->setContextProperty(QStringLiteral("hermes"), &controller);
   engine.load(QUrl(QStringLiteral("qrc:/qtui/qml/main.qml")));
   QVERIFY(!engine.rootObjects().isEmpty());
-  QObject *page = engine.rootObjects().constFirst()->findChild<QObject *>(
-      QStringLiteral("directoryPage"));
+  QObject *page = findNamed(engine.rootObjects().constFirst(),
+                            QStringLiteral("directoryPane_0"));
   QVERIFY(page);
   QVERIFY(QMetaObject::invokeMethod(page, "toggleSelection",
                                     Q_ARG(QVariant, QVariant(selectedPath))));
@@ -1492,7 +1576,7 @@ void HermesQtUiTest::failedOperationRefreshPreservesSelection()
   window->show();
   QCoreApplication::processEvents();
 
-  QObject *page = window->findChild<QObject *>(QStringLiteral("directoryPage"));
+  QObject *page = findNamed(window, QStringLiteral("directoryPane_0"));
   QVERIFY(page);
   QVERIFY(QMetaObject::invokeMethod(page, "toggleSelection",
                                     Q_ARG(QVariant, QVariant(selectedPath))));
@@ -1849,7 +1933,7 @@ void HermesQtUiTest::permanentDeleteRequiresConfirmation()
   window->resize(800, 600);
   window->show();
   QCoreApplication::processEvents();
-  QObject *page = window->findChild<QObject *>(QStringLiteral("directoryPage"));
+  QObject *page = findNamed(window, QStringLiteral("directoryPane_0"));
   QVERIFY(page);
   QVERIFY(QMetaObject::invokeMethod(page, "toggleSelection",
                                     Q_ARG(QVariant, QVariant(path))));
@@ -2571,6 +2655,201 @@ void HermesQtUiTest::controllerClosesAFocusedPaneAndReportsItsRect()
   QCOMPARE(closed.constFirst().at(0).toRect(), rect);
   QCOMPARE(controller.panes().size(), 1);
   QCOMPARE(paneRect(controllerPane(controller, 0)), QRect(0, 0, 800, 600));
+}
+
+void HermesQtUiTest::windowShowsOnePanePerTreeLeaf()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  ShellController controller;
+  controller.navigate(dir.path());
+  QQmlApplicationEngine engine;
+  QQuickWindow *window = loadWindow(engine, &controller);
+  QVERIFY(window);
+
+  QVERIFY(click(findNamed(window, QStringLiteral("splitRightButton"))));
+  QTRY_VERIFY(findNamed(window, QStringLiteral("paneView_0")));
+  QTRY_VERIFY(findNamed(window, QStringLiteral("paneView_1")));
+  QObject *first = findNamed(window, QStringLiteral("paneView_0"));
+  QObject *second = findNamed(window, QStringLiteral("paneView_1"));
+  QVERIFY(findVisual(first, QStringLiteral("directoryPane_0")));
+  QVERIFY(findVisual(second, QStringLiteral("directoryPane_1")));
+  QCOMPARE(findVisualPrefix(window, QStringLiteral("paneView_")).size(), 2);
+
+  QVERIFY(click(findNamed(window, QStringLiteral("closePaneButton"))));
+  QTRY_COMPARE(findVisualPrefix(window, QStringLiteral("paneView_")).size(), 1);
+  QVERIFY(findNamed(window, QStringLiteral("paneView_0")));
+  QVERIFY(!findNamed(window, QStringLiteral("paneView_1")));
+}
+
+void HermesQtUiTest::switchingTabsShowsThatTabsPaneTree()
+{
+  QTemporaryDir first;
+  QTemporaryDir second;
+  QVERIFY(first.isValid());
+  QVERIFY(second.isValid());
+  ShellController controller;
+  controller.navigate(first.path());
+  controller.splitFocusedRight();
+  controller.newTab(second.path());
+  controller.selectTab(0);  // start on the split tab, as the assertions expect
+  QCOMPARE(controller.tabs().size(), 2);
+  QQmlApplicationEngine engine;
+  QQuickWindow *window = loadWindow(engine, &controller);
+  QVERIFY(window);
+
+  QCOMPARE(findVisualPrefix(window, QStringLiteral("paneView_")).size(), 2);
+  QVERIFY(click(findNamed(window, QStringLiteral("tabLabel_1"))));
+  QTRY_COMPARE(findVisualPrefix(window, QStringLiteral("paneView_")).size(), 1);
+  QVERIFY(findNamed(window, QStringLiteral("paneView_0")));
+  QVERIFY(!findNamed(window, QStringLiteral("paneView_1")));
+
+  QVERIFY(click(findNamed(window, QStringLiteral("tabLabel_0"))));
+  QTRY_COMPARE(findVisualPrefix(window, QStringLiteral("paneView_")).size(), 2);
+  QVERIFY(findNamed(window, QStringLiteral("paneView_1")));
+}
+
+void HermesQtUiTest::multiBadgeAppearsOnlyForSplitTabs()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  ShellController controller;
+  controller.navigate(dir.path());
+  QQmlApplicationEngine engine;
+  QQuickWindow *window = loadWindow(engine, &controller);
+  QVERIFY(window);
+
+  QVERIFY(!findNamed(window, QStringLiteral("multiBadge_0")));
+  QVERIFY(click(findNamed(window, QStringLiteral("splitRightButton"))));
+  QObject *badge = nullptr;
+  QTRY_VERIFY_WITH_TIMEOUT((badge = findNamed(window, QStringLiteral("multiBadge_0"))), 2000);
+  QVERIFY(badge->property("visible").toBool());
+  QCOMPARE(badge->property("text").toString(), QStringLiteral("MULTI"));
+
+  QVERIFY(click(findNamed(window, QStringLiteral("closePaneButton"))));
+  QTRY_VERIFY_WITH_TIMEOUT(!findNamed(window, QStringLiteral("multiBadge_0")), 2000);
+}
+
+void HermesQtUiTest::renameTabUpdatesTheLabel()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  ShellController controller;
+  controller.navigate(dir.path());
+  QQmlApplicationEngine engine;
+  QQuickWindow *window = loadWindow(engine, &controller);
+  QVERIFY(window);
+
+  QVERIFY(click(findNamed(window, QStringLiteral("renameTabButton_0"))));
+  QObject *dialog = findNamed(window, QStringLiteral("tabRenameDialog"));
+  QVERIFY(dialog);
+  QVERIFY(dialog->property("visible").toBool());
+  QObject *field = findNamed(window, QStringLiteral("tabRenameField"));
+  QVERIFY(field);
+  field->setProperty("text", QStringLiteral("Work"));
+  QVERIFY(click(findNamed(window, QStringLiteral("confirmTabRenameButton"))));
+  QObject *label = nullptr;
+  QTRY_VERIFY_WITH_TIMEOUT((label = findNamed(window, QStringLiteral("tabLabel_0"))), 2000);
+  QCOMPARE(label->property("text").toString(), QStringLiteral("Work"));
+  QCOMPARE(controllerTab(controller, 0).value(QStringLiteral("customName")).toString(),
+           QStringLiteral("Work"));
+
+  // Clearing the custom name brings back the C++-derived label.
+  QVERIFY(click(findNamed(window, QStringLiteral("renameTabButton_0"))));
+  field = findNamed(window, QStringLiteral("tabRenameField"));
+  QVERIFY(field);
+  field->setProperty("text", QString());
+  QVERIFY(click(findNamed(window, QStringLiteral("confirmTabRenameButton"))));
+  label = nullptr;
+  QTRY_VERIFY_WITH_TIMEOUT((label = findNamed(window, QStringLiteral("tabLabel_0"))), 2000);
+  QCOMPARE(label->property("text").toString(), QFileInfo(dir.path()).fileName());
+  QVERIFY(controllerTab(controller, 0).value(QStringLiteral("customName")).toString().isEmpty());
+}
+
+void HermesQtUiTest::splitAndCloseAreAnimated()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  ShellController controller;
+  controller.navigate(dir.path());
+  QQmlApplicationEngine engine;
+  QQuickWindow *window = loadWindow(engine, &controller);
+  QVERIFY(window);
+
+  QVERIFY(click(findNamed(window, QStringLiteral("splitRightButton"))));
+  QCOMPARE(controller.panes().size(), 2);
+  QObject *paneView = findNamed(window, QStringLiteral("paneView_0"));
+  QVERIFY(paneView);
+  QObject *openAnimation = paneView->property("openAnimation").value<QObject *>();
+  QVERIFY2(openAnimation, "paneOpenAnimation");
+  QCOMPARE(openAnimation->objectName(), QStringLiteral("paneOpenAnimation"));
+  QVERIFY(openAnimation->property("running").toBool());
+
+  QVERIFY(click(findNamed(window, QStringLiteral("closePaneButton"))));
+  // The ghost is a transient overlay: the pane list has already collapsed by
+  // the time it is created, so motion never hides or delays real content.
+  QObject *ghost = nullptr;
+  QTRY_VERIFY_WITH_TIMEOUT((ghost = findNamed(window, QStringLiteral("paneCloseGhost"))), 2000);
+  QCOMPARE(ghost->property("paneCount").toInt(), 1);
+  QCOMPARE(controller.panes().size(), 1);
+  QObject *fade = ghost->property("fade").value<QObject *>();
+  QVERIFY(fade);
+  QCOMPARE(fade->objectName(), QStringLiteral("paneCloseFade"));
+  QVERIFY(fade->property("running").toBool());
+}
+
+void HermesQtUiTest::theToolbarActsOnTheFocusedPane()
+{
+  QTemporaryDir first;
+  QTemporaryDir second;
+  QVERIFY(first.isValid());
+  QVERIFY(second.isValid());
+  ShellController controller;
+  controller.navigate(first.path());
+  controller.splitFocusedRight();
+  controller.setFocusedPane(1);
+  controller.navigate(second.path());
+  controller.setFocusedPane(0);
+  QQmlApplicationEngine engine;
+  QQuickWindow *window = loadWindow(engine, &controller);
+  QVERIFY(window);
+  QCOMPARE(focusedPaneId(controller), 0);
+
+  QObject *page0 = findVisual(window, QStringLiteral("directoryPane_0"));
+  QObject *page1 = findVisual(window, QStringLiteral("directoryPane_1"));
+  QVERIFY(page0);
+  QVERIFY(page1);
+  auto view = [](QObject *page, const char *name) {
+    return page->findChild<QObject *>(QString::fromLatin1(name));
+  };
+  QObject *details0 = view(page0, "detailsView");
+  QObject *list0 = view(page0, "listView");
+  QObject *details1 = view(page1, "detailsView");
+  QObject *list1 = view(page1, "listView");
+  QVERIFY(details0 && list0 && details1 && list1);
+  QVERIFY(list0->property("visible").toBool());
+  QVERIFY(list1->property("visible").toBool());
+
+  QVERIFY(click(findNamed(window, QStringLiteral("detailsViewButton"))));
+  QCOMPARE(controller.viewMode(), 1);
+  QVERIFY(details0->property("visible").toBool());
+  QVERIFY(!list0->property("visible").toBool());
+  QVERIFY(list1->property("visible").toBool());
+  QVERIFY(!details1->property("visible").toBool());
+
+  QQuickItem *pane1 = qobject_cast<QQuickItem *>(findNamed(window, QStringLiteral("paneView_1")));
+  QVERIFY(pane1);
+  QTRY_VERIFY(pane1->width() > 0 && pane1->height() > 0);
+  const QPointF centre = pane1->mapToScene(QPointF(pane1->width() / 2, pane1->height() / 2));
+  QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, centre.toPoint());
+  QTRY_COMPARE(focusedPaneId(controller), 1);
+
+  QVERIFY(click(findNamed(window, QStringLiteral("listViewButton"))));
+  QCOMPARE(controller.viewMode(), 0);
+  QVERIFY(list1->property("visible").toBool());
+  QVERIFY(!details1->property("visible").toBool());
+  QVERIFY(details0->property("visible").toBool());
+  QVERIFY(!list0->property("visible").toBool());
 }
 
 QTEST_MAIN(HermesQtUiTest)

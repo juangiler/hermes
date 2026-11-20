@@ -1,11 +1,22 @@
 import QtQuick
 import org.kde.kirigami as Kirigami
 
+// One directory in a tab's pane tree. Every pane owns a model, but the
+// controller keeps the panes' displayed selection and cursor so a tab can be
+// switched away and back without losing them.
 Kirigami.Page {
   id: page
-  objectName: "directoryPage"
+  property int paneId: -1
+  property var model: null
+  property bool focused: false
+  // Initialised from the shell on completion; the global signal only moves the
+  // focused pane, so an unfocused pane keeps the view the user left it in.
+  property int viewMode: 0
+
+  objectName: "directoryPane_" + paneId
   title: "Directory"
 
+  property bool syncing: true
   property var selectedPaths: []
   // Row indices are model rows; all three views show the same order.
   property int currentIndex: 0
@@ -21,12 +32,23 @@ Kirigami.Page {
     return total;
   }
 
+  function paths() {
+    return page.model ? page.model.paths() : [];
+  }
+
   function currentView() {
-    if (hermes.viewMode === 1)
+    if (page.viewMode === 1)
       return detailsView;
-    if (hermes.viewMode === 2)
+    if (page.viewMode === 2)
       return gridView;
     return listView;
+  }
+
+  // The toolbar changes only the focused pane's view; the controller still
+  // publishes the shell-level mode for its own toolbar state and tests.
+  function setViewMode(mode) {
+    page.viewMode = mode;
+    hermes.setViewMode(mode);
   }
 
   // Shortcuts only arrive while the visible view holds key focus.
@@ -54,20 +76,20 @@ Kirigami.Page {
   }
 
   function selectRange(index) {
-    var paths = hermes.directory.paths();
-    if (paths.length === 0)
+    var entries = page.paths();
+    if (entries.length === 0)
       return;
-    var anchor = Math.max(0, Math.min(page.currentIndex, paths.length - 1));
+    var anchor = Math.max(0, Math.min(page.currentIndex, entries.length - 1));
     var from = Math.max(0, Math.min(anchor, index));
-    var to = Math.min(paths.length - 1, Math.max(anchor, index));
+    var to = Math.min(entries.length - 1, Math.max(anchor, index));
     var chosen = [];
     for (var i = from; i <= to; ++i)
-      chosen.push(paths[i]);
+      chosen.push(entries[i]);
     page.selectedPaths = chosen;
   }
 
   function selectAll() {
-    page.selectedPaths = hermes.directory.paths().slice();
+    page.selectedPaths = page.paths().slice();
   }
 
   function setCurrentIndex(index) {
@@ -75,16 +97,16 @@ Kirigami.Page {
     var view = page.currentView();
     if (!view || index < 0 || index >= view.count)
       return;
-    if (hermes.viewMode === 2)
+    if (page.viewMode === 2)
       view.positionViewAtIndex(index, GridView.Contain);
     else
       view.positionViewAtIndex(index, ListView.Contain);
   }
 
   function activateCurrent() {
-    var paths = hermes.directory.paths();
-    if (page.currentIndex >= 0 && page.currentIndex < paths.length)
-      hermes.openEntry(paths[page.currentIndex]);
+    var entries = page.paths();
+    if (page.currentIndex >= 0 && page.currentIndex < entries.length)
+      hermes.openEntry(entries[page.currentIndex]);
   }
 
   function clickEntry(index, path, modifiers) {
@@ -98,8 +120,8 @@ Kirigami.Page {
   }
 
   function handleKey(event) {
-    var paths = hermes.directory.paths();
-    var count = paths.length;
+    var entries = page.paths();
+    var count = entries.length;
     if (count === 0)
       return;
     var index = page.currentIndex;
@@ -113,7 +135,7 @@ Kirigami.Page {
       setCurrentIndex(count - 1);
     } else if (event.key === Qt.Key_Space) {
       if (index >= 0 && index < count)
-        toggleSelection(paths[index]);
+        toggleSelection(entries[index]);
     } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
       activateCurrent();
     } else if (event.key === Qt.Key_A && (event.modifiers & Qt.ControlModifier)) {
@@ -124,12 +146,36 @@ Kirigami.Page {
     event.accepted = true;
   }
 
-  onVisibleChanged: {
-    if (visible)
+  Component.onCompleted: {
+    page.viewMode = hermes.viewMode;
+    if (paneId >= 0) {
+      page.selectedPaths = hermes.selectedPaths(paneId);
+      page.currentIndex = hermes.currentIndex(paneId);
+    }
+    page.syncing = false;
+    if (page.focused)
       page.focusVisibleView();
   }
 
-  Component.onCompleted: page.focusVisibleView()
+  onFocusedChanged: {
+    if (focused)
+      page.focusVisibleView();
+  }
+
+  onSelectedPathsChanged: {
+    if (!page.syncing && paneId >= 0)
+      hermes.setSelectedPaths(paneId, page.selectedPaths)
+  }
+
+  onCurrentIndexChanged: {
+    if (!page.syncing && paneId >= 0)
+      hermes.setCurrentIndex(paneId, page.currentIndex)
+  }
+
+  onVisibleChanged: {
+    if (visible && page.focused)
+      page.focusVisibleView();
+  }
 
   // -1 means the recursive folder size is still being computed; never show it
   // as a zero-byte file. Match the legacy unit formatting for known sizes.
@@ -159,7 +205,7 @@ Kirigami.Page {
   }
 
   Connections {
-    target: hermes.directory
+    target: page.model
     function onPathChanged() {
       page.clearSelection()
     }
@@ -167,8 +213,9 @@ Kirigami.Page {
 
   Connections {
     target: hermes
-    function onCurrentTabChanged() {
-      page.clearSelection()
+    function onViewModeChanged() {
+      if (page.focused)
+        page.viewMode = hermes.viewMode
     }
   }
 
@@ -177,12 +224,12 @@ Kirigami.Page {
     id: listView
     objectName: "listView"
     anchors.fill: parent
-    visible: hermes.viewMode === 0
-    model: hermes.directory
+    visible: page.viewMode === 0
+    model: page.model
     clip: true
     Keys.onPressed: function(event) { page.handleKey(event) }
     onVisibleChanged: {
-      if (visible)
+      if (visible && page.focused)
         forceActiveFocus();
     }
 
@@ -240,12 +287,12 @@ Kirigami.Page {
     id: detailsView
     objectName: "detailsView"
     anchors.fill: parent
-    visible: hermes.viewMode === 1
-    model: hermes.directory
+    visible: page.viewMode === 1
+    model: page.model
     clip: true
     Keys.onPressed: function(event) { page.handleKey(event) }
     onVisibleChanged: {
-      if (visible)
+      if (visible && page.focused)
         forceActiveFocus();
     }
 
@@ -297,14 +344,14 @@ Kirigami.Page {
     id: gridView
     objectName: "gridView"
     anchors.fill: parent
-    visible: hermes.viewMode === 2
-    model: hermes.directory
+    visible: page.viewMode === 2
+    model: page.model
     cellWidth: Kirigami.Units.gridUnit * 9 * hermes.zoom
     cellHeight: Kirigami.Units.gridUnit * 7 * hermes.zoom
     clip: true
     Keys.onPressed: function(event) { page.handleKey(event) }
     onVisibleChanged: {
-      if (visible)
+      if (visible && page.focused)
         forceActiveFocus();
     }
 
