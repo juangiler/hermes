@@ -29,6 +29,37 @@ PanelNode *find_leaf(PanelNode *node, int panel_index)
   return find_leaf(node->b.get(), panel_index);
 }
 
+// panel_remove() activates node_first_panel(sib) when the active panel goes.
+struct LeafSite {
+  PanelNode *leaf = nullptr;
+  PanelNode *sibling = nullptr;  // null when the leaf is the whole tree
+};
+
+LeafSite find_leaf_site(PanelNode *node, int panel_index)
+{
+  if (!node)
+    return {};
+  if (node->kind == PanelNode::PanelLeaf)
+    return node->panelIndex == panel_index ? LeafSite{node, nullptr} : LeafSite{};
+  if (node->a && node->a->kind == PanelNode::PanelLeaf
+      && node->a->panelIndex == panel_index)
+    return LeafSite{node->a.get(), node->b.get()};
+  if (node->b && node->b->kind == PanelNode::PanelLeaf
+      && node->b->panelIndex == panel_index)
+    return LeafSite{node->b.get(), node->a.get()};
+  LeafSite found = find_leaf_site(node->a.get(), panel_index);
+  if (found.leaf)
+    return found;
+  return find_leaf_site(node->b.get(), panel_index);
+}
+
+int first_leaf_index(PanelNode *node)
+{
+  while (node && node->kind != PanelNode::PanelLeaf)
+    node = node->a.get();
+  return node ? node->panelIndex : -1;
+}
+
 // Removing a leaf collapses its direct parent into the sibling; ancestors keep
 // their splits because the recursion stops there. A root leaf leaves no tree.
 bool remove_leaf(std::unique_ptr<PanelNode> &slot, int panel_index)
@@ -137,24 +168,28 @@ int PanelTree::splitPanel(int panelIndex, Zone zone, int tabIndex, const QString
 {
   if (panelIndex < 0 || panelIndex >= m_panels.size() || m_panels.size() >= MaxPanels)
     return -1;
+  // Resolve the leaf with the guards: a refused split must not touch any tab.
+  PanelNode *leaf = find_leaf(m_root.get(), panelIndex);
+  if (!leaf)
+    return -1;
   // Moving the only tab would leave the panel empty; the legacy closes a panel
   // when its last tab goes, so the tree refuses that split here.
   if (tabIndex >= 0 && (tabIndex >= m_panels[panelIndex].tabs.size()
                         || m_panels[panelIndex].tabs.size() < 2))
     return -1;
 
-  PanelNode *leaf = find_leaf(m_root.get(), panelIndex);
-  if (!leaf)
-    return -1;
-
   Panel panel;
   if (tabIndex >= 0) {
     PanelTab moved = m_panels[panelIndex].tabs.takeAt(tabIndex);
     panel.tabs.append(moved);
-    // The tab to the right slides into the moved tab's cursor position.
-    if (m_panels[panelIndex].currentTab >= tabIndex
-        && m_panels[panelIndex].currentTab >= m_panels[panelIndex].tabs.size())
+    // The cursor follows its tab. If that tab was current, the legacy's
+    // panel_neighbor() picks the next tab in the panel, or the last one when
+    // there is no next.
+    if (m_panels[panelIndex].currentTab > tabIndex) {
+      --m_panels[panelIndex].currentTab;
+    } else if (m_panels[panelIndex].currentTab >= m_panels[panelIndex].tabs.size()) {
       m_panels[panelIndex].currentTab = m_panels[panelIndex].tabs.size() - 1;
+    }
   } else {
     PanelTab tab;
     tab.path = path;
@@ -179,6 +214,8 @@ int PanelTree::splitPanel(int panelIndex, Zone zone, int tabIndex, const QString
   const bool first = zone == Zone::Left || zone == Zone::Top;
   leaf->a = first ? std::move(new_leaf) : std::move(old_leaf);
   leaf->b = first ? std::move(old_leaf) : std::move(new_leaf);
+  // panel_split() activates the panel it just made.
+  m_active_panel = new_index;
   return new_index;
 }
 
@@ -186,16 +223,26 @@ void PanelTree::closePanel(int panelIndex)
 {
   if (panelIndex < 0 || panelIndex >= m_panels.size())
     return;
+
+  // Capture the sibling's first panel before the tree gives it the closed
+  // leaf's place; its index shifts down with the panel list afterwards.
+  const LeafSite site = find_leaf_site(m_root.get(), panelIndex);
+  if (!site.leaf)
+    return;
+  const int sibling_first = site.sibling ? first_leaf_index(site.sibling) : -1;
+
   if (!remove_leaf(m_root, panelIndex))
     return;
 
   m_panels.remove(panelIndex);
   renumber_leaves(m_root.get(), panelIndex);
-  if (m_active_panel > panelIndex) {
+  if (m_active_panel == panelIndex) {
+    if (sibling_first >= 0)
+      m_active_panel = sibling_first > panelIndex ? sibling_first - 1 : sibling_first;
+    else
+      m_active_panel = m_panels.isEmpty() ? -1 : 0;
+  } else if (m_active_panel > panelIndex) {
     --m_active_panel;
-  } else if (m_active_panel == panelIndex) {
-    m_active_panel = m_panels.isEmpty()
-        ? -1 : qMin(panelIndex, static_cast<int>(m_panels.size()) - 1);
   }
 }
 
