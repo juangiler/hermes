@@ -1,5 +1,19 @@
 # Kirigami Panel Tree (slice S2a) Implementation Plan
 
+> **SUPERSEDED IN PART - read this first.**
+>
+> On 2026-11-20 the user changed the shape of the feature: **the window keeps
+> one tab strip, and every tab holds its own tree of panes** - the master
+> design's original wording for S2 - instead of the legacy's arrangement of a
+> tree of panels, each with its own tab strip. This plan was written for the
+> panel shape, so **the task bodies below still describe it and are being
+> re-cut**. The decisions, the trade-off and the naming rule are in
+> `docs/superpowers/specs/2026-11-20-kirigami-split-panes-design.md`; read
+> that first. The tree mechanics, the tests and the review of what has already
+> been built carry over; what changes is what a leaf holds (a directory, not a
+> tab strip), who owns the tree (the tab, not the controller), and the
+> controller's API.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** The Kirigami window holds a tree of panels; every panel has its own tab strip and its own stack of tabs, and a panel can be split right or down.
