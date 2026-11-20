@@ -1,5 +1,5 @@
 #include "directory_model.h"
-#include "panel_tree.h"
+#include "pane_tree.h"
 #include "places_model.h"
 #include "shell_controller.h"
 
@@ -109,16 +109,16 @@ private slots:
   void cliHelpAndVersionNeedNoPlatformPlugin();
   void cliScreenshotWritesAnImage();
   void cliScreenshotUnscannablePathExitsNonZero();
-  void panelTreeSplitsRightAndDown();
-  void panelTreePlacesTheNewPanelOnTheChosenSide();
-  void panelTreeMovesATabIntoTheNewPanel();
-  void panelTreeRefusesTheSixteenthPanel();
-  void panelTreeClosesAPanelAndTheSiblingTakesTheSpace();
-  void panelTreeLayoutSplitsTheArea();
-  void panelTreeKeepsTheCurrentTabWhenMovingAnEarlierTab();
-  void panelTreeActivatesTheNewPanelOnSplit();
-  void panelTreeClosesTheActivePanelIntoTheSiblingSubtree();
-  void panelTreeRefusedSplitLeavesTheTabsUntouched();
+  void paneTreeSplitsRightAndDown();
+  void paneTreePlacesTheNewPaneOnTheChosenSide();
+  void paneTreeRefusesTheSixteenthPane();
+  void paneTreeClosesAPaneAndTheSiblingTakesTheSpace();
+  void paneTreeLayoutSplitsTheArea();
+  void paneTreeFocusesTheNewPaneOnSplit();
+  void paneTreeFocusesTheFirstPaneWhenTheFocusedPaneCloses();
+  void paneTreeKeepsFocusWhenAnotherPaneCloses();
+  void paneTreeKeepsPaneStateTogether();
+  void paneTreeRefusedSplitLeavesTheTreeUntouched();
   void controllerSplitsTheActivePanel();
   void controllerOpensAFolderInASplit();
   void controllerMovesATabIntoANewSplit();
@@ -1936,215 +1936,206 @@ void HermesQtUiTest::cliScreenshotUnscannablePathExitsNonZero()
   QVERIFY(!QFileInfo::exists(shot));
 }
 
-void HermesQtUiTest::panelTreeSplitsRightAndDown()
+void HermesQtUiTest::paneTreeSplitsRightAndDown()
 {
-  PanelTree tree;
-  QCOMPARE(tree.panels().size(), 1);
-  QCOMPARE(tree.splitPanel(0, PanelTree::Zone::Right, -1, QStringLiteral("/tmp")), 1);
-  QCOMPARE(tree.panels().size(), 2);
-  QCOMPARE(tree.root()->kind, PanelNode::HSplit);
+  PaneTree tree;
+  QCOMPARE(tree.panes().size(), 1);
+  QCOMPARE(tree.panes().at(0).state.path, QString());
+  QCOMPARE(tree.focusedPane(), 0);
+  QCOMPARE(tree.splitPane(0, PaneTree::Zone::Right, QStringLiteral("/tmp")), 1);
+  QCOMPARE(tree.panes().size(), 2);
+  QCOMPARE(tree.root()->kind, PaneNode::HSplit);
   QVERIFY(qFuzzyCompare(tree.root()->ratio, 0.5));
-  QCOMPARE(tree.panels().at(1).tabs.at(0).path, QStringLiteral("/tmp"));
+  QCOMPARE(tree.panes().at(1).state.path, QStringLiteral("/tmp"));
 
-  // The pinned zone is Bottom; it is the vertical counterpart of Right.
-  PanelTree vertical;
-  QCOMPARE(vertical.splitPanel(0, PanelTree::Zone::Bottom, -1, QStringLiteral("/var")), 1);
-  QCOMPARE(vertical.root()->kind, PanelNode::VSplit);
+  // Bottom is the vertical counterpart of Right.
+  PaneTree vertical;
+  QCOMPARE(vertical.splitPane(0, PaneTree::Zone::Bottom, QStringLiteral("/var")), 1);
+  QCOMPARE(vertical.root()->kind, PaneNode::VSplit);
   QVERIFY(qFuzzyCompare(vertical.root()->ratio, 0.5));
 }
 
-void HermesQtUiTest::panelTreePlacesTheNewPanelOnTheChosenSide()
+void HermesQtUiTest::paneTreePlacesTheNewPaneOnTheChosenSide()
 {
-  PanelTree left;
-  left.splitPanel(0, PanelTree::Zone::Left, -1, QString());
-  QCOMPARE(left.panelsInReadingOrder(), QVector<int>({1, 0}));
+  PaneTree left;
+  left.splitPane(0, PaneTree::Zone::Left, QString());
+  QCOMPARE(left.panesInReadingOrder(), QVector<int>({1, 0}));
 
-  PanelTree right;
-  right.splitPanel(0, PanelTree::Zone::Right, -1, QString());
-  QCOMPARE(right.panelsInReadingOrder(), QVector<int>({0, 1}));
+  PaneTree right;
+  right.splitPane(0, PaneTree::Zone::Right, QString());
+  QCOMPARE(right.panesInReadingOrder(), QVector<int>({0, 1}));
 
-  PanelTree top;
-  top.splitPanel(0, PanelTree::Zone::Top, -1, QString());
-  QCOMPARE(top.panelsInReadingOrder(), QVector<int>({1, 0}));
+  PaneTree top;
+  top.splitPane(0, PaneTree::Zone::Top, QString());
+  QCOMPARE(top.panesInReadingOrder(), QVector<int>({1, 0}));
 
-  PanelTree bottom;
-  bottom.splitPanel(0, PanelTree::Zone::Bottom, -1, QString());
-  QCOMPARE(bottom.panelsInReadingOrder(), QVector<int>({0, 1}));
+  PaneTree bottom;
+  bottom.splitPane(0, PaneTree::Zone::Bottom, QString());
+  QCOMPARE(bottom.panesInReadingOrder(), QVector<int>({0, 1}));
 }
 
-void HermesQtUiTest::panelTreeMovesATabIntoTheNewPanel()
+void HermesQtUiTest::paneTreeRefusesTheSixteenthPane()
 {
-  PanelTree tree;
-  tree.panels()[0].tabs.append(PanelTab{});
-  tree.panels()[0].tabs[0].path = QStringLiteral("/first");
-  tree.panels()[0].tabs[1].path = QStringLiteral("/second");
+  PaneTree tree;
+  for (int i = 1; i < PaneTree::MaxPanes; ++i)
+    QCOMPARE(tree.splitPane(0, PaneTree::Zone::Right, QString()), i);
+  QCOMPARE(tree.panes().size(), PaneTree::MaxPanes);
 
-  QCOMPARE(tree.splitPanel(0, PanelTree::Zone::Right, 0, QString()), 1);
-  QCOMPARE(tree.panels().size(), 2);
-  QCOMPARE(tree.panels().at(0).tabs.size(), 1);
-  QCOMPARE(tree.panels().at(0).tabs.at(0).path, QStringLiteral("/second"));
-  QCOMPARE(tree.panels().at(1).tabs.size(), 1);
-  QCOMPARE(tree.panels().at(1).tabs.at(0).path, QStringLiteral("/first"));
-
-  // Moving a panel's only tab would leave it empty, so the split must refuse.
-  QCOMPARE(tree.splitPanel(0, PanelTree::Zone::Right, 0, QString()), -1);
-  QCOMPARE(tree.panels().size(), 2);
-}
-
-void HermesQtUiTest::panelTreeRefusesTheSixteenthPanel()
-{
-  PanelTree tree;
-  for (int i = 1; i < PanelTree::MaxPanels; ++i)
-    QCOMPARE(tree.splitPanel(0, PanelTree::Zone::Right, -1, QString()), i);
-  QCOMPARE(tree.panels().size(), PanelTree::MaxPanels);
-
-  const QVector<int> order = tree.panelsInReadingOrder();
+  const QVector<int> order = tree.panesInReadingOrder();
   const QVector<QRect> rects = tree.layout(QSize(800, 600));
-  QCOMPARE(tree.splitPanel(0, PanelTree::Zone::Right, -1, QString()), -1);
-  QCOMPARE(tree.panels().size(), PanelTree::MaxPanels);
-  QCOMPARE(tree.panelsInReadingOrder(), order);
+  QCOMPARE(tree.splitPane(0, PaneTree::Zone::Right, QStringLiteral("/too-many")), -1);
+  QCOMPARE(tree.panes().size(), PaneTree::MaxPanes);
+  QCOMPARE(tree.panesInReadingOrder(), order);
   QCOMPARE(tree.layout(QSize(800, 600)), rects);
 }
 
-void HermesQtUiTest::panelTreeClosesAPanelAndTheSiblingTakesTheSpace()
+void HermesQtUiTest::paneTreeClosesAPaneAndTheSiblingTakesTheSpace()
 {
-  PanelTree tree;
-  QCOMPARE(tree.splitPanel(0, PanelTree::Zone::Right, -1, QStringLiteral("/new")), 1);
+  PaneTree tree;
+  QCOMPARE(tree.splitPane(0, PaneTree::Zone::Right, QStringLiteral("/new")), 1);
   QCOMPARE(tree.layout(QSize(800, 600)).at(0).width(), 400);
   QCOMPARE(tree.layout(QSize(800, 600)).at(1).width(), 399);
 
-  tree.closePanel(0);
-  QCOMPARE(tree.panels().size(), 1);
-  QCOMPARE(tree.root()->kind, PanelNode::PanelLeaf);
-  QCOMPARE(tree.root()->panelIndex, 0);
+  tree.closePane(0);
+  QCOMPARE(tree.panes().size(), 1);
+  QCOMPARE(tree.root()->kind, PaneNode::PaneLeaf);
+  QCOMPARE(tree.root()->paneIndex, 0);
   QCOMPARE(tree.layout(QSize(800, 600)).at(0), QRect(0, 0, 800, 600));
-  QCOMPARE(tree.panels().at(0).tabs.at(0).path, QStringLiteral("/new"));
+  QCOMPARE(tree.panes().at(0).state.path, QStringLiteral("/new"));
 
   // Removing a leaf deeper in the tree must not disturb the split above it.
-  PanelTree deep;
-  deep.splitPanel(0, PanelTree::Zone::Right, -1, QStringLiteral("/first"));
-  deep.splitPanel(1, PanelTree::Zone::Right, -1, QStringLiteral("/second"));
-  QCOMPARE(deep.panelsInReadingOrder(), QVector<int>({0, 1, 2}));
-  deep.closePanel(1);
-  QCOMPARE(deep.panels().size(), 2);
-  QCOMPARE(deep.panelsInReadingOrder(), QVector<int>({0, 1}));
-  QCOMPARE(deep.root()->kind, PanelNode::HSplit);
-  QCOMPARE(deep.root()->a->panelIndex, 0);
-  QCOMPARE(deep.root()->b->panelIndex, 1);
-  QCOMPARE(deep.panels().at(1).tabs.at(0).path, QStringLiteral("/second"));
+  PaneTree deep;
+  deep.splitPane(0, PaneTree::Zone::Right, QStringLiteral("/first"));
+  deep.splitPane(1, PaneTree::Zone::Right, QStringLiteral("/second"));
+  QCOMPARE(deep.panesInReadingOrder(), QVector<int>({0, 1, 2}));
+  deep.closePane(1);
+  QCOMPARE(deep.panes().size(), 2);
+  QCOMPARE(deep.panesInReadingOrder(), QVector<int>({0, 1}));
+  QCOMPARE(deep.root()->kind, PaneNode::HSplit);
+  QCOMPARE(deep.root()->a->paneIndex, 0);
+  QCOMPARE(deep.root()->b->paneIndex, 1);
+  QCOMPARE(deep.panes().at(1).state.path, QStringLiteral("/second"));
   QCOMPARE(deep.layout(QSize(800, 600)).at(1).width(), 399);
 }
 
-void HermesQtUiTest::panelTreeLayoutSplitsTheArea()
+void HermesQtUiTest::paneTreeLayoutSplitsTheArea()
 {
-  PanelTree horizontal;
-  horizontal.splitPanel(0, PanelTree::Zone::Right, -1, QString());
+  PaneTree horizontal;
+  horizontal.splitPane(0, PaneTree::Zone::Right, QString());
   const QVector<QRect> h = horizontal.layout(QSize(800, 600));
   QCOMPARE(h.size(), 2);
   QCOMPARE(h.at(0), QRect(0, 0, 400, 600));
   QCOMPARE(h.at(1), QRect(401, 0, 399, 600));
 
-  PanelTree vertical;
-  vertical.splitPanel(0, PanelTree::Zone::Bottom, -1, QString());
+  PaneTree vertical;
+  vertical.splitPane(0, PaneTree::Zone::Bottom, QString());
   const QVector<QRect> v = vertical.layout(QSize(800, 600));
   QCOMPARE(v.size(), 2);
   QCOMPARE(v.at(0), QRect(0, 0, 800, 300));
   QCOMPARE(v.at(1), QRect(0, 301, 800, 299));
 }
 
-void HermesQtUiTest::panelTreeKeepsTheCurrentTabWhenMovingAnEarlierTab()
+void HermesQtUiTest::paneTreeFocusesTheNewPaneOnSplit()
 {
-  const auto fill = [](PanelTree &tree, int count) {
-    tree.panels()[0].tabs.clear();
-    for (int i = 0; i < count; ++i) {
-      PanelTab tab;
-      tab.path = QStringLiteral("/%1").arg(i);
-      tree.panels()[0].tabs.append(tab);
-    }
+  PaneTree tree;
+  QCOMPARE(tree.focusedPane(), 0);
+  QCOMPARE(tree.splitPane(0, PaneTree::Zone::Right, QString()), 1);
+  QCOMPARE(tree.focusedPane(), 1);
+  QCOMPARE(tree.splitPane(1, PaneTree::Zone::Bottom, QString()), 2);
+  QCOMPARE(tree.focusedPane(), 2);
+}
+
+void HermesQtUiTest::paneTreeFocusesTheFirstPaneWhenTheFocusedPaneCloses()
+{
+  PaneTree tree;
+  QCOMPARE(tree.splitPane(0, PaneTree::Zone::Right, QStringLiteral("/right")), 1);
+  QCOMPARE(tree.splitPane(1, PaneTree::Zone::Bottom, QStringLiteral("/below")), 2);
+  QCOMPARE(tree.panesInReadingOrder(), QVector<int>({0, 1, 2}));
+  tree.setFocusedPane(1);
+  QCOMPARE(tree.focusedPane(), 1);
+
+  tree.closePane(1);
+  QCOMPARE(tree.panes().size(), 2);
+  QCOMPARE(tree.panesInReadingOrder(), QVector<int>({0, 1}));
+  QCOMPARE(tree.panes().at(1).state.path, QStringLiteral("/below"));
+  // The promoted subtree's first pane takes index 1 after the renumbering.
+  QCOMPARE(tree.focusedPane(), 1);
+}
+
+void HermesQtUiTest::paneTreeKeepsFocusWhenAnotherPaneCloses()
+{
+  PaneTree tree;
+  tree.splitPane(0, PaneTree::Zone::Right, QStringLiteral("/first"));
+  tree.splitPane(1, PaneTree::Zone::Right, QStringLiteral("/second"));
+  tree.setFocusedPane(2);
+
+  tree.closePane(0);
+  QCOMPARE(tree.panes().size(), 2);
+  QCOMPARE(tree.panes().at(1).state.path, QStringLiteral("/second"));
+  QCOMPARE(tree.focusedPane(), 1);
+}
+
+void HermesQtUiTest::paneTreeKeepsPaneStateTogether()
+{
+  PaneTree tree;
+  PaneState state;
+  state.path = QStringLiteral("/only");
+  state.history = QStringList({QStringLiteral("/older"), QStringLiteral("/only")});
+  state.historyIndex = 1;
+  state.selectedPaths = QStringList({QStringLiteral("/only/picked")});
+  state.currentIndex = 3;
+  state.anchorIndex = 2;
+  tree.panes()[0].state = state;
+
+  QCOMPARE(tree.splitPane(0, PaneTree::Zone::Right, QStringLiteral("/new")), 1);
+  const PaneState &original = tree.panes().at(0).state;
+  QCOMPARE(original.path, QStringLiteral("/only"));
+  QCOMPARE(original.history,
+           QStringList({QStringLiteral("/older"), QStringLiteral("/only")}));
+  QCOMPARE(original.historyIndex, 1);
+  QCOMPARE(original.selectedPaths, QStringList({QStringLiteral("/only/picked")}));
+  QCOMPARE(original.currentIndex, 3);
+  QCOMPARE(original.anchorIndex, 2);
+
+  const PaneState &fresh = tree.panes().at(1).state;
+  QCOMPARE(fresh.path, QStringLiteral("/new"));
+  QVERIFY(fresh.history.isEmpty());
+  QCOMPARE(fresh.historyIndex, -1);
+  QVERIFY(fresh.selectedPaths.isEmpty());
+  QCOMPARE(fresh.currentIndex, 0);
+  QCOMPARE(fresh.anchorIndex, 0);
+
+  tree.panes()[1].state.selectedPaths.append(QStringLiteral("/new/picked"));
+  tree.panes()[1].state.currentIndex = 7;
+  QCOMPARE(original.selectedPaths, QStringList({QStringLiteral("/only/picked")}));
+  QCOMPARE(original.currentIndex, 3);
+}
+
+void HermesQtUiTest::paneTreeRefusedSplitLeavesTheTreeUntouched()
+{
+  PaneTree tree;
+  for (int i = 1; i < PaneTree::MaxPanes; ++i)
+    QCOMPARE(tree.splitPane(0, PaneTree::Zone::Right, QString()), i);
+  tree.setFocusedPane(3);
+
+  const auto paths = [&tree]() {
+    QStringList result;
+    for (const Pane &pane : tree.panes())
+      result.append(pane.state.path);
+    return result;
   };
+  const QStringList before = paths();
+  const PaneNode *rootBefore = tree.root();
+  const QVector<int> orderBefore = tree.panesInReadingOrder();
+  const QVector<QRect> rectsBefore = tree.layout(QSize(800, 600));
+  const int focusBefore = tree.focusedPane();
 
-  // The cursor belongs to its tab: moving tab 0 out of [A,B,C,D] leaves C at
-  // index 1, so the panel must follow it rather than keep pointing at D.
-  PanelTree earlier;
-  fill(earlier, 4);
-  earlier.panels()[0].currentTab = 2;
-  QCOMPARE(earlier.splitPanel(0, PanelTree::Zone::Right, 0, QString()), 1);
-  QCOMPARE(earlier.panels().at(0).tabs.size(), 3);
-  QCOMPARE(earlier.panels().at(0).currentTab, 1);
-  QCOMPARE(earlier.panels().at(0).tabs.at(1).path, QStringLiteral("/2"));
-  QCOMPARE(earlier.panels().at(1).tabs.at(0).path, QStringLiteral("/0"));
-  QCOMPARE(earlier.panels().at(1).currentTab, 0);
-
-  // Moving the current tab selects its neighbour: the next one when present.
-  PanelTree next;
-  fill(next, 3);
-  next.panels()[0].currentTab = 0;
-  QCOMPARE(next.splitPanel(0, PanelTree::Zone::Right, 0, QString()), 1);
-  QCOMPARE(next.panels().at(0).currentTab, 0);
-  QCOMPARE(next.panels().at(0).tabs.at(0).path, QStringLiteral("/1"));
-
-  // And the previous one when the moved tab was last.
-  PanelTree previous;
-  fill(previous, 3);
-  previous.panels()[0].currentTab = 2;
-  QCOMPARE(previous.splitPanel(0, PanelTree::Zone::Right, 2, QString()), 1);
-  QCOMPARE(previous.panels().at(0).currentTab, 1);
-  QCOMPARE(previous.panels().at(0).tabs.at(1).path, QStringLiteral("/1"));
-}
-
-void HermesQtUiTest::panelTreeActivatesTheNewPanelOnSplit()
-{
-  PanelTree tree;
-  QCOMPARE(tree.activePanel(), 0);
-  QCOMPARE(tree.splitPanel(0, PanelTree::Zone::Right, -1, QString()), 1);
-  QCOMPARE(tree.activePanel(), 1);
-  QCOMPARE(tree.splitPanel(1, PanelTree::Zone::Bottom, -1, QString()), 2);
-  QCOMPARE(tree.activePanel(), 2);
-}
-
-void HermesQtUiTest::panelTreeClosesTheActivePanelIntoTheSiblingSubtree()
-{
-  PanelTree tree;
-  QCOMPARE(tree.splitPanel(0, PanelTree::Zone::Right, -1, QStringLiteral("/right")), 1);
-  QCOMPARE(tree.splitPanel(0, PanelTree::Zone::Bottom, -1, QStringLiteral("/below")), 2);
-  QCOMPARE(tree.panelsInReadingOrder(), QVector<int>({0, 2, 1}));
-  tree.setActivePanel(0);
-  QCOMPARE(tree.activePanel(), 0);
-
-  tree.closePanel(0);
-  QCOMPARE(tree.panels().size(), 2);
-  QCOMPARE(tree.panels().at(1).tabs.at(0).path, QStringLiteral("/below"));
-  // The sibling subtree's first panel becomes index 1 after the shift.
-  QCOMPARE(tree.activePanel(), 1);
-}
-
-void HermesQtUiTest::panelTreeRefusedSplitLeavesTheTabsUntouched()
-{
-  PanelTree tree;
-  PanelTab only;
-  only.path = QStringLiteral("/only");
-  only.history = QStringList({QStringLiteral("/older"), QStringLiteral("/only")});
-  only.historyIndex = 1;
-  only.selectedPaths = QStringList({QStringLiteral("/only/picked")});
-  only.currentIndex = 3;
-  only.anchorIndex = 2;
-  tree.panels()[0].tabs.clear();
-  tree.panels()[0].tabs.append(only);
-  tree.panels()[0].currentTab = 0;
-
-  const PanelNode *rootBefore = tree.root();
-  QCOMPARE(tree.splitPanel(0, PanelTree::Zone::Right, 0, QStringLiteral("/new")), -1);
-  QCOMPARE(tree.panels().size(), 1);
+  QCOMPARE(tree.splitPane(0, PaneTree::Zone::Bottom, QStringLiteral("/too-many")), -1);
+  QCOMPARE(paths(), before);
   QCOMPARE(tree.root(), rootBefore);
-  QCOMPARE(tree.panels().at(0).currentTab, 0);
-  QCOMPARE(tree.panels().at(0).tabs.size(), 1);
-  const PanelTab &tab = tree.panels().at(0).tabs.at(0);
-  QCOMPARE(tab.path, QStringLiteral("/only"));
-  QCOMPARE(tab.history, QStringList({QStringLiteral("/older"), QStringLiteral("/only")}));
-  QCOMPARE(tab.historyIndex, 1);
-  QCOMPARE(tab.selectedPaths, QStringList({QStringLiteral("/only/picked")}));
-  QCOMPARE(tab.currentIndex, 3);
-  QCOMPARE(tab.anchorIndex, 2);
+  QCOMPARE(tree.panesInReadingOrder(), orderBefore);
+  QCOMPARE(tree.layout(QSize(800, 600)), rectsBefore);
+  QCOMPARE(tree.focusedPane(), focusBefore);
 }
 
 void HermesQtUiTest::controllerSplitsTheActivePanel()
