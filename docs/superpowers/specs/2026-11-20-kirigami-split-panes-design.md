@@ -35,6 +35,21 @@ text accordingly.
   safety. The alternative - each application keeping its own writer - was
   rejected because it leaves the file format handled in two places and lets one
   application's save undo the other's session.
+- **The model changed on 2026-11-20, after the first plan was written.** The
+  first plan ported the legacy's arrangement literally: the window holds a tree
+  of panels, and every panel owns its own stack of tabs and its own tab strip.
+  The user found that arrangement harder to use than it looked and chose the
+  other shape: **the window keeps one tab strip, and every tab holds its own
+  tree of panes.** This is the master parity design's original wording for S2,
+  which had been corrected to the legacy's shape and is corrected back.
+
+  The trade-off, stated plainly: the legacy's window can show several panels
+  side by side, each with its own strip. The new shape shows one tab at a
+  time, and that tab's own split arrangement. The legacy's per-panel tab
+  stacks therefore have no home, and the session restore becomes partial - see
+  the session section. What is gained is a single strip, as Plasma apps have,
+  a tab that remembers the arrangement it was left in, and a tab strip that
+  already exists in the shell rather than one per panel.
 
 ## What the builder check settled
 
@@ -44,16 +59,29 @@ written (a three second debounce plus a save at shutdown, never in screenshot
 mode), when it is restored (`restore_session` on, no start path, not a
 screenshot), what the core's session ABI covers (the whole line set, with the
 optional per-tab view field left out so nothing is written lossily), what closes
-a panel (closing its last tab, as in the legacy; no new command), and what the
-tab state keeps (the displayed paths, the cursor and the anchor).
+a pane (removing the leaf, with its sibling inheriting the space, as the legacy
+does when a panel loses its last tab), and what the pane state keeps (the
+displayed paths, the cursor and the anchor).
 
 The sixth was the user's to decide and is recorded above: how much of the
-legacy's settings machinery moves into the core.
+legacy's settings machinery moves into the core. A seventh question came later,
+from the user: the shape of the whole thing, which is recorded in the decisions
+and in the approaches.
 
 ## The legacy behaviour being ported
 
 Read from `src/app.c` and `src/settings.c`; these are the facts the Qt side has
 to reproduce.
+
+**How the legacy's shape maps onto the new one.** The legacy's *panel* is the
+closest thing to the new model's *tab*: a container with a strip and a
+directory. The legacy's *tab* is the closest thing to the new model's *pane*:
+one directory, with the path, the listing, the selection, the cursor and the
+history. The tree itself is the same: a binary tree of leaves and splits with
+a ratio. What differs is the level the tree sits at - in the legacy the tree
+of panels is the window's, and in the new model the tree of panes is a tab's -
+and that is why the legacy's arrangement of strips cannot be restored into a
+single strip.
 
 **The tree.** `struct Node` (`src/app.c:421`) is binary. A node is either
 `NODE_PANEL` (a leaf holding a `Panel`), `NODE_HSPLIT` (children `a` and `b`
@@ -111,14 +139,15 @@ dropped, and the panel named by `active_panel` is activated if it survived.
 
 ## Goals
 
-- A window whose panels are arranged in a split tree, each panel with its own
-  tab strip and its own stack of tabs.
-- Split a panel right and down, by command and by drag; open a folder in a
-  split; move a tab into a split; close a panel.
-- Per-tab state - path, history, cursor and selection - survives a tab switch
-  within a panel, the way the legacy keeps it in its `Pane`.
-- (S2b) the panel tree, the per-panel tab stacks and the active panel are saved
-  to and restored from the shared `settings.conf`, in the legacy's format.
+- One tab strip for the window, and every tab holds its own tree of panes.
+- Every pane shows one directory. The focused pane - the one the user last
+  acted in - receives navigation, selection and commands.
+- A pane splits right and down, a folder opens in a split, a pane closes, and
+  the tab's arrangement is remembered while the tab is not the active one.
+- Per-pane state - path, history, cursor and selection - belongs to the pane
+  and survives the tab being switched away and back.
+- (S2b) the arrangement and the tabs are saved to and restored from the shared
+  `settings.conf`, in the legacy's format as far as the new shape allows.
 
 ## Non-goals
 
@@ -164,6 +193,24 @@ dropped, and the panel named by `active_panel` is activated if it survived.
 
 ## Approaches
 
+### The shape of the whole thing: a tree of panels, or a tree of panes in each tab?
+
+This is the decision the user reversed, so both are recorded with what each
+costs.
+
+**The legacy's shape, chosen first: a tree of panels in the window, each panel
+owning its own tab stack and drawing its own tab strip.** It ports the legacy
+literally, and it restores the legacy's session exactly. Its cost is visible
+in the shell: the window would carry several tab strips, one per panel, which
+is an arrangement most people do not expect from a file manager, and it
+replaces the tab strip the shell already has.
+
+**The shape chosen instead, on 2026-11-20: one tab strip for the window, and
+every tab holds its own tree of panes.** The window keeps the strip it already
+has; a tab remembers the arrangement it was left in; a pane is a directory in
+that arrangement. Its cost is the legacy's per-panel tab stacks, which have no
+home in a single strip, and therefore a partial session restore.
+
 ### The shape of the tree: where does it live?
 
 **Considered and rejected: keep the tree in QML.** The `SplitView` would own the
@@ -172,33 +219,31 @@ pane tree is application state, not a view detail. Navigation, history, the
 selection, the session format and the tests all need it, and a tree that lives
 in QML cannot be serialized for the session without a second representation.
 
-**Chosen: the tree lives in C++.** `ShellController` owns it and QML renders it.
-This mirrors the legacy, where the tree is the application's state and the
-renderer only draws it, and it makes the session format a straight
-serialization of the controller's own data.
+**Chosen: the tree lives in C++.** Each tab holds one, `ShellController` owns
+the tabs, and QML renders them. This mirrors the legacy, where the tree is the
+application's state and the renderer only draws it, and it makes the session
+format a straight serialization of the controller's own data.
 
-### One model per tab, or one per panel?
+### One model per pane, or one per tab?
 
-**Considered and rejected: one `DirectoryModel` per tab.** The most faithful
-mapping of the legacy's per-tab `Pane`. Rejected: every model owns a worker
-thread and a pending-job queue, and the legacy allows 16 panels with several
-tabs each, so this would mean dozens of idle threads.
+**Considered and rejected: one `DirectoryModel` per tab.** A tab holds several
+panes, and a tab that is not active still holds its panes' state. Rejected:
+every model owns a worker thread and a pending-job queue, so a handful of tabs
+with several panes each would mean dozens of idle threads.
 
-**Chosen: one `DirectoryModel` per panel.** A panel shows its current tab, so a
-panel needs one model. Switching a panel's current tab re-points the model at
-the new tab's path, which is the same thing the model already does for
-navigation. The per-tab state that must survive the switch - path, history,
-cursor, selection - lives in a C++ tab object instead of in the model, so it is
-kept exactly as the legacy keeps it.
+**Chosen: one `DirectoryModel` per pane.** A pane is a directory view, so it
+needs a model. The state that must survive a tab switch - path, history,
+cursor, selection - lives in the pane rather than in the model, so it is kept
+exactly as the legacy keeps it in its `Pane`.
 
 ### Where does the selection live?
 
-The selection is currently a QML property on the directory page. With tabs it
-has to move into the C++ tab state, because a selection belongs to a tab and
-must come back when that tab is shown again. This is a visible change to
+The selection is currently a QML property on the directory page. With panes it
+has to move into the C++ pane state, because a selection belongs to a pane and
+must come back when that pane is shown again. This is a visible change to
 `DirectoryPage.qml`, which today owns `selectedPaths` and `currentIndex`.
 
-What the tab state keeps is the selection as the **displayed paths** the QML
+What the pane state keeps is the selection as the **displayed paths** the QML
 already carries, plus the cursor index and the anchor index. The raw bytes stay
 the model's business, exactly as S1 settled it: the operation boundary resolves
 a displayed path back to its bytes and refuses the operation when the mapping
@@ -206,12 +251,25 @@ is ambiguous. A rescan that removes entries drops the entries whose paths are
 gone from the selection, rather than carrying a selection that points at
 nothing.
 
-### What closes a panel
+### What closes a pane
 
-The legacy has no explicit close-panel command. A panel closes when its last
-tab closes (`src/app.c:5597`), and the removed leaf's sibling inherits the
-split node's space. S2a reproduces that and adds no new command, which is how
-the master design's exit criterion "a pane can be closed" is met in the legacy.
+In the legacy, a panel dies when its last tab closes (`src/app.c:5597`), and
+the removed leaf's sibling inherits the split node's space. In the new shape a
+pane is a leaf of a tab's tree, so closing the focused pane removes that leaf
+and the sibling inherits the space. The tab strip's close button closes the
+whole tab, with its tree - the shell already has that button, and the legacy's
+per-panel stacks are not reproduced.
+
+### How a tab is named
+
+A tab holds several directories, so its label is the **focused pane's display
+name**: the directory's base name, or `/` for the root, or `Trash` for the
+trash directory, and with the trailing `::` stripped from a remote path - the
+legacy's own rule in `disp_name()` (`src/app.c:1144`). The focus is per tab:
+each tab remembers which of its panes was last acted in, and the label follows
+that pane as it navigates, the way the legacy's tab label follows its
+directory.
+
 
 ### The session format
 
@@ -241,30 +299,32 @@ it needs no recursive allocation in C.
 
 ### The shell
 
-- `ShellController` owns the panel tree. A panel holds an ordered list of tabs
-  and the index of its current tab; a tab holds its path, its history, its
-  cursor and its selection. The controller keeps the panel that is active.
-- Each panel owns a `DirectoryModel`, showing its current tab's directory.
-- The controller's navigation, history and clipboard operations act on the
-  active panel's current tab, exactly as the legacy's act on the active pane.
-- The directory watcher follows every visible panel's directory, not only the
-  active one's, so a panel that is not focused still refreshes.
-- Closing a panel removes it from the tree. The removed leaf's sibling takes
-  the whole split node's place and inherits its space, and the first panel in
-  reading order becomes active if the removed one was active
-  (`src/app.c:5449`). Closing a panel's last tab closes the panel
-  (`src/app.c:5597`).
-- The legacy's limit of 16 panels applies. Beyond it the shell refuses the
+- `ShellController` owns an ordered list of tabs, and the index of the active
+  one. Each tab holds a tree of panes and remembers which of its panes was last
+  acted in - the focused pane. A pane holds its path, its history, its cursor
+  and its selection.
+- Each pane owns a `DirectoryModel` and a `DirectoryWatcher`, showing that
+  pane's directory.
+- The controller's navigation, history, clipboard and file operations act on
+  the active tab's focused pane, exactly as the legacy's act on the active
+  pane.
+- The directory watcher follows every pane's directory, not only the focused
+  one's, so a pane that is not focused still refreshes.
+- Closing a pane removes it from the tab's tree. The removed leaf's sibling
+  takes the whole split node's place and inherits its space, and the first pane
+  in reading order becomes focused if the removed one was focused
+  (`src/app.c:5449`).
+- The legacy's limit of 16 panes applies. Beyond it the shell refuses the
   split, as the legacy does.
 
 ### The QML
 
-- The window's content becomes a tree of panel views. Each panel view draws its
-  own tab strip and the directory content for its current tab.
-- **The controller lays the panels out, and the QML places them.** The tree is
-  walked in C++ and each panel gets a rectangle, the way the legacy computes
+- The window keeps the tab strip it already has. The active tab's page holds
+  the tree of panes; the other tabs' pages hold their own trees.
+- **The controller lays the panes out, and the QML places them.** The tree is
+  walked in C++ and each pane gets a rectangle, the way the legacy computes
   its panel rectangles in `layout()` (`src/app.c:1603`). The QML binds one view
-  per panel and positions it. This replaces an earlier plan to render the tree
+  per pane and positions it. This replaces an earlier plan to render the tree
   with nested `SplitView`s and a recursive QML component: a spike showed that
   QML refuses a type that instantiates itself ("Node is instantiated
   recursively"), and the workaround - loading the type by URL instead of by
@@ -274,14 +334,16 @@ it needs no recursive allocation in C.
 - The legacy never lets the user drag a divider: the split ratio is only ever
   set to 0.5 (`src/app.c:5398` and `:5656`), and the format stores the ratio so
   that a saved one is honoured when the session is restored. The Qt side lays
-  the panels out the same way and persists the ratio it read, so the two
+  the panes out the same way and persists the ratio it read, so the two
   applications agree about the saved layout.
 - The directory content becomes reusable: the three views, the size and date
   formatting, the selection and the keyboard handling move into a component
-  that takes a panel as a property, so every panel renders the same thing from
-  its own model and its own tab state.
+  that takes a pane as a property, so every pane renders the same thing from
+  its own model and its own state.
 - The toolbar that S1 built stays where the user expects it, at the top of the
-  window, and acts on the active panel. It is not repeated per panel.
+  window, and acts on the active tab's focused pane. It is not repeated.
+- The tab strip's label for a tab is its focused pane's display name, so it
+  follows the pane the user is in.
 - Every new widget carries an `objectName`, as the S1 widgets do, so the tests
   can drive it.
 
@@ -296,9 +358,18 @@ it needs no recursive allocation in C.
   array and serialize a node array back into that string, with the legacy's
   exact spelling. It also owns the whole session line set - `layout=`, the
   `ptab=` lines and `active_panel=` - so the format has one implementation.
+- **What the new shape can restore, and what it cannot.** The legacy's session
+  describes a window of panels, each with its own tab stack. The new shape has
+  one strip, so the per-panel stacks have no home. The mapping is: the legacy's
+  panel tree becomes the first restored tab's pane tree, with each of its
+  leaves showing the directory that panel was showing; the legacy's other tabs
+  come back as further tabs, each with a single pane. The split arrangement
+  and every directory are restored; the legacy's *arrangement of strips* is
+  not, because a single strip cannot hold it. That loss is the price of the
+  shape, and it is recorded here rather than discovered later.
 - The Qt shell writes `layout=`, one `ptab=` line per tab, and `active_panel=`
   when the session is saved, and restores the tree from them when it starts. A
-  missing or corrupt layout falls back to a single panel, and tabs whose folder
+  missing or corrupt layout falls back to a single pane, and tabs whose folder
   no longer exists are dropped, as the legacy does.
 - The `ptab=` line the Qt side writes carries three fields - the panel id, the
   current flag and the path - and leaves out the legacy's optional fourth
@@ -306,10 +377,10 @@ it needs no recursive allocation in C.
   legacy's parser tolerates its absence (`src/settings.c:687` guards it with
   `n == 4`), so a session written by the Qt application never shrinks the
   legacy application's rows.
-- **When the session is written.** The shell marks the settings dirty when the
-  panel tree, a tab stack or the active panel changes, and saves on a three
-  second debounce after the last change, then once more at shutdown. That is
-  the legacy's cadence (`src/app.c:16621` and `:16667`). It never saves in
+- **When the session is written.** The shell marks the settings dirty when a
+  tab's tree, a tab or the active tab changes, and saves on a three second
+  debounce after the last change, then once more at shutdown. That is the
+  legacy's cadence (`src/app.c:16621` and `:16667`). It never saves in
   `--screenshot` mode, as the legacy does not.
 - **When the session is restored.** At startup, and only when `restore_session`
   is on, the application was not started with a path to open, and the
