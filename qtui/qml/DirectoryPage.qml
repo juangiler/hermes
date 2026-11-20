@@ -16,10 +16,18 @@ Kirigami.Page {
   objectName: "directoryPane_" + paneId
   title: "Directory"
 
-  property bool syncing: true
-  property var selectedPaths: []
-  // Row indices are model rows; all three views show the same order.
-  property int currentIndex: 0
+  // The controller is the source of truth. These two derived bindings only
+  // republish its pane state so main.qml and the delegates stay reactive.
+  property var viewSelection: {
+    var tracked = hermes.tabs;
+    return paneId >= 0 ? hermes.selectedPaths(paneId) : [];
+  }
+  property int viewCursor: {
+    var tracked = hermes.tabs;
+    return paneId >= 0 ? hermes.currentIndex(paneId) : 0;
+  }
+  readonly property alias selectedPaths: page.viewSelection
+  readonly property alias currentIndex: page.viewCursor
   // Zoom scales rows and the fixed columns; the name column absorbs the rest.
   property real rowHeight: Kirigami.Units.gridUnit * 2 * hermes.zoom
   property real fixedColumnWidth: {
@@ -61,39 +69,73 @@ Kirigami.Page {
   }
 
   function toggleSelection(path) {
-    var parts = page.selectedPaths.slice();
+    if (paneId < 0)
+      return;
+    var parts = hermes.selectedPaths(paneId).slice();
     const index = parts.indexOf(path);
     if (index >= 0)
       parts.splice(index, 1);
     else
       parts.push(path);
-    page.selectedPaths = parts;
+    hermes.setSelectedPaths(paneId, parts);
+    var row = page.paths().indexOf(path);
+    if (row >= 0)
+      hermes.setAnchorIndex(paneId, row);
   }
 
   function clearSelection() {
-    page.selectedPaths = [];
-    page.currentIndex = 0;
+    if (paneId < 0)
+      return;
+    hermes.setSelectedPaths(paneId, []);
+    hermes.setCurrentIndex(paneId, 0);
+    hermes.setAnchorIndex(paneId, 0);
+  }
+
+  // Same-path rescans replace the rows without emitting pathChanged. Keep only
+  // displayed paths that still name a row, so an operation cannot act on a
+  // stale path through the NotListed fallback.
+  function dropStaleSelection() {
+    if (paneId < 0)
+      return;
+    var available = page.paths();
+    const current = hermes.selectedPaths(paneId);
+    var kept = [];
+    for (var i = 0; i < current.length; ++i)
+      if (available.indexOf(current[i]) >= 0)
+        kept.push(current[i]);
+    if (kept.length !== current.length)
+      hermes.setSelectedPaths(paneId, kept);
+    const last = available.length > 0 ? available.length - 1 : 0;
+    if (hermes.currentIndex(paneId) >= available.length)
+      hermes.setCurrentIndex(paneId, last);
+    if (hermes.anchorIndex(paneId) >= available.length)
+      hermes.setAnchorIndex(paneId, last);
   }
 
   function selectRange(index) {
     var entries = page.paths();
-    if (entries.length === 0)
+    if (entries.length === 0 || paneId < 0)
       return;
-    var anchor = Math.max(0, Math.min(page.currentIndex, entries.length - 1));
+    var anchor = hermes.anchorIndex(paneId);
+    if (anchor < 0)
+      anchor = hermes.currentIndex(paneId);
+    anchor = Math.max(0, Math.min(anchor, entries.length - 1));
     var from = Math.max(0, Math.min(anchor, index));
     var to = Math.min(entries.length - 1, Math.max(anchor, index));
     var chosen = [];
     for (var i = from; i <= to; ++i)
       chosen.push(entries[i]);
-    page.selectedPaths = chosen;
+    hermes.setSelectedPaths(paneId, chosen);
   }
 
   function selectAll() {
-    page.selectedPaths = page.paths().slice();
+    if (paneId >= 0)
+      hermes.setSelectedPaths(paneId, page.paths().slice());
   }
 
   function setCurrentIndex(index) {
-    page.currentIndex = index;
+    if (paneId >= 0)
+      hermes.setCurrentIndex(paneId, index);
     var view = page.currentView();
     if (!view || index < 0 || index >= view.count)
       return;
@@ -103,20 +145,32 @@ Kirigami.Page {
       view.positionViewAtIndex(index, ListView.Contain);
   }
 
+  // Arrow/Home/End move the cursor and the anchor together; a later shift
+  // click then extends from the row the user actually moved to.
+  function moveCursor(index) {
+    setCurrentIndex(index);
+    if (paneId >= 0)
+      hermes.setAnchorIndex(paneId, index);
+  }
+
   function activateCurrent() {
     var entries = page.paths();
-    if (page.currentIndex >= 0 && page.currentIndex < entries.length)
-      hermes.openEntry(entries[page.currentIndex]);
+    const index = paneId >= 0 ? hermes.currentIndex(paneId) : 0;
+    if (index >= 0 && index < entries.length)
+      hermes.openEntry(entries[index]);
   }
 
   function clickEntry(index, path, modifiers) {
-    if (modifiers & Qt.ShiftModifier)
+    if (modifiers & Qt.ShiftModifier) {
       selectRange(index);
-    else if (modifiers & Qt.ControlModifier)
+    } else if (modifiers & Qt.ControlModifier) {
       toggleSelection(path);
-    else
-      page.selectedPaths = [path];
+    } else if (paneId >= 0) {
+      hermes.setSelectedPaths(paneId, [path]);
+    }
     setCurrentIndex(index);
+    if (paneId >= 0 && !(modifiers & Qt.ShiftModifier))
+      hermes.setAnchorIndex(paneId, index);
   }
 
   function handleKey(event) {
@@ -124,15 +178,15 @@ Kirigami.Page {
     var count = entries.length;
     if (count === 0)
       return;
-    var index = page.currentIndex;
+    var index = paneId >= 0 ? hermes.currentIndex(paneId) : 0;
     if (event.key === Qt.Key_Up) {
-      setCurrentIndex(Math.max(0, index - 1));
+      moveCursor(Math.max(0, index - 1));
     } else if (event.key === Qt.Key_Down) {
-      setCurrentIndex(Math.min(count - 1, index + 1));
+      moveCursor(Math.min(count - 1, index + 1));
     } else if (event.key === Qt.Key_Home) {
-      setCurrentIndex(0);
+      moveCursor(0);
     } else if (event.key === Qt.Key_End) {
-      setCurrentIndex(count - 1);
+      moveCursor(count - 1);
     } else if (event.key === Qt.Key_Space) {
       if (index >= 0 && index < count)
         toggleSelection(entries[index]);
@@ -148,11 +202,6 @@ Kirigami.Page {
 
   Component.onCompleted: {
     page.viewMode = hermes.viewMode;
-    if (paneId >= 0) {
-      page.selectedPaths = hermes.selectedPaths(paneId);
-      page.currentIndex = hermes.currentIndex(paneId);
-    }
-    page.syncing = false;
     if (page.focused)
       page.focusVisibleView();
   }
@@ -160,16 +209,6 @@ Kirigami.Page {
   onFocusedChanged: {
     if (focused)
       page.focusVisibleView();
-  }
-
-  onSelectedPathsChanged: {
-    if (!page.syncing && paneId >= 0)
-      hermes.setSelectedPaths(paneId, page.selectedPaths)
-  }
-
-  onCurrentIndexChanged: {
-    if (!page.syncing && paneId >= 0)
-      hermes.setCurrentIndex(paneId, page.currentIndex)
   }
 
   onVisibleChanged: {
@@ -209,6 +248,9 @@ Kirigami.Page {
     function onPathChanged() {
       page.clearSelection()
     }
+    function onRowsReplaced() {
+      page.dropStaleSelection()
+    }
   }
 
   Connections {
@@ -216,6 +258,12 @@ Kirigami.Page {
     function onViewModeChanged() {
       if (page.focused)
         page.viewMode = hermes.viewMode
+    }
+    // The controller emits this before it destroys the pane's model/watcher.
+    function onPaneClosed(rect) {
+      var tab = hermes.tabs[hermes.activeTab];
+      if (tab && tab.focusedPane === paneId)
+        page.clearSelection();
     }
   }
 
@@ -236,7 +284,7 @@ Kirigami.Page {
     delegate: Item {
       width: ListView.view.width
       height: page.rowHeight
-      property bool selected: page.selectedPaths.indexOf(model.path) >= 0
+      property bool selected: page.viewSelection.indexOf(model.path) >= 0
 
       Rectangle {
         anchors.fill: parent
@@ -302,7 +350,7 @@ Kirigami.Page {
       property string entryName: model.name
       property string entrySize: page.sizeText(model.size)
       property string entryDate: page.dateText(model.modified)
-      property bool selected: page.selectedPaths.indexOf(model.path) >= 0
+      property bool selected: page.viewSelection.indexOf(model.path) >= 0
 
       Rectangle {
         anchors.fill: parent
@@ -358,7 +406,7 @@ Kirigami.Page {
     delegate: Item {
       width: GridView.view.cellWidth
       height: GridView.view.cellHeight
-      property bool selected: page.selectedPaths.indexOf(model.path) >= 0
+      property bool selected: page.viewSelection.indexOf(model.path) >= 0
 
       Rectangle {
         anchors.fill: parent

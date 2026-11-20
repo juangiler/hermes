@@ -113,6 +113,12 @@ private slots:
   void renameTabUpdatesTheLabel();
   void splitAndCloseAreAnimated();
   void theToolbarActsOnTheFocusedPane();
+  void selectionSurvivesATabSwitch();
+  void selectionDoesNotLeakBetweenPanes();
+  void closingAPaneDropsItsSelection();
+  void theCursorSurvivesATabSwitch();
+  void selectionDropsEntriesRemovedByARescan();
+  void ambiguousDisplayedPathRefusesTheOperation();
   void cliHelpAndVersionNeedNoPlatformPlugin();
   void cliScreenshotWritesAnImage();
   void cliScreenshotUnscannablePathExitsNonZero();
@@ -154,6 +160,8 @@ private:
   static QObject *findVisual(QObject *root, const QString &name);
   static QList<QObject *> findVisualPrefix(QObject *root, const QString &prefix);
   static bool click(QObject *item);
+  static bool clickRowByName(QQuickWindow *window, QObject *page, const QString &name,
+                             Qt::KeyboardModifiers modifiers = Qt::NoModifier);
   static QQuickWindow *loadWindow(QQmlApplicationEngine &engine, ShellController *controller);
   // tabs() and panes() are the QML-facing view of the state; these keep the
   // tests honest about what they actually publish rather than reaching into
@@ -2850,6 +2858,314 @@ void HermesQtUiTest::theToolbarActsOnTheFocusedPane()
   QVERIFY(!details1->property("visible").toBool());
   QVERIFY(details0->property("visible").toBool());
   QVERIFY(!list0->property("visible").toBool());
+}
+
+bool HermesQtUiTest::clickRowByName(QQuickWindow *window, QObject *page,
+                                    const QString &name,
+                                    Qt::KeyboardModifiers modifiers)
+{
+  QQuickItem *list = qobject_cast<QQuickItem *>(
+      page->findChild<QObject *>(QStringLiteral("listView")));
+  if (!list || !list->property("visible").toBool())
+    return false;
+  QQuickItem *content = qobject_cast<QQuickItem *>(
+      list->property("contentItem").value<QObject *>());
+  if (!content)
+    return false;
+  for (QQuickItem *delegate : content->childItems()) {
+    QList<QQuickItem *> queue{delegate};
+    while (!queue.isEmpty()) {
+      QQuickItem *item = queue.takeFirst();
+      if (QString::fromLatin1(item->metaObject()->className()).contains("QQuickText")
+          && item->property("text").toString() == name) {
+        // A real mouse click reaches both the pane's focus area and the
+        // delegate's MouseArea, exactly as a user's click does.
+        const QPointF centre = delegate->mapToScene(
+            QPointF(delegate->width() / 2, delegate->height() / 2));
+        QTest::mouseClick(window, Qt::LeftButton, modifiers, centre.toPoint());
+        return true;
+      }
+      queue.append(item->childItems());
+    }
+  }
+  return false;
+}
+
+void HermesQtUiTest::selectionSurvivesATabSwitch()
+{
+  QTemporaryDir first;
+  QTemporaryDir second;
+  QVERIFY(first.isValid());
+  QVERIFY(second.isValid());
+  const QStringList names{QStringLiteral("a.txt"), QStringLiteral("b.txt"),
+                          QStringLiteral("c.txt"), QStringLiteral("d.txt")};
+  for (const QString &name : names)
+    QVERIFY(writeFile(first.filePath(name), "x"));
+  const QString anchorName = QStringLiteral("c.txt");
+
+  ShellController controller;
+  controller.navigate(first.path());
+  QTRY_COMPARE_WITH_TIMEOUT(controller.directory()->rowCount(), names.size(), 5000);
+  controller.newTab(second.path());
+  controller.selectTab(0);
+  QQmlApplicationEngine engine;
+  QQuickWindow *window = loadWindow(engine, &controller);
+  QVERIFY(window);
+
+  QObject *page = findVisual(window, QStringLiteral("directoryPane_0"));
+  QVERIFY(page);
+  QVERIFY(clickRowByName(window, page, anchorName));
+  QCoreApplication::processEvents();
+  const QStringList paths = modelPaths(controller.directory());
+  const int anchorRow = paths.indexOf(first.filePath(anchorName));
+  QVERIFY(anchorRow >= 0);
+  QCOMPARE(controller.selectedPaths(0), QStringList({first.filePath(anchorName)}));
+  // The anchor belongs to the pane, not to whichever view happens to be open.
+  QCOMPARE(controller.anchorIndex(0), anchorRow);
+
+  QVERIFY(click(findNamed(window, QStringLiteral("tabLabel_1"))));
+  QCOMPARE(controller.activeTab(), 1);
+  QVERIFY(click(findNamed(window, QStringLiteral("tabLabel_0"))));
+  QCOMPARE(controller.activeTab(), 0);
+  QTRY_COMPARE_WITH_TIMEOUT(controller.selectedPaths(0),
+                            QStringList({first.filePath(anchorName)}), 2000);
+  QCOMPARE(controller.anchorIndex(0), anchorRow);
+  QObject *restored = findVisual(window, QStringLiteral("directoryPane_0"));
+  QVERIFY(restored);
+  QCOMPARE(restored->property("selectedPaths").toStringList(),
+           QStringList({first.filePath(anchorName)}));
+
+  // A shift-click after the round trip uses the pane's stored anchor.
+  QVERIFY(clickRowByName(window, restored, QStringLiteral("a.txt"),
+                         Qt::ShiftModifier));
+  QCoreApplication::processEvents();
+  QCOMPARE(controller.selectedPaths(0),
+           QStringList({first.filePath(QStringLiteral("a.txt")),
+                        first.filePath(QStringLiteral("b.txt")),
+                        first.filePath(anchorName)}));
+  QCOMPARE(controller.anchorIndex(0), anchorRow);
+}
+
+void HermesQtUiTest::selectionDoesNotLeakBetweenPanes()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString picked = dir.filePath(QStringLiteral("picked.txt"));
+  QVERIFY(writeFile(picked, "x"));
+  QVERIFY(writeFile(dir.filePath(QStringLiteral("other.txt")), "y"));
+
+  ShellController controller;
+  controller.navigate(dir.path());
+  QTRY_COMPARE_WITH_TIMEOUT(controller.directory()->rowCount(), 2, 5000);
+  controller.splitFocusedRight();  // both panes show the same directory
+  controller.setFocusedPane(0);    // click in pane 0 before the window loads
+  QCOMPARE(controller.panes().size(), 2);
+
+  QQmlApplicationEngine engine;
+  QQuickWindow *window = loadWindow(engine, &controller);
+  QVERIFY(window);
+  QObject *page0 = findVisual(window, QStringLiteral("directoryPane_0"));
+  QObject *page1 = findVisual(window, QStringLiteral("directoryPane_1"));
+  QVERIFY(page0);
+  QVERIFY(page1);
+  QVERIFY(clickRowByName(window, page0, QStringLiteral("picked.txt")));
+  QCoreApplication::processEvents();
+  const QStringList paths = modelPaths(paneModel(controller, 0));
+  const int pickedRow = paths.indexOf(picked);
+  QVERIFY(pickedRow >= 0);
+  QCOMPARE(controller.selectedPaths(0), QStringList({picked}));
+  QCOMPARE(controller.anchorIndex(0), pickedRow);
+  QVERIFY(controller.selectedPaths(1).isEmpty());
+  QVERIFY(page1->property("selectedPaths").toList().isEmpty());
+
+  // A click in the other pane must not move pane 0's cursor or anchor.
+  QVERIFY(clickRowByName(window, page1, QStringLiteral("other.txt")));
+  QCoreApplication::processEvents();
+  QCOMPARE(controller.anchorIndex(0), pickedRow);
+  QCOMPARE(controller.selectedPaths(0), QStringList({picked}));
+  QCOMPARE(controller.selectedPaths(1),
+           QStringList({dir.filePath(QStringLiteral("other.txt"))}));
+  QCOMPARE(controller.anchorIndex(1), paths.indexOf(
+               dir.filePath(QStringLiteral("other.txt"))));
+}
+
+void HermesQtUiTest::closingAPaneDropsItsSelection()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString picked = dir.filePath(QStringLiteral("picked.txt"));
+  QVERIFY(writeFile(picked, "x"));
+  QVERIFY(writeFile(dir.filePath(QStringLiteral("other.txt")), "y"));
+
+  ShellController controller;
+  controller.navigate(dir.path());
+  QTRY_COMPARE_WITH_TIMEOUT(controller.directory()->rowCount(), 2, 5000);
+  controller.splitFocusedRight();  // pane 1 is focused
+  QCOMPARE(controller.panes().size(), 2);
+
+  QQmlApplicationEngine engine;
+  QQuickWindow *window = loadWindow(engine, &controller);
+  QVERIFY(window);
+  QObject *page1 = findVisual(window, QStringLiteral("directoryPane_1"));
+  QVERIFY(page1);
+  QVERIFY(clickRowByName(window, page1, QStringLiteral("picked.txt")));
+  QCoreApplication::processEvents();
+  QCOMPARE(controller.selectedPaths(1), QStringList({picked}));
+
+  // The controller emits paneClosed before it destroys the model and watcher.
+  // The pane must already be clean at that point, not merely gone afterwards.
+  int closingPane = focusedPaneId(controller);
+  QCOMPARE(closingPane, 1);
+  int selectionAtClose = -1;
+  QObject::connect(&controller, &ShellController::paneClosed, [&] {
+    selectionAtClose = controller.selectedPaths(closingPane).size();
+  });
+
+  QVERIFY(click(findNamed(window, QStringLiteral("closePaneButton"))));
+  QCOMPARE(selectionAtClose, 0);
+  QTRY_COMPARE(controller.panes().size(), 1);
+  QVERIFY(controller.selectedPaths(0).isEmpty());
+  QObject *remaining = findVisual(window, QStringLiteral("directoryPane_0"));
+  QVERIFY(remaining);
+  QVERIFY(remaining->property("selectedPaths").toList().isEmpty());
+  QVERIFY(QFileInfo::exists(picked));
+
+  // The dropped selection cannot reach a later operation: there is no path to
+  // copy, so nothing becomes pasteable and nothing is removed.
+  controller.copySelection(controller.selectedPaths(0), false);
+  QVERIFY(!controller.canPaste());
+  controller.pasteIntoCurrentDirectory();
+  QCOMPARE(controller.operationsChangedCount(), 0);
+  QVERIFY(QFileInfo::exists(picked));
+}
+
+void HermesQtUiTest::theCursorSurvivesATabSwitch()
+{
+  QTemporaryDir first;
+  QTemporaryDir second;
+  QVERIFY(first.isValid());
+  QVERIFY(second.isValid());
+  for (int i = 0; i < 5; ++i)
+    QVERIFY(writeFile(first.filePath(QStringLiteral("file-%1.txt").arg(i)), "x"));
+
+  ShellController controller;
+  controller.navigate(first.path());
+  QTRY_COMPARE_WITH_TIMEOUT(controller.directory()->rowCount(), 5, 5000);
+  controller.newTab(second.path());
+  controller.selectTab(0);
+  QQmlApplicationEngine engine;
+  QQuickWindow *window = loadWindow(engine, &controller);
+  QVERIFY(window);
+
+  QObject *page = findVisual(window, QStringLiteral("directoryPane_0"));
+  QVERIFY(page);
+  QQuickItem *list = qobject_cast<QQuickItem *>(
+      page->findChild<QObject *>(QStringLiteral("listView")));
+  QVERIFY(list);
+  QTRY_VERIFY_WITH_TIMEOUT(list->hasActiveFocus(), 2000);
+  QTest::keyClick(window, Qt::Key_End);
+  QCoreApplication::processEvents();
+  QCOMPARE(controller.currentIndex(0), 4);
+  QCOMPARE(controller.anchorIndex(0), 4);
+
+  QVERIFY(click(findNamed(window, QStringLiteral("tabLabel_1"))));
+  QCOMPARE(controller.activeTab(), 1);
+  QVERIFY(click(findNamed(window, QStringLiteral("tabLabel_0"))));
+  QCOMPARE(controller.activeTab(), 0);
+  QTRY_COMPARE_WITH_TIMEOUT(controller.currentIndex(0), 4, 2000);
+  QCOMPARE(controller.anchorIndex(0), 4);
+  QObject *restored = findVisual(window, QStringLiteral("directoryPane_0"));
+  QVERIFY(restored);
+  QCOMPARE(restored->property("currentIndex").toInt(), 4);
+}
+
+void HermesQtUiTest::selectionDropsEntriesRemovedByARescan()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString picked = dir.filePath(QStringLiteral("picked.txt"));
+  const QString kept = dir.filePath(QStringLiteral("kept.txt"));
+  QVERIFY(writeFile(picked, "x"));
+  QVERIFY(writeFile(kept, "y"));
+
+  ShellController controller;
+  controller.navigate(dir.path());
+  DirectoryModel *model = controller.directory();
+  QTRY_COMPARE_WITH_TIMEOUT(model->rowCount(), 2, 5000);
+
+  QQmlApplicationEngine engine;
+  QQuickWindow *window = loadWindow(engine, &controller);
+  QVERIFY(window);
+  QObject *page = findVisual(window, QStringLiteral("directoryPane_0"));
+  QVERIFY(page);
+  QVERIFY(clickRowByName(window, page, QStringLiteral("picked.txt")));
+  QCoreApplication::processEvents();
+  QCOMPARE(controller.selectedPaths(0), QStringList({picked}));
+
+  // A rescan of the same directory replaces the rows without a navigation.
+  QVERIFY(QFile::remove(picked));
+  model->refresh();
+  QTRY_COMPARE_WITH_TIMEOUT(model->rowCount(), 1, 5000);
+  QTRY_VERIFY_WITH_TIMEOUT(!controller.selectedPaths(0).contains(picked), 2000);
+  QVERIFY(controller.selectedPaths(0).isEmpty());
+  QVERIFY(page->property("selectedPaths").toList().isEmpty());
+  QVERIFY(QFileInfo::exists(kept));
+}
+
+void HermesQtUiTest::ambiguousDisplayedPathRefusesTheOperation()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  // Distinct raw names that both decode to the same displayed U+FFFD spelling.
+  const QByteArray rawName("a\xff" "b");
+  const QByteArray replacementName = QByteArray("a") + QByteArray::fromHex("efbfbd") + "b";
+  const QByteArray rawFirst = dir.path().toUtf8() + "/" + rawName;
+  const QByteArray replacementFirst = dir.path().toUtf8() + "/" + replacementName;
+  auto makeRawFile = [](const QByteArray &path) {
+    const int fd = ::open(path.constData(), O_CREAT | O_WRONLY | O_TRUNC, 0644);
+    if (fd < 0)
+      return false;
+    const bool written = ::write(fd, "x", 1) == 1;
+    return ::close(fd) == 0 && written;
+  };
+  QVERIFY(makeRawFile(rawFirst));
+  QVERIFY(makeRawFile(replacementFirst));
+
+  ShellController controller;
+  controller.navigate(dir.path());
+  DirectoryModel *model = controller.directory();
+  QTRY_COMPARE_WITH_TIMEOUT(model->rowCount(), 2, 5000);
+  const QString displayed = model->data(model->index(0), DirectoryModel::PathRole).toString();
+  QCOMPARE(model->data(model->index(1), DirectoryModel::PathRole).toString(), displayed);
+  QVERIFY(displayed.contains(QChar(0xfffd)));
+
+  QQmlApplicationEngine engine;
+  QQuickWindow *window = loadWindow(engine, &controller);
+  QVERIFY(window);
+  QObject *page = findVisual(window, QStringLiteral("directoryPane_0"));
+  QVERIFY(page);
+  QVERIFY(clickRowByName(window, page, QFileInfo(displayed).fileName()));
+  QCoreApplication::processEvents();
+  QCOMPARE(controller.selectedPaths(0), QStringList({displayed}));
+
+  QSignalSpy failures(&controller, &ShellController::operationFailed);
+  QObject *button = findNamed(window, QStringLiteral("deleteButton"));
+  QVERIFY(button);
+  QVERIFY(QMetaObject::invokeMethod(button, "click"));
+  QObject *confirm = findNamed(window, QStringLiteral("confirmDeleteButton"));
+  QVERIFY(confirm);
+  QVERIFY(QMetaObject::invokeMethod(confirm, "click"));
+  QCoreApplication::processEvents();
+  QCOMPARE(failures.count(), 1);
+  QObject *error = findNamed(window, QStringLiteral("operationErrorDialog"));
+  QVERIFY(error);
+  QVERIFY(error->property("visible").toBool());
+  QCOMPARE(::access(rawFirst.constData(), F_OK), 0);
+  QCOMPARE(::access(replacementFirst.constData(), F_OK), 0);
+
+  // QTemporaryDir cannot enumerate these raw byte names during its cleanup.
+  QCOMPARE(::unlink(rawFirst.constData()), 0);
+  QCOMPARE(::unlink(replacementFirst.constData()), 0);
 }
 
 QTEST_MAIN(HermesQtUiTest)

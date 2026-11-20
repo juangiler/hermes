@@ -63,6 +63,9 @@ public slots:
 
 signals:
   void pathChanged(const QString &path);
+  // A scan replaced the rows in place (the directory did not change). Views
+  // use this to drop displayed selections that no longer name a row.
+  void rowsReplaced();
   void navigateFailed(const QString &path);
   void scanFinished();
   void showHiddenChanged();
