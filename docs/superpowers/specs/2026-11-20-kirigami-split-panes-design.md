@@ -2,54 +2,39 @@
 
 ## Intent and why
 
-The legacy Hermes window is not a list of tabs. It is a **tree of panels**: the
-window is divided by horizontal and vertical splits, every panel draws its own
-tab strip, and every tab shows one directory. That layout is part of what the
-user has, because the legacy app saves it and restores it on the next start.
-
 The Kirigami shell shipped so far has one global tab strip and one view, so it
 cannot show a split window at all, and it has nothing to restore. This slice
-brings the panel tree over, so the Qt frontend can show and keep the layout the
-legacy app keeps.
+brings split panes to it: **the window keeps its one tab strip, and every tab
+holds its own tree of panes.** Switching tabs switches the whole arrangement,
+so a tab that was never split shows a single pane.
 
-The behaviour to port is the legacy behaviour, exactly. Where the master parity
-design described S2 as "a tab holds a tree of panes", that description is
-inverted with respect to the legacy application: in the legacy, a **panel**
-holds a stack of tabs and the tree is of panels, and each tab shows one
-directory. This document follows the legacy, and amends the master design's S2
-text accordingly.
+The legacy Hermes window arranges things the other way round: a tree of panels,
+each with its own tab strip and one directory per tab. The legacy remains the
+authority for the *behaviour* to port - the split, the close, the 16-pane limit,
+the focused directory's state - but not for the shape. The legacy SDL3
+application is scaffolding and is deleted at the end of the port, so nothing
+here is built to preserve its arrangement or its session format.
 
 ## Decisions taken with the user (2026-11-20)
 
-- **Mirror the legacy.** Panels own their own tab stacks and draw their own tab
-  strips. The Qt shell's single global tab strip becomes one strip per panel.
+- **One tab strip for the window, a tree of panes per tab.** The user first
+  chose to mirror the legacy's tree of panels with a strip per panel, then
+  reversed that decision after seeing how the shell would have to carry several
+  strips. The current decision is the one in the goals below; the trade-off is
+  recorded in the approaches section.
 - **Split the slice in two pull requests.** S2a delivers the structure; S2b
   delivers session persistence and drag-and-drop. The reason is in the master
   design's own rejection of one large PR: the review rounds in this project find
   real defects only when each round stays small enough to examine, and the
   persistence half is the first slice to touch the legacy SDL application's
   settings code, so it must not be able to block the structure work.
-- **The core owns the whole settings file.** The legacy's per-key-group
+- **The core owns the whole shared settings file.** The legacy's per-key-group
   three-way merge moves into the core with the file handling, so both
   applications share one implementation and the legacy keeps its multi-process
   safety. The alternative - each application keeping its own writer - was
   rejected because it leaves the file format handled in two places and lets one
-  application's save undo the other's session.
-- **The model changed on 2026-11-20, after the first plan was written.** The
-  first plan ported the legacy's arrangement literally: the window holds a tree
-  of panels, and every panel owns its own stack of tabs and its own tab strip.
-  The user found that arrangement harder to use than it looked and chose the
-  other shape: **the window keeps one tab strip, and every tab holds its own
-  tree of panes.** This is the master parity design's original wording for S2,
-  which had been corrected to the legacy's shape and is corrected back.
-
-  The trade-off, stated plainly: the legacy's window can show several panels
-  side by side, each with its own strip. The new shape shows one tab at a
-  time, and that tab's own split arrangement. The legacy's per-panel tab
-  stacks therefore have no home, and the session restore becomes partial - see
-  the session section. What is gained is a single strip, as Plasma apps have,
-  a tab that remembers the arrangement it was left in, and a tab strip that
-  already exists in the shell rather than one per panel.
+  application's save undo the other's settings. The *session* is not part of
+  that shared configuration; it belongs to the Qt application alone.
 
 ## What the builder check settled
 
@@ -149,8 +134,8 @@ dropped, and the panel named by `active_panel` is activated if it survived.
 - Per-pane state - path, history, cursor and selection - belongs to the pane
   and survives the tab being switched away and back.
 - (S2b) the arrangement, the tabs and their names are saved to and restored
-  from the shared `settings.conf`, in the legacy's format as far as the new
-  shape allows.
+  from the Qt application's own session file; the shared `settings.conf` keeps
+  its configuration role and is not used for the session.
 
 ## Non-goals
 
@@ -307,27 +292,21 @@ the session, in S2b, where the session format gains a line for it.
 
 ### The session format
 
-**Considered and rejected: the Qt side writes the format itself.** The format is
-simple text, so a second implementation is possible. Rejected: the legacy
-application must be able to read what the Qt application writes, and a format
-implemented twice is a format that will drift.
+**Considered and rejected: reuse the legacy's session lines.** The legacy's
+`layout=`, `ptab=` and `active_panel=` lines can describe a tree of panels with
+tab stacks. Rejected: they cannot describe a list of tabs each holding a tree
+of panes, so the mapping would be lossy by construction - and once the legacy
+application is deleted, a format that only it could read has no value.
 
-**Chosen: the core owns the format and the file.** The tree becomes a neutral,
-flat node array in the C ABI, and the core serializes and parses it. The legacy
-application converts its `Node` tree to and from that form and calls the same
-functions, so there is one implementation of the format. The settings file
-itself becomes core-owned: the core reads it, merges it per key group and
-writes it back, and both applications are clients of that. The legacy's
-three-way merge - a key changed in memory since the last sync wins, otherwise
-a key changed on disk by another process wins, with the session lines merged
-as one group (`src/settings.c:389`) - moves into the core with the file
-handling, so the legacy application keeps its multi-process safety and the Qt
-application gets it too.
-
-The tree as a flat array is the ABI shape: an array of nodes, each naming its
-kind, its ratio, its panel id for a leaf, and its two children by index. It is
-easy to convert to and from the legacy's `Node` tree, easy to hand to QML, and
-it needs no recursive allocation in C.
+**Chosen: the Qt application owns its session, the core owns the shared
+settings file.** The Qt session is its own file and its own format: the tabs,
+their names, their focused panes and their pane trees, written whole and
+atomically. The shared `settings.conf` keeps its configuration role - the sort
+defaults, the window size, the servers, the devices, the keybindings - and the
+core owns that file, merging it per key group so neither application undoes the
+other's settings. The legacy's three-way merge (`src/settings.c:389`) moves
+into the core with that file handling, so the legacy keeps its multi-process
+safety while the Qt session stays independent of it.
 
 ## The parts of the how
 
@@ -466,10 +445,11 @@ it needs no recursive allocation in C.
 
 ## Provenance of decisions
 
-The user chose: the legacy's behaviour, with each panel holding its own tabs,
-and the slice delivered as two pull requests. The tree living in C++, one model
-per panel, the selection moving into the tab state, the core owning the
-session format and the settings file, and the `SplitView` rendering are the
-author's calls, consistent with the master design's rules that the C ABI stays
-the only channel, that the model/controller split stays as it is, and that
-configuration has a single source of truth.
+The user chose: the legacy's split/close/cycling behaviour, one tab strip with
+a pane tree per tab, tab names and the `MULTI` badge, and the slice delivered as
+two pull requests. The tree living in C++, one model per pane, the selection
+moving into the pane state, the C++-computed layout, the Qt-owned session file
+and the core-owned shared settings file are the author's calls, consistent with
+the master design's rules that the C ABI stays the only channel, that the
+model/controller split stays as it is, and that configuration has a single
+source of truth.
