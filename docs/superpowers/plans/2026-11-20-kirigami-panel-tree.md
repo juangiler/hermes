@@ -122,6 +122,11 @@ public:
 
   // The rectangle of every panel, in the order of panels().
   QVector<QRect> layout(const QSize &area) const;
+
+private:
+  QVector<Panel> m_panels;
+  std::unique_ptr<PanelNode> m_root;
+  int m_active_panel = 0;
 };
 ```
 
@@ -131,7 +136,7 @@ The layout follows the legacy exactly: a split gives the first child `round(size
 
 In `tools/qtui-selftest.cpp` add these test methods and register them in the `private slots:` list:
 
-- `panelTreeSplitsRightAndDown`: a fresh tree has one panel; `splitPanel(0, PanelTree::Zone::Right, -1, "/tmp")` returns 1 and the root becomes an `HSplit` with ratio 0.5; a `PanelTree::Zone::Down` split of a panel makes a `VSplit`.
+- `panelTreeSplitsRightAndDown`: a fresh tree has one panel; `splitPanel(0, PanelTree::Zone::Right, -1, "/tmp")` returns 1 and the root becomes an `HSplit` with ratio 0.5; a `PanelTree::Zone::Bottom` split of a panel makes a `VSplit`.
 - `panelTreePlacesTheNewPanelOnTheChosenSide`: `PanelTree::Zone::Left` makes the new panel the first child, so `panelsInReadingOrder()` is `{1, 0}`; `PanelTree::Zone::Right` makes it `{0, 1}`.
 - `panelTreeMovesATabIntoTheNewPanel`: a panel with two tabs; splitting with `tabIndex = 0` moves that tab into the new panel and leaves the source panel with the other one.
 - `panelTreeRefusesTheSixteenthPanel`: splitting until there are `MaxPanels` panels; the next `splitPanel` returns -1 and the tree is unchanged.
