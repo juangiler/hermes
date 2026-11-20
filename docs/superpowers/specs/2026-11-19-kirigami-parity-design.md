@@ -256,6 +256,9 @@ pull requests the slice is delivered in, are in
 - Per-page screenshot comparison against the legacy application as a
   checklist: same panels, same columns, same arrangement, nothing missing.
   Differences in native widget metrics and fonts are expected and accepted.
+  The comparison is the checklist for the visual work as well as for the
+  layout: the interface is meant to be modern, flat and animated, and a screen
+  that is functionally right but looks unfinished is caught here.
 - `HERMES_DEFAULT_UI` now defaults to the Kirigami application; the legacy
   application remains buildable and selectable until step 5 removes it.
 - Documentation, `CHANGELOG.md`, `docs/architecture.md` and `docs/building.md`
@@ -291,6 +294,14 @@ Custom visualisations use `QQuickItem` and `QSGGeometryNode`. Thumbnails use
 `QQuickImageProvider` and `QImageReader`. The shipped QML contains no `Canvas`,
 `QPainter` or `QGraphicsView`, and the application never forces
 `QT_QUICK_BACKEND=software`; the offscreen software backend is test-only.
+
+**Look and motion.** Every slice carries the visual language and motion
+requirements of the master design: a modern, flat interface whose values live
+in one shared place and can be changed by the user, and a motion treatment for
+every screen the port adds. The two rules that keep that compatible with
+parity are that motion never delays content - the rows appear as soon as they
+are ready - and that the visual work costs no performance, since the user
+asked for godlike speed in navigation and searching.
 
 **Configuration.** `src/settings.c` and `src/keys.c` stay the single source of
 truth. The Qt UI reaches them through new ABI accessors, so both applications
