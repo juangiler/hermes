@@ -144,10 +144,13 @@ dropped, and the panel named by `active_panel` is activated if it survived.
   acted in - receives navigation, selection and commands.
 - A pane splits right and down, a folder opens in a split, a pane closes, and
   the tab's arrangement is remembered while the tab is not the active one.
+- A tab can be renamed, and a tab that holds several panes is marked with a
+  `MULTI` badge next to its name.
 - Per-pane state - path, history, cursor and selection - belongs to the pane
   and survives the tab being switched away and back.
-- (S2b) the arrangement and the tabs are saved to and restored from the shared
-  `settings.conf`, in the legacy's format as far as the new shape allows.
+- (S2b) the arrangement, the tabs and their names are saved to and restored
+  from the shared `settings.conf`, in the legacy's format as far as the new
+  shape allows.
 
 ## Non-goals
 
@@ -270,6 +273,22 @@ each tab remembers which of its panes was last acted in, and the label follows
 that pane as it navigates, the way the legacy's tab label follows its
 directory.
 
+**A tab can also be renamed by the user.** The name the user gives wins over
+the derived one, and clearing it brings the derived name back. The rename
+matters most for a tab that holds several panes, where the derived name names
+only one of them - but the affordance is the same for every tab, because one
+path is simpler than two and the derived name is still available by clearing
+the custom one.
+
+**A split tab is marked.** Whenever a tab holds more than one pane, a small
+badge reading `MULTI` sits next to its name in the tab strip, so a tab that was
+split is recognisable at a glance even when it is not the active one. The
+badge appears as soon as the pane is split and disappears when the tab is back
+to a single pane.
+
+The tab's name is the user's, so it is the user's to keep: it is saved with
+the session, in S2b, where the session format gains a line for it.
+
 
 ### The session format
 
@@ -342,8 +361,9 @@ it needs no recursive allocation in C.
   its own model and its own state.
 - The toolbar that S1 built stays where the user expects it, at the top of the
   window, and acts on the active tab's focused pane. It is not repeated.
-- The tab strip's label for a tab is its focused pane's display name, so it
-  follows the pane the user is in.
+- The tab strip's label for a tab is its focused pane's display name, or the
+  name the user gave it, and a badge reading `MULTI` sits next to the name of
+  every tab that holds more than one pane.
 - Every new widget carries an `objectName`, as the S1 widgets do, so the tests
   can drive it.
 
@@ -377,6 +397,13 @@ it needs no recursive allocation in C.
   legacy's parser tolerates its absence (`src/settings.c:687` guards it with
   `n == 4`), so a session written by the Qt application never shrinks the
   legacy application's rows.
+- **The tab names need a line of their own.** The legacy's format has nowhere
+  to put a name the user gave a tab, so the core's session line set grows one
+  more line for it. The legacy application ignores a line it does not know, so
+  it reads such a session without trouble; what it does not do is write it
+  back, because it rewrites the file from its own state. A tab name is
+  therefore lost if the legacy application saves the settings afterwards -
+  the one cost of a name the legacy has no place for.
 - **When the session is written.** The shell marks the settings dirty when a
   tab's tree, a tab or the active tab changes, and saves on a three second
   debounce after the last change, then once more at shutdown. That is the
