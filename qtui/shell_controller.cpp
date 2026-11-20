@@ -10,6 +10,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QMetaObject>
+#include <QPointer>
 #include <QStandardPaths>
 #include <QUrl>
 #include <QVariantMap>
@@ -23,6 +24,13 @@ bool validLeafName(const QString &name)
 {
   return !name.isEmpty() && name != QStringLiteral(".") && name != QStringLiteral("..")
       && !name.contains(QLatin1Char('/')) && !name.contains(QChar(0));
+}
+
+// A tab's label is the leaf its path names, matching the legacy tab strip.
+QString labelForPath(const QString &path)
+{
+  const QStringList parts = path.split(QLatin1Char('/'), Qt::SkipEmptyParts);
+  return parts.isEmpty() ? QStringLiteral("/") : parts.last();
 }
 
 void reportLaunchFailure(ShellController *controller, const QString &operation)
@@ -79,7 +87,8 @@ static void hostRequestRedraw(void)
     return;
   QMetaObject::invokeMethod(controller, [controller] {
     hermes_core_drain(controller->core());
-    controller->directory()->refresh();
+    // An operation may have changed entries in any of the open directories.
+    controller->refreshDirectory();
   }, Qt::QueuedConnection);
 }
 
@@ -147,58 +156,13 @@ ShellController::ShellController(QObject *parent)
       return;
     QMetaObject::invokeMethod(controller, [controller] {
       hermes_core_drain(controller->m_core);
-      if (controller->m_directory)
-        controller->m_directory->pollScan();
+      // Only the panels with a live scan need their results collected.
+      for (Panel &panel : controller->m_tree.panels())
+        if (panel.model)
+          panel.model->pollScan();
     }, Qt::QueuedConnection);
   }, this);
-  m_directory = new DirectoryModel(m_core, this);
-  // One toolbar API surface: keep the controller's view options in step when
-  // the model's options change (including through its own QML setters).
-  connect(m_directory, &DirectoryModel::showHiddenChanged,
-          this, &ShellController::showHiddenChanged);
-  connect(m_directory, &DirectoryModel::folderSizesChanged,
-          this, &ShellController::folderSizesChanged);
-  connect(m_directory, &DirectoryModel::sortKeyChanged,
-          this, &ShellController::sortKeyChanged);
-
-  // Follow the rows actually on screen: the model emits pathChanged when a
-  // scan replaces them with another directory's entries. The watcher is a
-  // child of the controller, so it is unwatched when the controller dies.
-  auto *watcher = new DirectoryWatcher(this);
-  connect(watcher, &DirectoryWatcher::changed, this, [this] {
-    refreshDirectory();
-  });
-  connect(m_directory, &DirectoryModel::pathChanged, this,
-          [watcher](const QString &path) {
-    if (path.isEmpty())
-      watcher->unwatch();
-    else
-      watcher->watch(path);
-  });
-
-  connect(m_directory, &DirectoryModel::navigateFailed, this,
-          [this](const QString &failedPath) {
-    const int current = currentTab();
-    if (current < 0 || current >= m_tabs.size())
-      return;
-    TabState &tab = m_tabs[current];
-    const QString restoredPath = m_directory->path();
-    if (tab.path != failedPath || restoredPath.isEmpty() || restoredPath == failedPath)
-      return;
-
-    int historyIndex = -1;
-    for (int i = 0; i < tab.history.size(); ++i)
-      if (tab.history.at(i) == restoredPath)
-        historyIndex = i;
-    if (historyIndex < 0)
-      return;
-
-    tab.path = restoredPath;
-    tab.history.remove(historyIndex + 1, tab.history.size() - historyIndex - 1);
-    tab.historyIndex = historyIndex;
-    emit tabsChanged();
-    emitHistory();
-  });
+  createPanelResources(0);
   m_places = new PlacesModel(this);
 
   // Legacy column defaults (name,date:140,size:88). Persistence belongs to the
@@ -211,6 +175,7 @@ ShellController::ShellController(QObject *parent)
       QVariantMap{{QStringLiteral("key"), QStringLiteral("size")},
                   {QStringLiteral("width"), 88}},
   });
+  syncCurrentTab();
 }
 
 ShellController::~ShellController()
@@ -221,16 +186,142 @@ ShellController::~ShellController()
     if (g_controller == this)
       g_controller = nullptr;
   }
-  // The scan worker polls handles owned by this core; join it first.
-  if (m_directory)
-    m_directory->stopWorker();
+  // Each scan worker polls handles owned by this core; join them first.
+  for (Panel &panel : m_tree.panels())
+    if (panel.model)
+      panel.model->stopWorker();
   hermes_core_destroy(m_core);
   m_core = nullptr;
 }
 
+void ShellController::createPanelResources(int panelId)
+{
+  Panel *panel = panelAt(panelId);
+  if (!panel || panel->model)
+    return;
+
+  DirectoryModel *model = new DirectoryModel(m_core, this);
+  // One toolbar API surface: keep the controller's view options in step when
+  // any panel's model changes them through its own QML setters.
+  connect(model, &DirectoryModel::showHiddenChanged,
+          this, &ShellController::showHiddenChanged);
+  connect(model, &DirectoryModel::folderSizesChanged,
+          this, &ShellController::folderSizesChanged);
+  connect(model, &DirectoryModel::sortKeyChanged,
+          this, &ShellController::sortKeyChanged);
+
+  auto *watcher = new DirectoryWatcher(this);
+  // Each watcher refreshes only its own panel. It is deleted with the model,
+  // so the connection cannot outlive the pointer it captures.
+  connect(watcher, &DirectoryWatcher::changed, this, [model] {
+    model->refresh();
+  });
+  // Follow the rows actually on screen: pathChanged fires when a scan replaces
+  // them with another directory's entries, including on a tab switch.
+  connect(model, &DirectoryModel::pathChanged, this,
+          [watcher](const QString &path) {
+    if (path.isEmpty())
+      watcher->unwatch();
+    else
+      watcher->watch(path);
+  });
+
+  QPointer<DirectoryModel> weak = model;
+  connect(model, &DirectoryModel::navigateFailed, this,
+          [this, weak](const QString &failedPath) {
+    DirectoryModel *failedModel = weak.data();
+    if (!failedModel)
+      return;
+    for (Panel &candidate : m_tree.panels()) {
+      if (candidate.model != failedModel || candidate.currentTab < 0
+          || candidate.currentTab >= candidate.tabs.size())
+        continue;
+      PanelTab &tab = candidate.tabs[candidate.currentTab];
+      const QString restoredPath = failedModel->path();
+      if (tab.path != failedPath || restoredPath.isEmpty() || restoredPath == failedPath)
+        return;
+      int historyIndex = -1;
+      for (int i = 0; i < tab.history.size(); ++i)
+        if (tab.history.at(i) == restoredPath)
+          historyIndex = i;
+      if (historyIndex < 0)
+        return;
+      tab.path = restoredPath;
+      tab.history.remove(historyIndex + 1, tab.history.size() - historyIndex - 1);
+      tab.historyIndex = historyIndex;
+      emitPanelsChanged();
+      emitHistory();
+      return;
+    }
+  });
+
+  panel->model = model;
+  panel->watcher = watcher;
+}
+
+void ShellController::destroyPanelResources(Panel &panel)
+{
+  // Stop the watcher first so no queued refresh can reach a dying model.
+  delete panel.watcher;
+  panel.watcher = nullptr;
+  delete panel.model;
+  panel.model = nullptr;
+}
+
+Panel *ShellController::panelAt(int id)
+{
+  if (id < 0 || id >= m_tree.panels().size())
+    return nullptr;
+  return &m_tree.panels()[id];
+}
+
+const Panel *ShellController::panelAt(int id) const
+{
+  if (id < 0 || id >= m_tree.panels().size())
+    return nullptr;
+  return &m_tree.panels().at(id);
+}
+
+DirectoryModel *ShellController::activeModel() const
+{
+  const Panel *panel = panelAt(m_tree.activePanel());
+  return panel ? panel->model : nullptr;
+}
+
+PanelTab *ShellController::activeTab()
+{
+  Panel *panel = panelAt(m_tree.activePanel());
+  if (!panel || panel->currentTab < 0 || panel->currentTab >= panel->tabs.size())
+    return nullptr;
+  return &panel->tabs[panel->currentTab];
+}
+
+const PanelTab *ShellController::activeTab() const
+{
+  const Panel *panel = panelAt(m_tree.activePanel());
+  if (!panel || panel->currentTab < 0 || panel->currentTab >= panel->tabs.size())
+    return nullptr;
+  return &panel->tabs.at(panel->currentTab);
+}
+
+void ShellController::syncCurrentTab()
+{
+  const Panel *panel = panelAt(m_tree.activePanel());
+  const int value = panel ? panel->currentTab : -1;
+  if (m_currentTab.exchange(value) != value)
+    emit currentTabChanged();
+}
+
+void ShellController::emitPanelsChanged()
+{
+  syncCurrentTab();
+  emit panelsChanged();
+  emit tabsChanged();  // the shipped QML still binds to the flat tab strip
+}
+
 DirectoryModel *ShellController::directory() const
 {
-  return m_directory;
+  return activeModel();
 }
 
 PlacesModel *ShellController::places() const
@@ -238,11 +329,47 @@ PlacesModel *ShellController::places() const
   return m_places;
 }
 
+QVariantList ShellController::panels() const
+{
+  const QVector<QRect> rects = m_tree.layout(m_contentSize);
+  QVariantList result;
+  result.reserve(m_tree.panels().size());
+  for (int i = 0; i < m_tree.panels().size(); ++i) {
+    const Panel &panel = m_tree.panels().at(i);
+    QVariantList tabs;
+    tabs.reserve(panel.tabs.size());
+    for (const PanelTab &tab : panel.tabs) {
+      tabs.append(QVariantMap{{QStringLiteral("label"), labelForPath(tab.path)},
+                              {QStringLiteral("path"), tab.path}});
+    }
+    const QRect &rect = rects.at(i);
+    result.append(QVariantMap{
+        {QStringLiteral("id"), i},
+        {QStringLiteral("tabs"), tabs},
+        {QStringLiteral("currentTab"), panel.currentTab},
+        {QStringLiteral("model"), QVariant::fromValue(static_cast<QObject *>(panel.model))},
+        {QStringLiteral("x"), rect.x()},
+        {QStringLiteral("y"), rect.y()},
+        {QStringLiteral("width"), rect.width()},
+        {QStringLiteral("height"), rect.height()},
+    });
+  }
+  return result;
+}
+
+int ShellController::activePanel() const
+{
+  return m_tree.activePanel();
+}
+
 QStringList ShellController::tabs() const
 {
   QStringList result;
-  result.reserve(m_tabs.size());
-  for (const TabState &tab : m_tabs)
+  const Panel *panel = panelAt(m_tree.activePanel());
+  if (!panel)
+    return result;
+  result.reserve(panel->tabs.size());
+  for (const PanelTab &tab : panel->tabs)
     result.append(tab.path);
   return result;
 }
@@ -259,17 +386,15 @@ bool ShellController::canPaste() const
 
 bool ShellController::canGoBack() const
 {
-  const int current = currentTab();
-  return current >= 0 && current < m_tabs.size()
-      && m_tabs.at(current).historyIndex > 0;
+  const PanelTab *tab = activeTab();
+  return tab && tab->historyIndex > 0;
 }
 
 bool ShellController::canGoForward() const
 {
-  const int current = currentTab();
-  return current >= 0 && current < m_tabs.size()
-      && m_tabs.at(current).historyIndex >= 0
-      && m_tabs.at(current).historyIndex + 1 < m_tabs.at(current).history.size();
+  const PanelTab *tab = activeTab();
+  return tab && tab->historyIndex >= 0
+      && tab->historyIndex + 1 < tab->history.size();
 }
 
 int ShellController::viewMode() const
@@ -289,17 +414,20 @@ double ShellController::zoom() const
 
 bool ShellController::showHidden() const
 {
-  return m_directory ? m_directory->showHidden() : false;
+  DirectoryModel *model = activeModel();
+  return model ? model->showHidden() : false;
 }
 
 bool ShellController::folderSizes() const
 {
-  return m_directory ? m_directory->folderSizes() : false;
+  DirectoryModel *model = activeModel();
+  return model ? model->folderSizes() : false;
 }
 
 QString ShellController::sortKey() const
 {
-  return m_directory ? m_directory->sortKey() : QStringLiteral("name");
+  DirectoryModel *model = activeModel();
+  return model ? model->sortKey() : QStringLiteral("name");
 }
 
 void ShellController::setViewMode(int mode)
@@ -322,20 +450,20 @@ void ShellController::setZoom(double zoom)
 
 void ShellController::setShowHidden(bool show)
 {
-  if (m_directory)
-    m_directory->setShowHidden(show);
+  if (DirectoryModel *model = activeModel())
+    model->setShowHidden(show);
 }
 
 void ShellController::setFolderSizes(bool on)
 {
-  if (m_directory)
-    m_directory->setFolderSizes(on);
+  if (DirectoryModel *model = activeModel())
+    model->setFolderSizes(on);
 }
 
 void ShellController::setSortKey(const QString &key)
 {
-  if (m_directory)
-    m_directory->setSortKey(key);
+  if (DirectoryModel *model = activeModel())
+    model->setSortKey(key);
 }
 
 HermesCore *ShellController::core() const
@@ -345,7 +473,8 @@ HermesCore *ShellController::core() const
 
 bool ShellController::createFolder(const QString &name)
 {
-  const QByteArray parent = m_directory ? m_directory->path().toUtf8() : QByteArray();
+  DirectoryModel *model = activeModel();
+  const QByteArray parent = model ? model->path().toUtf8() : QByteArray();
   const QByteArray utf8Name = name.toUtf8();
   if (parent.isEmpty() || !validLeafName(name)) {
     emit operationFailed(QStringLiteral("Folder name must be a single leaf name."));
@@ -363,10 +492,13 @@ bool ShellController::resolveRawPaths(const QStringList &displayedPaths,
 {
   rawPaths.clear();
   rawPaths.reserve(displayedPaths.size());
+  // The selection came from the active panel's view, so that is the only model
+  // that can map a displayed name back to its raw bytes.
+  DirectoryModel *model = activeModel();
   for (const QString &path : displayedPaths) {
     QByteArray raw;
-    const DirectoryModel::RawPathResult result = m_directory
-        ? m_directory->rawPathFor(path, &raw)
+    const DirectoryModel::RawPathResult result = model
+        ? model->rawPathFor(path, &raw)
         : DirectoryModel::RawPathResult::NotListed;
     if (result == DirectoryModel::RawPathResult::Ambiguous) {
       emit operationFailed(QStringLiteral(
@@ -406,11 +538,12 @@ bool ShellController::copyRawEntries(const QVector<QByteArray> &rawPaths,
 
 bool ShellController::renameEntry(const QString &from, const QString &to)
 {
+  DirectoryModel *model = activeModel();
   const QString fromParent = QDir::cleanPath(QFileInfo(from).absolutePath());
   const QString toParent = QDir::cleanPath(QFileInfo(to).absolutePath());
   if (!validLeafName(QFileInfo(to).fileName())
-      || fromParent != toParent || !m_directory
-      || fromParent != QDir::cleanPath(m_directory->path())) {
+      || fromParent != toParent || !model
+      || fromParent != QDir::cleanPath(model->path())) {
     emit operationFailed(QStringLiteral("Rename must use a single name in the displayed directory."));
     return false;
   }
@@ -469,9 +602,10 @@ void ShellController::copySelection(const QStringList &paths, bool move)
 
 void ShellController::pasteIntoCurrentDirectory()
 {
-  if (!m_directory || m_clipboard.isEmpty())
+  DirectoryModel *model = activeModel();
+  if (!model || m_clipboard.isEmpty())
     return;
-  copyRawEntries(m_clipboard, m_directory->path(), m_clipboardMove);
+  copyRawEntries(m_clipboard, model->path(), m_clipboardMove);
 }
 
 void ShellController::setConflictPolicy(HermesConflictPolicy policy)
@@ -499,8 +633,9 @@ void ShellController::recordOperationCompletion(int kind, int errorCount)
 
 void ShellController::refreshDirectory()
 {
-  if (m_directory)
-    m_directory->refresh();
+  for (Panel &panel : m_tree.panels())
+    if (panel.model)
+      panel.model->refresh();
 }
 
 int ShellController::operationsChangedCount() const
@@ -515,38 +650,23 @@ void ShellController::resetOperationsChangedCount()
 
 bool ShellController::goTo(const QString &path, bool record, int historyIndex)
 {
-  if (!m_directory || path.isEmpty() || !m_directory->navigate(path))
+  DirectoryModel *model = activeModel();
+  if (!model || path.isEmpty() || !model->navigate(path))
     return false;
-
-  const int current = currentTab();
-  if (m_tabs.isEmpty() || current < 0 || current >= m_tabs.size()) {
-    TabState tab;
-    tab.path = path;
-    tab.history.append(path);
-    tab.historyIndex = 0;
-    m_tabs.append(tab);
-    emit tabsChanged();
-    const int index = m_tabs.size() - 1;
-    if (currentTab() != index) {
-      m_currentTab = index;
-      emit currentTabChanged();
-    }
-  } else {
-    TabState &tab = m_tabs[current];
-    if (tab.path != path) {
-      tab.path = path;
-      emit tabsChanged();
-    }
-    if (record) {
-      if (tab.historyIndex >= 0 && tab.historyIndex + 1 < tab.history.size())
-        tab.history.remove(tab.historyIndex + 1,
-                           tab.history.size() - tab.historyIndex - 1);
-      tab.history.append(path);
-      tab.historyIndex = tab.history.size() - 1;
-    } else if (historyIndex >= 0) {
-      tab.historyIndex = historyIndex;
-    }
+  PanelTab *tab = activeTab();
+  if (!tab)
+    return false;
+  if (tab->path != path)
+    tab->path = path;
+  if (record) {
+    if (tab->historyIndex >= 0 && tab->historyIndex + 1 < tab->history.size())
+      tab->history.remove(tab->historyIndex + 1, tab->history.size() - tab->historyIndex - 1);
+    tab->history.append(path);
+    tab->historyIndex = tab->history.size() - 1;
+  } else if (historyIndex >= 0) {
+    tab->historyIndex = historyIndex;
   }
+  emitPanelsChanged();
   emitHistory();
   return true;
 }
@@ -570,7 +690,8 @@ void ShellController::setPaths(const QStringList &paths)
     if (path.isEmpty())
       continue;
     if (QFileInfo(path).isDir()) {
-      if (m_tabs.isEmpty())
+      const PanelTab *tab = activeTab();
+      if (!tab || tab->path.isEmpty())
         navigate(path);
       else
         newTab(path);
@@ -593,76 +714,241 @@ void ShellController::openEntry(const QString &path)
     m_openUri->openFile(path, QString());
 }
 
-void ShellController::newTab(const QString &path)
+void ShellController::insertTabInPanel(int panelId, const QString &path, int index, bool focus)
 {
-  openTabFromHost(path, -1, true);
-}
-
-void ShellController::openTabFromHost(const QString &path, int index, bool focus)
-{
-  if (path.isEmpty())
+  Panel *panel = panelAt(panelId);
+  if (!panel || path.isEmpty())
     return;
 
-  TabState tab;
+  PanelTab tab;
   tab.path = path;
   tab.history.append(path);
   tab.historyIndex = 0;
 
-  // Match the engine's tab_new(): insert at the requested index, or append.
-  if (index < 0 || index > m_tabs.size())
-    index = m_tabs.size();
-  m_tabs.insert(index, tab);
-  emit tabsChanged();
-
-  if (focus || m_currentTab < 0) {
-    if (m_currentTab != index) {
-      m_currentTab = index;
-      emit currentTabChanged();
-    }
-    if (m_directory) {
-      m_directory->navigate(path);
-      emitHistory();
-    }
-  } else if (m_currentTab >= index) {
-    // Inserting before the focused tab shifts its index but not its context.
-    ++m_currentTab;
-    emit currentTabChanged();
+  // The tree starts with one empty tab. The first open fills it instead of
+  // leaving a blank tab in the strip, as the legacy does.
+  if (index < 0 && panel->tabs.size() == 1 && panel->tabs.first().path.isEmpty()) {
+    panel->tabs[0] = tab;
+    index = 0;
+  } else {
+    if (index < 0 || index > panel->tabs.size())
+      index = panel->tabs.size();
+    panel->tabs.insert(index, tab);
   }
+
+  if (focus || panel->currentTab < 0) {
+    panel->currentTab = index;
+    if (m_tree.activePanel() != panelId) {
+      m_tree.setActivePanel(panelId);
+      emit activePanelChanged();
+    }
+    if (panel->model)
+      panel->model->navigate(path);
+    emitHistory();
+  } else if (panel->currentTab >= index) {
+    ++panel->currentTab;
+  }
+  emitPanelsChanged();
+}
+
+void ShellController::openTabFromHost(const QString &path, int index, bool focus)
+{
+  // The engine knows nothing about panels, so its open_tab hook lands in the
+  // active panel.
+  insertTabInPanel(m_tree.activePanel(), path, index, focus);
+}
+
+void ShellController::newTab(const QString &path)
+{
+  insertTabInPanel(m_tree.activePanel(), path, -1, true);
+}
+
+void ShellController::newTabInPanel(int panelId)
+{
+  const Panel *panel = panelAt(panelId);
+  if (!panel || panel->tabs.isEmpty() || panel->currentTab < 0
+      || panel->currentTab >= panel->tabs.size())
+    return;
+  insertTabInPanel(panelId, panel->tabs.at(panel->currentTab).path, -1, true);
+}
+
+int ShellController::splitPanel(int panelId, PanelTree::Zone zone, int tabIndex,
+                                const QString &path)
+{
+  const Panel *sourcePanel = panelAt(panelId);
+  if (!sourcePanel)
+    return -1;
+  const int sourceTabCount = sourcePanel->tabs.size();
+  QString openPath = path;
+  if (tabIndex < 0 && openPath.isEmpty() && sourcePanel->currentTab >= 0
+      && sourcePanel->currentTab < sourcePanel->tabs.size())
+    openPath = sourcePanel->tabs.at(sourcePanel->currentTab).path;
+
+  // The tree owns the tab bookkeeping; it returns -1 both for a seventeenth
+  // panel and for a move that would empty the source panel.
+  const int created = m_tree.splitPanel(panelId, zone, tabIndex, openPath);
+  if (created < 0) {
+    if (tabIndex >= 0 && sourceTabCount < 2)
+      emit operationFailed(QStringLiteral("A panel must keep at least one tab."));
+    else
+      emit operationFailed(QStringLiteral("Too many panels."));
+    return -1;
+  }
+
+  createPanelResources(created);
+  Panel &fresh = *panelAt(created);
+  if (fresh.model && !fresh.tabs.isEmpty())
+    fresh.model->navigate(fresh.tabs.first().path);
+
+  // Moving a tab can change which tab the source panel shows; that model has
+  // to follow its new tab too.
+  if (tabIndex >= 0) {
+    Panel &remaining = *panelAt(panelId);
+    if (remaining.model && remaining.currentTab >= 0
+        && remaining.currentTab < remaining.tabs.size())
+      remaining.model->navigate(remaining.tabs.at(remaining.currentTab).path);
+  }
+
+  emitPanelsChanged();
+  emit activePanelChanged();
+  emitHistory();
+  return created;
+}
+
+void ShellController::splitActiveRight()
+{
+  splitPanel(m_tree.activePanel(), PanelTree::Zone::Right, -1, QString());
+}
+
+void ShellController::splitActiveDown()
+{
+  splitPanel(m_tree.activePanel(), PanelTree::Zone::Bottom, -1, QString());
+}
+
+void ShellController::openInSplit(const QString &path, bool right)
+{
+  splitPanel(m_tree.activePanel(),
+             right ? PanelTree::Zone::Right : PanelTree::Zone::Bottom, -1, path);
+}
+
+void ShellController::moveTabToSplit(int panelId, int tabIndex, bool right)
+{
+  const Panel *panel = panelAt(panelId);
+  if (!panel || tabIndex < 0 || tabIndex >= panel->tabs.size())
+    return;
+  // Let the tree refuse the move when this is the panel's last tab; the shared
+  // split path turns that refusal into the same operationFailed message.
+  splitPanel(panelId, right ? PanelTree::Zone::Right : PanelTree::Zone::Bottom,
+             tabIndex, QString());
+}
+
+void ShellController::closeWholePanel(int panelId)
+{
+  Panel *panel = panelAt(panelId);
+  if (!panel || m_tree.panels().size() < 2)
+    return;
+  destroyPanelResources(*panel);
+  m_tree.closePanel(panelId);
+  emitPanelsChanged();
+  emit activePanelChanged();
+  emitHistory();
+}
+
+void ShellController::closeTab(int panelId, int tabIndex)
+{
+  Panel *panel = panelAt(panelId);
+  if (!panel || tabIndex < 0 || tabIndex >= panel->tabs.size())
+    return;
+  if (panel->tabs.size() == 1) {
+    // Closing a panel's last tab closes the panel; the tree gives its space to
+    // the sibling of its leaf and activates that subtree's first panel.
+    closeWholePanel(panelId);
+    return;
+  }
+  DirectoryModel *model = panel->model;
+  panel->tabs.remove(tabIndex);
+  if (panel->currentTab > tabIndex)
+    --panel->currentTab;
+  else if (panel->currentTab >= panel->tabs.size())
+    panel->currentTab = panel->tabs.size() - 1;
+
+  // Even when the panel is not showing, its model must follow its own tab;
+  // activating a panel later cannot repair rows from a tab that no longer exists.
+  if (model) {
+    const PanelTab &tab = panel->tabs.at(panel->currentTab);
+    if (model->path() != tab.path)
+      model->navigate(tab.path);
+  }
+  if (panelId == m_tree.activePanel())
+    emitHistory();
+  emitPanelsChanged();
 }
 
 void ShellController::closeTab(int index)
 {
-  if (index < 0 || index >= m_tabs.size())
-    return;
-  const int previous = m_currentTab;
-  m_tabs.remove(index);
-  if (index < m_currentTab)
-    --m_currentTab;
-  if (m_tabs.isEmpty())
-    m_currentTab = -1;
-  else if (m_currentTab >= m_tabs.size())
-    m_currentTab = m_tabs.size() - 1;
+  closeTab(m_tree.activePanel(), index);
+}
 
-  emit tabsChanged();
-  if (m_currentTab != previous)
-    emit currentTabChanged();
+void ShellController::selectTab(int panelId, int tabIndex)
+{
+  Panel *panel = panelAt(panelId);
+  if (!panel || tabIndex < 0 || tabIndex >= panel->tabs.size())
+    return;
+  panel->currentTab = tabIndex;
+  if (m_tree.activePanel() != panelId) {
+    m_tree.setActivePanel(panelId);
+    emit activePanelChanged();
+  }
+  // The panel's own model follows the tab; navigate keeps the old rows on
+  // screen until the new ones arrive, so the view never blanks on a switch.
+  const PanelTab &tab = panel->tabs.at(tabIndex);
+  if (panel->model && panel->model->path() != tab.path)
+    panel->model->navigate(tab.path);
+  emitPanelsChanged();
   emitHistory();
-  if (m_currentTab >= 0 && m_directory && m_directory->path() != m_tabs.at(m_currentTab).path)
-    goTo(m_tabs.at(m_currentTab).path, false);
 }
 
 void ShellController::selectTab(int index)
 {
-  if (index < 0 || index >= m_tabs.size())
+  selectTab(m_tree.activePanel(), index);
+}
+
+void ShellController::activatePanel(int panelId)
+{
+  if (!panelAt(panelId) || m_tree.activePanel() == panelId)
     return;
-  m_currentTab = index;
-  emit currentTabChanged();
-  goTo(m_tabs.at(index).path, false);
+  m_tree.setActivePanel(panelId);
+  emit activePanelChanged();
+  emitPanelsChanged();
+  emitHistory();
+}
+
+void ShellController::cyclePanel(int direction)
+{
+  const QVector<int> order = m_tree.panelsInReadingOrder();
+  if (order.isEmpty())
+    return;
+  int position = order.indexOf(m_tree.activePanel());
+  if (position < 0)
+    position = 0;
+  const int count = order.size();
+  const int next = ((position + direction) % count + count) % count;
+  activatePanel(order.at(next));
+}
+
+void ShellController::setContentSize(int width, int height)
+{
+  const QSize size(qMax(0, width), qMax(0, height));
+  if (m_contentSize == size)
+    return;
+  m_contentSize = size;
+  emit panelsChanged();
 }
 
 void ShellController::up()
 {
-  const QString current = m_directory ? m_directory->path() : QString();
+  DirectoryModel *model = activeModel();
+  const QString current = model ? model->path() : QString();
   if (current.isEmpty())
     return;
   const QString parent = QFileInfo(current).absolutePath();
@@ -672,23 +958,20 @@ void ShellController::up()
 
 void ShellController::back()
 {
-  const int current = currentTab();
-  if (current < 0 || current >= m_tabs.size())
+  const PanelTab *tab = activeTab();
+  if (!tab)
     return;
-  const int index = m_tabs.at(current).historyIndex - 1;
-  if (index < 0)
+  const int index = tab->historyIndex - 1;
+  if (index < 0 || index >= tab->history.size())
     return;
-  goTo(m_tabs.at(current).history.at(index), false, index);
+  goTo(tab->history.at(index), false, index);
 }
 
 void ShellController::forward()
 {
-  const int current = currentTab();
-  if (current < 0 || current >= m_tabs.size())
+  const PanelTab *tab = activeTab();
+  if (!tab || tab->historyIndex < 0 || tab->historyIndex + 1 >= tab->history.size())
     return;
-  TabState &tab = m_tabs[current];
-  const int index = tab.historyIndex + 1;
-  if (tab.historyIndex < 0 || index >= tab.history.size())
-    return;
-  goTo(tab.history.at(index), false, index);
+  const int index = tab->historyIndex + 1;
+  goTo(tab->history.at(index), false, index);
 }

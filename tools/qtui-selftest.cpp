@@ -119,6 +119,18 @@ private slots:
   void panelTreeActivatesTheNewPanelOnSplit();
   void panelTreeClosesTheActivePanelIntoTheSiblingSubtree();
   void panelTreeRefusedSplitLeavesTheTabsUntouched();
+  void controllerSplitsTheActivePanel();
+  void controllerOpensAFolderInASplit();
+  void controllerMovesATabIntoANewSplit();
+  void controllerRefusesToMoveTheLastTab();
+  void controllerClosesAPanelWithItsLastTab();
+  void controllerRefusesASeventeenthPanel();
+  void controllerNavigatesInTheActivePanelOnly();
+  void controllerKeepsTwoPanelsOfTheSameDirectoryIndependent();
+  void controllerDropsTheOldScanWhenATabSwitches();
+  void controllerKeepsTheRowsWhenAPanelDirectoryDisappears();
+  void controllerCyclesThePanels();
+  void controllerKeepsAnInactivePanelInStepWhenItsCurrentTabCloses();
 
 private:
   using CorePtr = std::unique_ptr<HermesCore, decltype(&hermes_core_destroy)>;
@@ -127,6 +139,12 @@ private:
   static QStringList entryNames(DirectoryModel *model);
   static QByteArray fileContents(const QString &path);
   static void waitForOperation(ShellController *controller);
+  // panels() is the QML-facing view of the tree; these keep the tests honest
+  // about what it actually publishes rather than reaching into the controller.
+  static QVariantMap controllerPanel(const ShellController &controller, int id);
+  static QStringList panelTabPaths(const ShellController &controller, int id);
+  static QString panelCurrentPath(const ShellController &controller, int id);
+  static DirectoryModel *panelModel(const ShellController &controller, int id);
   // Build the worker's snapshot seam from a genuine engine listing.
   static DirectoryModel::ScanSnapshot testSnapshot(DirectoryModel *model,
       const QString &path, quint64 generation, const HermesListing &listing);
@@ -168,6 +186,41 @@ void HermesQtUiTest::waitForOperation(ShellController *controller)
   // One engine op publishes exactly one operations_changed completion.
   QTRY_COMPARE_WITH_TIMEOUT(controller->operationsChangedCount(), 1, 2000);
   controller->resetOperationsChangedCount();
+}
+
+QVariantMap HermesQtUiTest::controllerPanel(const ShellController &controller, int id)
+{
+  for (const QVariant &value : controller.panels()) {
+    const QVariantMap panel = value.toMap();
+    if (panel.value(QStringLiteral("id")).toInt() == id)
+      return panel;
+  }
+  return {};
+}
+
+QStringList HermesQtUiTest::panelTabPaths(const ShellController &controller, int id)
+{
+  QStringList paths;
+  for (const QVariant &value : controllerPanel(controller, id)
+           .value(QStringLiteral("tabs")).toList())
+    paths.append(value.toMap().value(QStringLiteral("path")).toString());
+  return paths;
+}
+
+QString HermesQtUiTest::panelCurrentPath(const ShellController &controller, int id)
+{
+  const QVariantMap panel = controllerPanel(controller, id);
+  const QVariantList tabs = panel.value(QStringLiteral("tabs")).toList();
+  const int current = panel.value(QStringLiteral("currentTab")).toInt();
+  if (current < 0 || current >= tabs.size())
+    return {};
+  return tabs.at(current).toMap().value(QStringLiteral("path")).toString();
+}
+
+DirectoryModel *HermesQtUiTest::panelModel(const ShellController &controller, int id)
+{
+  return qobject_cast<DirectoryModel *>(
+      controllerPanel(controller, id).value(QStringLiteral("model")).value<QObject *>());
 }
 
 DirectoryModel::ScanSnapshot HermesQtUiTest::testSnapshot(
@@ -1057,15 +1110,16 @@ void HermesQtUiTest::closeTabBeforeCurrentKeepsFocusedTab()
   ShellController controller;
   for (const QString &path : paths)
     controller.newTab(path);
-  QCOMPARE(controller.tabs(), paths);
+  QCOMPARE(panelTabPaths(controller, 0), paths);
 
-  controller.selectTab(2);
-  QCOMPARE(controller.currentTab(), 2);
+  controller.selectTab(0, 2);
+  QCOMPARE(controllerPanel(controller, 0).value(QStringLiteral("currentTab")).toInt(), 2);
   QCOMPARE(controller.directory()->path(), paths.at(2));
 
-  controller.closeTab(0);
-  QCOMPARE(controller.tabs(), QStringList({paths.at(1), paths.at(2), paths.at(3)}));
-  QCOMPARE(controller.currentTab(), 1);
+  controller.closeTab(0, 0);
+  QCOMPARE(panelTabPaths(controller, 0),
+           QStringList({paths.at(1), paths.at(2), paths.at(3)}));
+  QCOMPARE(controllerPanel(controller, 0).value(QStringLiteral("currentTab")).toInt(), 1);
   QCOMPARE(controller.directory()->path(), paths.at(2));
 }
 
@@ -1078,15 +1132,16 @@ void HermesQtUiTest::focusFreeHostTabKeepsValidCursor()
   const QByteArray uri = QUrl::fromLocalFile(dir.path()).toEncoded();
   const char *uris[] = {uri.constData()};
   QCOMPARE(hermes_core_open_uris(controller.core(), uris, 1, false), 1);
-  QTRY_COMPARE(controller.tabs().size(), 1);
-  QVERIFY(controller.currentTab() >= 0);
+  QTRY_COMPARE(controllerPanel(controller, 0).value(QStringLiteral("tabs")).toList().size(), 1);
+  QVERIFY(controllerPanel(controller, 0).value(QStringLiteral("currentTab")).toInt() >= 0);
 
   const QString child = dir.filePath(QStringLiteral("child"));
   QVERIFY(QDir().mkpath(child));
   controller.navigate(child);
   QCOMPARE(controller.directory()->path(), child);
-  QVERIFY(controller.currentTab() >= 0 && controller.currentTab() < controller.tabs().size());
-  QCOMPARE(controller.tabs().at(controller.currentTab()), child);
+  const int current = controllerPanel(controller, 0).value(QStringLiteral("currentTab")).toInt();
+  QVERIFY(current >= 0 && current < panelTabPaths(controller, 0).size());
+  QCOMPARE(panelCurrentPath(controller, 0), child);
 }
 
 void HermesQtUiTest::hostOpenTabAtIndexInsertsTab()
@@ -1101,8 +1156,8 @@ void HermesQtUiTest::hostOpenTabAtIndexInsertsTab()
   ShellController controller;
   controller.newTab(first);
   controller.openTabFromHost(inserted, 0, false);
-  QCOMPARE(controller.tabs(), QStringList({inserted, first}));
-  QCOMPARE(controller.currentTab(), 1);
+  QCOMPARE(panelTabPaths(controller, 0), QStringList({inserted, first}));
+  QCOMPARE(controllerPanel(controller, 0).value(QStringLiteral("currentTab")).toInt(), 1);
   QCOMPARE(controller.directory()->path(), first);
 }
 
@@ -1118,6 +1173,7 @@ void HermesQtUiTest::hostHooksAreSafeAcrossControllerLifetime()
   std::atomic<int> calls{0};
   auto controller = std::make_unique<ShellController>();
   controller->navigate(dir.path());
+  QCOMPARE(controller->panels().size(), 1);
   std::thread caller([&] {
     while (!start.load())
       std::this_thread::yield();
@@ -1167,6 +1223,7 @@ void HermesQtUiTest::selectionUsesPathListAndClearsOnNavigation()
                                     Q_ARG(QVariant, QVariant(first.filePath(QStringLiteral("other"))))));
   QCOMPARE(page->property("selectedPaths").toList().size(), 2);
   controller.navigate(second.path());
+  QCOMPARE(panelCurrentPath(controller, controller.activePanel()), second.path());
   QTRY_VERIFY_WITH_TIMEOUT(page->property("selectedPaths").toList().isEmpty(), 5000);
   QVERIFY(page->property("selectedPaths").toList().isEmpty());
 }
@@ -1360,6 +1417,7 @@ void HermesQtUiTest::failedOperationRefreshPreservesSelection()
 
   ShellController controller;
   controller.navigate(dir.path());
+  QCOMPARE(panelCurrentPath(controller, 0), dir.path());
   QQmlApplicationEngine engine;
   engine.rootContext()->setContextProperty(QStringLiteral("hermes"), &controller);
   engine.load(QUrl(QStringLiteral("qrc:/qtui/qml/main.qml")));
@@ -1678,11 +1736,17 @@ void HermesQtUiTest::navigationNotifiesTabLabels()
   QVERIFY(second.isValid());
   ShellController controller;
   controller.navigate(first.path());
-  QSignalSpy changed(&controller, &ShellController::tabsChanged);
+  QSignalSpy changed(&controller, &ShellController::panelsChanged);
 
   controller.navigate(second.path());
   QCOMPARE(changed.count(), 1);
-  QCOMPARE(controller.tabs().constFirst(), second.path());
+  // The label belongs to the active panel's showing tab and follows its path.
+  const QVariantList tabs = controllerPanel(controller, controller.activePanel())
+      .value(QStringLiteral("tabs")).toList();
+  QCOMPARE(tabs.size(), 1);
+  const QVariantMap tab = tabs.constFirst().toMap();
+  QCOMPARE(tab.value(QStringLiteral("path")).toString(), second.path());
+  QCOMPARE(tab.value(QStringLiteral("label")).toString(), QFileInfo(second.path()).fileName());
 }
 
 void HermesQtUiTest::failedHistoryNavigationKeepsCursor()
@@ -2081,6 +2145,290 @@ void HermesQtUiTest::panelTreeRefusedSplitLeavesTheTabsUntouched()
   QCOMPARE(tab.selectedPaths, QStringList({QStringLiteral("/only/picked")}));
   QCOMPARE(tab.currentIndex, 3);
   QCOMPARE(tab.anchorIndex, 2);
+}
+
+void HermesQtUiTest::controllerSplitsTheActivePanel()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+
+  ShellController controller;
+  controller.navigate(dir.path());
+  QCOMPARE(controller.panels().size(), 1);
+  QCOMPARE(controller.activePanel(), 0);
+
+  controller.splitActiveRight();
+  QCOMPARE(controller.panels().size(), 2);
+  QCOMPARE(controller.activePanel(), 1);
+  // The new panel opens the path that was showing when the split was asked for.
+  QCOMPARE(panelCurrentPath(controller, 0), dir.path());
+  QCOMPARE(panelCurrentPath(controller, 1), dir.path());
+  DirectoryModel *model = panelModel(controller, 1);
+  QVERIFY(model);
+  QTRY_COMPARE_WITH_TIMEOUT(model->path(), dir.path(), 5000);
+}
+
+void HermesQtUiTest::controllerOpensAFolderInASplit()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  QVERIFY(writeFile(dir.filePath(QStringLiteral("inside.txt")), "x"));
+
+  ShellController controller;
+  controller.openInSplit(dir.path(), true);
+  QCOMPARE(controller.panels().size(), 2);
+  QCOMPARE(controller.activePanel(), 1);
+  QCOMPARE(panelCurrentPath(controller, 1), dir.path());
+  DirectoryModel *model = panelModel(controller, 1);
+  QVERIFY(model);
+  QTRY_COMPARE_WITH_TIMEOUT(model->rowCount(), 1, 5000);
+  QCOMPARE(entryNames(model), QStringList({QStringLiteral("inside.txt")}));
+}
+
+void HermesQtUiTest::controllerMovesATabIntoANewSplit()
+{
+  QTemporaryDir first;
+  QTemporaryDir second;
+  QVERIFY(first.isValid());
+  QVERIFY(second.isValid());
+
+  ShellController controller;
+  controller.navigate(first.path());
+  controller.newTab(second.path());
+  QCOMPARE(panelTabPaths(controller, 0),
+           QStringList({first.path(), second.path()}));
+
+  controller.moveTabToSplit(0, 0, true);
+  QCOMPARE(controller.panels().size(), 2);
+  QCOMPARE(controller.activePanel(), 1);
+  QCOMPARE(panelTabPaths(controller, 0), QStringList({second.path()}));
+  QCOMPARE(panelTabPaths(controller, 1), QStringList({first.path()}));
+  DirectoryModel *model = panelModel(controller, 1);
+  QVERIFY(model);
+  QCOMPARE(model->path(), first.path());
+}
+
+void HermesQtUiTest::controllerRefusesToMoveTheLastTab()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+
+  ShellController controller;
+  controller.navigate(dir.path());
+  QSignalSpy failures(&controller, &ShellController::operationFailed);
+  QVERIFY(failures.isValid());
+
+  controller.moveTabToSplit(0, 0, true);
+  QCOMPARE(controller.panels().size(), 1);
+  QCOMPARE(panelTabPaths(controller, 0), QStringList({dir.path()}));
+  QCOMPARE(failures.count(), 1);
+}
+
+void HermesQtUiTest::controllerClosesAPanelWithItsLastTab()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+
+  ShellController controller;
+  controller.navigate(dir.path());
+  controller.splitActiveRight();
+  QCOMPARE(controller.panels().size(), 2);
+  QCOMPARE(panelTabPaths(controller, 0), QStringList({dir.path()}));
+
+  controller.closeTab(0, 0);
+  QCOMPARE(controller.panels().size(), 1);
+  QCOMPARE(panelCurrentPath(controller, 0), dir.path());
+  DirectoryModel *model = panelModel(controller, 0);
+  QVERIFY(model);
+  QCOMPARE(model->path(), dir.path());
+}
+
+void HermesQtUiTest::controllerRefusesASeventeenthPanel()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+
+  ShellController controller;
+  controller.navigate(dir.path());
+  QSignalSpy failures(&controller, &ShellController::operationFailed);
+  QVERIFY(failures.isValid());
+
+  for (int i = 1; i < PanelTree::MaxPanels; ++i)
+    controller.splitActiveRight();
+  QCOMPARE(controller.panels().size(), PanelTree::MaxPanels);
+
+  failures.clear();
+  controller.splitActiveRight();
+  QCOMPARE(controller.panels().size(), PanelTree::MaxPanels);
+  QCOMPARE(failures.count(), 1);
+  QVERIFY(failures.constFirst().at(0).toString().contains(
+      QStringLiteral("Too many panels")));
+}
+
+void HermesQtUiTest::controllerNavigatesInTheActivePanelOnly()
+{
+  QTemporaryDir first;
+  QTemporaryDir second;
+  QTemporaryDir third;
+  QVERIFY(first.isValid());
+  QVERIFY(second.isValid());
+  QVERIFY(third.isValid());
+
+  ShellController controller;
+  controller.navigate(first.path());
+  controller.openInSplit(second.path(), true);  // the new panel becomes active
+  QCOMPARE(panelCurrentPath(controller, 0), first.path());
+  QCOMPARE(panelCurrentPath(controller, 1), second.path());
+
+  controller.navigate(third.path());
+  QCOMPARE(panelCurrentPath(controller, 0), first.path());
+  QCOMPARE(panelCurrentPath(controller, 1), third.path());
+  DirectoryModel *firstModel = panelModel(controller, 0);
+  DirectoryModel *secondModel = panelModel(controller, 1);
+  QVERIFY(firstModel && secondModel);
+  QVERIFY(firstModel != secondModel);
+  QCOMPARE(firstModel->path(), first.path());
+  QCOMPARE(secondModel->path(), third.path());
+}
+
+void HermesQtUiTest::controllerKeepsTwoPanelsOfTheSameDirectoryIndependent()
+{
+  QTemporaryDir first;
+  QTemporaryDir second;
+  QVERIFY(first.isValid());
+  QVERIFY(second.isValid());
+  QVERIFY(writeFile(first.filePath(QStringLiteral("shared.txt")), "x"));
+
+  ShellController controller;
+  controller.navigate(first.path());
+  controller.splitActiveRight();  // both panels show the same directory
+  QCOMPARE(panelCurrentPath(controller, 0), first.path());
+  QCOMPARE(panelCurrentPath(controller, 1), first.path());
+  DirectoryModel *firstModel = panelModel(controller, 0);
+  DirectoryModel *secondModel = panelModel(controller, 1);
+  QVERIFY(firstModel && secondModel);
+  QVERIFY(firstModel != secondModel);
+  QTRY_COMPARE_WITH_TIMEOUT(firstModel->rowCount(), 1, 5000);
+  QTRY_COMPARE_WITH_TIMEOUT(secondModel->rowCount(), 1, 5000);
+
+  controller.navigate(second.path());  // only the active panel moves
+  QCOMPARE(panelCurrentPath(controller, 0), first.path());
+  QCOMPARE(panelCurrentPath(controller, 1), second.path());
+  QCOMPARE(firstModel->path(), first.path());
+  QCOMPARE(secondModel->path(), second.path());
+  QCOMPARE(entryNames(firstModel), QStringList({QStringLiteral("shared.txt")}));
+}
+
+void HermesQtUiTest::controllerDropsTheOldScanWhenATabSwitches()
+{
+  QTemporaryDir first;
+  QTemporaryDir second;
+  QVERIFY(first.isValid());
+  QVERIFY(second.isValid());
+  QVERIFY(writeFile(first.filePath(QStringLiteral("only-in-first.txt")), "x"));
+  QVERIFY(writeFile(second.filePath(QStringLiteral("a.txt")), "a"));
+  QVERIFY(writeFile(second.filePath(QStringLiteral("b.txt")), "b"));
+
+  ShellController controller;
+  controller.navigate(first.path());
+  DirectoryModel *model = panelModel(controller, 0);
+  QVERIFY(model);
+  const quint64 staleGeneration = model->m_generation;
+
+  // The second tab takes over this panel's model while the first scan is live.
+  controller.newTabInPanel(0);
+  controller.navigate(second.path());
+  QCOMPARE(model->path(), second.path());
+  QTRY_COMPARE_WITH_TIMEOUT(model->rowCount(), 2, 5000);
+
+  // A late result from the tab that is no longer showing must be rejected.
+  HermesListing listing{};
+  listing.items = static_cast<HermesEntry *>(calloc(1, sizeof(HermesEntry)));
+  QVERIFY(listing.items);
+  listing.count = 1;
+  const QByteArray name("only-in-first.txt");
+  listing.items[0].name = strdup(name.constData());
+  QVERIFY(listing.items[0].name);
+  listing.items[0].name_len = static_cast<size_t>(name.size());
+  QVERIFY(!model->applySnapshot(testSnapshot(model, first.path(),
+                                             staleGeneration, listing)));
+  hermes_listing_free(&listing);
+  QCOMPARE(model->path(), second.path());
+  QCOMPARE(entryNames(model), QStringList({QStringLiteral("a.txt"),
+                                           QStringLiteral("b.txt")}));
+
+  // Switching back re-points the very same model at the first tab's path.
+  controller.selectTab(0, 0);
+  QCOMPARE(model->path(), first.path());
+}
+
+void HermesQtUiTest::controllerKeepsTheRowsWhenAPanelDirectoryDisappears()
+{
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  QVERIFY(writeFile(dir.filePath(QStringLiteral("kept.txt")), "x"));
+
+  ShellController controller;
+  controller.navigate(dir.path());
+  DirectoryModel *model = panelModel(controller, 0);
+  QVERIFY(model);
+  QTRY_COMPARE_WITH_TIMEOUT(model->rowCount(), 1, 5000);
+
+  QVERIFY(dir.remove());
+  QTest::qWait(600);  // the panel's watcher debounces, then its refresh settles
+  QCOMPARE(model->rowCount(), 1);
+  QCOMPARE(entryNames(model), QStringList({QStringLiteral("kept.txt")}));
+  QCOMPARE(model->path(), dir.path());
+}
+
+void HermesQtUiTest::controllerCyclesThePanels()
+{
+  ShellController controller;
+  controller.splitActiveRight();  // panels 0 and 1, panel 1 active
+  controller.splitActiveDown();   // splits panel 1 into 1 and 2
+  QCOMPARE(controller.panels().size(), 3);
+  QCOMPARE(controller.activePanel(), 2);
+
+  // Reading order is 0, 1, 2, so the next panel after the last one wraps.
+  controller.cyclePanel(1);
+  QCOMPARE(controller.activePanel(), 0);
+  controller.cyclePanel(1);
+  QCOMPARE(controller.activePanel(), 1);
+  controller.cyclePanel(-1);
+  QCOMPARE(controller.activePanel(), 0);
+  controller.cyclePanel(-1);
+  QCOMPARE(controller.activePanel(), 2);
+}
+
+void HermesQtUiTest::controllerKeepsAnInactivePanelInStepWhenItsCurrentTabCloses()
+{
+  QTemporaryDir first;
+  QTemporaryDir second;
+  QTemporaryDir third;
+  QVERIFY(first.isValid());
+  QVERIFY(second.isValid());
+  QVERIFY(third.isValid());
+
+  ShellController controller;
+  controller.navigate(first.path());
+  controller.openInSplit(second.path(), true);  // panel 1 becomes active
+  controller.newTab(third.path());
+  controller.selectTab(1, 0);  // panel 1 shows second, with third behind it
+  controller.activatePanel(0);
+
+  DirectoryModel *model = panelModel(controller, 1);
+  QVERIFY(model);
+  QCOMPARE(model->path(), second.path());
+
+  // Closing a tab in a panel that is not showing must still re-point that
+  // panel's model; activating it later cannot repair stale rows by itself.
+  controller.closeTab(1, 0);
+  QCOMPARE(panelCurrentPath(controller, 1), third.path());
+  QCOMPARE(model->path(), third.path());
+
+  controller.activatePanel(1);
+  QCOMPARE(controller.directory(), model);
+  QCOMPARE(controller.directory()->path(), third.path());
 }
 
 QTEST_MAIN(HermesQtUiTest)
