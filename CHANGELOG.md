@@ -7,6 +7,10 @@ will be listed above that history.
 ## Unreleased
 
 **New**
+- A tab can now be split into panes, each with its own directory and selection;
+  only the focused pane receives navigation and commands. Tabs keep their own
+  pane layout while the window is open, split tabs show `MULTI`, and tabs can be
+  renamed. The layout is not saved yet; the Qt-owned session arrives in S2b.
 - Kirigami shell: the new `hermes-qt` executable renders a native Plasma window
   with a places drawer, tab strip, directory view, up/back/forward navigation
   and basic create/rename/remove/copy/move operations through C++ controllers

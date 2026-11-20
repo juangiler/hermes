@@ -131,6 +131,14 @@ offscreen/software backends are for tests only. The Qt frontend now has its own
 those options apply to `hermes-qt`, while the originals still apply to the SDL
 binary at `./build/*/hermes`.
 
+The Qt window has one tab strip, and each tab holds its own tree of split panes
+instead of sharing a single directory view. Splitting a tab adds a pane; the
+focused pane receives navigation, selection and commands, and a tab with more
+than one pane is marked `MULTI`. Tabs can be renamed and each keeps its own pane
+layout while the window is open. The arrangement is not yet persisted: the
+Qt-owned session arrives in S2b. As noted above, the offscreen suites verify
+headless plumbing only, not live KDE Plasma behaviour.
+
 Directory scans run on the engine's worker pool: `DirectoryModel` hands each
 `hermes_core_scan_start()` handle to one worker thread, which polls it, sorts
 the listing, builds the rows and posts a finished snapshot to the GUI thread.

@@ -112,19 +112,33 @@
 - `qtui/main.cpp` is the `hermes-qt` entry point: a `QGuiApplication` and
   `QQmlApplicationEngine` that loads `qrc:/qtui/qml/main.qml`, installs the
   controller as the `hermes` context property, and handles `--version`/`--help`.
-- `qtui/shell_controller.*` owns migration state: places, tab list and focus,
-  per-tab history, view mode (list/details/grid), the column set and zoom, plus
-  clipboard, conflict policy and operation completion. It installs the
+- `qtui/pane_tree.*` is the per-tab tree of panes. A leaf holds one pane (path,
+  history, selection, cursor and anchor); a split holds two children and their
+  ratio. `splitPane()` splits a pane on a chosen side and focuses the new one;
+  `closePane()` promotes the sibling into the closed leaf's place and refocuses
+  the first pane of that subtree in reading order. `layout()` returns one
+  rectangle per pane for a given content size. Trees are capped at 16 panes and
+  are move-only, so the controller holds each one indirectly.
+- `qtui/shell_controller.*` owns migration state: places, the ordered tab strip
+  with a distinct pane tree and custom name per tab, the active tab and its
+  focused pane, per-pane history, view mode (list/details/grid), the column set
+  and zoom, plus clipboard, conflict policy and operation completion. It creates
+  and owns one `DirectoryModel` and one `DirectoryWatcher` per pane; navigation,
+  selection (selected paths, cursor row and anchor) and commands act on the
+  active tab's focused pane, whose model is exposed to QML. It installs the
   `core_host.h` hooks so engine callbacks (including open-tab requests off the
-  GUI thread) reach QML-safe slots, exposes invokable
-  create/rename/remove/copy/move calls that delegate to the C ABI, and owns the
-  directory watcher so an on-disk change asks the model for a refresh.
+  GUI thread) reach QML-safe slots and exposes invokable
+  create/rename/remove/copy/move calls that delegate to the C ABI. An on-disk
+  change asks the affected pane's model for a refresh; split tabs are reported
+  for the `MULTI` badge and closing a pane emits its old rectangle for QML's
+  collapse animation.
 - `qtui/directory_watcher.*` watches the current directory on disk with a
   debounced `QFileSystemWatcher` and reports changes to the controller; the
   controller owns it so the model can still be used headless.
 - `qtui/directory_model.*` is a `QAbstractListModel` over the asynchronous
-  `hermes_core_scan_start()` / `hermes_core_scan_poll()` handle: `navigate()`
-  and `refresh()` start a scan and hand its handle to one owned worker thread.
+  `hermes_core_scan_start()` / `hermes_core_scan_poll()` handle, with one
+  instance per pane owned by the controller. `navigate()` and `refresh()` start
+  a scan and hand its handle to one owned worker thread.
   That worker polls the handle, sorts and copies the listing, builds the Qt-side
   rows and posts a snapshot to the GUI thread; `pollScan()` only wakes it. The
   GUI thread just applies the snapshot, while the rows on screen stay until the
