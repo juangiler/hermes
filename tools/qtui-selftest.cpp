@@ -1,4 +1,5 @@
 #include "directory_model.h"
+#include "panel_tree.h"
 #include "places_model.h"
 #include "shell_controller.h"
 
@@ -108,6 +109,12 @@ private slots:
   void cliHelpAndVersionNeedNoPlatformPlugin();
   void cliScreenshotWritesAnImage();
   void cliScreenshotUnscannablePathExitsNonZero();
+  void panelTreeSplitsRightAndDown();
+  void panelTreePlacesTheNewPanelOnTheChosenSide();
+  void panelTreeMovesATabIntoTheNewPanel();
+  void panelTreeRefusesTheSixteenthPanel();
+  void panelTreeClosesAPanelAndTheSiblingTakesTheSpace();
+  void panelTreeLayoutSplitsTheArea();
 
 private:
   using CorePtr = std::unique_ptr<HermesCore, decltype(&hermes_core_destroy)>;
@@ -1859,6 +1866,122 @@ void HermesQtUiTest::cliScreenshotUnscannablePathExitsNonZero()
   }
   QVERIFY(process.exitCode() != 0);
   QVERIFY(!QFileInfo::exists(shot));
+}
+
+void HermesQtUiTest::panelTreeSplitsRightAndDown()
+{
+  PanelTree tree;
+  QCOMPARE(tree.panels().size(), 1);
+  QCOMPARE(tree.splitPanel(0, PanelTree::Zone::Right, -1, QStringLiteral("/tmp")), 1);
+  QCOMPARE(tree.panels().size(), 2);
+  QCOMPARE(tree.root()->kind, PanelNode::HSplit);
+  QVERIFY(qFuzzyCompare(tree.root()->ratio, 0.5));
+  QCOMPARE(tree.panels().at(1).tabs.at(0).path, QStringLiteral("/tmp"));
+
+  // The pinned zone is Bottom; it is the vertical counterpart of Right.
+  PanelTree vertical;
+  QCOMPARE(vertical.splitPanel(0, PanelTree::Zone::Bottom, -1, QStringLiteral("/var")), 1);
+  QCOMPARE(vertical.root()->kind, PanelNode::VSplit);
+  QVERIFY(qFuzzyCompare(vertical.root()->ratio, 0.5));
+}
+
+void HermesQtUiTest::panelTreePlacesTheNewPanelOnTheChosenSide()
+{
+  PanelTree left;
+  left.splitPanel(0, PanelTree::Zone::Left, -1, QString());
+  QCOMPARE(left.panelsInReadingOrder(), QVector<int>({1, 0}));
+
+  PanelTree right;
+  right.splitPanel(0, PanelTree::Zone::Right, -1, QString());
+  QCOMPARE(right.panelsInReadingOrder(), QVector<int>({0, 1}));
+
+  PanelTree top;
+  top.splitPanel(0, PanelTree::Zone::Top, -1, QString());
+  QCOMPARE(top.panelsInReadingOrder(), QVector<int>({1, 0}));
+
+  PanelTree bottom;
+  bottom.splitPanel(0, PanelTree::Zone::Bottom, -1, QString());
+  QCOMPARE(bottom.panelsInReadingOrder(), QVector<int>({0, 1}));
+}
+
+void HermesQtUiTest::panelTreeMovesATabIntoTheNewPanel()
+{
+  PanelTree tree;
+  tree.panels()[0].tabs.append(PanelTab{});
+  tree.panels()[0].tabs[0].path = QStringLiteral("/first");
+  tree.panels()[0].tabs[1].path = QStringLiteral("/second");
+
+  QCOMPARE(tree.splitPanel(0, PanelTree::Zone::Right, 0, QString()), 1);
+  QCOMPARE(tree.panels().size(), 2);
+  QCOMPARE(tree.panels().at(0).tabs.size(), 1);
+  QCOMPARE(tree.panels().at(0).tabs.at(0).path, QStringLiteral("/second"));
+  QCOMPARE(tree.panels().at(1).tabs.size(), 1);
+  QCOMPARE(tree.panels().at(1).tabs.at(0).path, QStringLiteral("/first"));
+
+  // Moving a panel's only tab would leave it empty, so the split must refuse.
+  QCOMPARE(tree.splitPanel(0, PanelTree::Zone::Right, 0, QString()), -1);
+  QCOMPARE(tree.panels().size(), 2);
+}
+
+void HermesQtUiTest::panelTreeRefusesTheSixteenthPanel()
+{
+  PanelTree tree;
+  for (int i = 1; i < PanelTree::MaxPanels; ++i)
+    QCOMPARE(tree.splitPanel(0, PanelTree::Zone::Right, -1, QString()), i);
+  QCOMPARE(tree.panels().size(), PanelTree::MaxPanels);
+
+  const QVector<int> order = tree.panelsInReadingOrder();
+  const QVector<QRect> rects = tree.layout(QSize(800, 600));
+  QCOMPARE(tree.splitPanel(0, PanelTree::Zone::Right, -1, QString()), -1);
+  QCOMPARE(tree.panels().size(), PanelTree::MaxPanels);
+  QCOMPARE(tree.panelsInReadingOrder(), order);
+  QCOMPARE(tree.layout(QSize(800, 600)), rects);
+}
+
+void HermesQtUiTest::panelTreeClosesAPanelAndTheSiblingTakesTheSpace()
+{
+  PanelTree tree;
+  QCOMPARE(tree.splitPanel(0, PanelTree::Zone::Right, -1, QStringLiteral("/new")), 1);
+  QCOMPARE(tree.layout(QSize(800, 600)).at(0).width(), 400);
+  QCOMPARE(tree.layout(QSize(800, 600)).at(1).width(), 399);
+
+  tree.closePanel(0);
+  QCOMPARE(tree.panels().size(), 1);
+  QCOMPARE(tree.root()->kind, PanelNode::PanelLeaf);
+  QCOMPARE(tree.root()->panelIndex, 0);
+  QCOMPARE(tree.layout(QSize(800, 600)).at(0), QRect(0, 0, 800, 600));
+  QCOMPARE(tree.panels().at(0).tabs.at(0).path, QStringLiteral("/new"));
+
+  // Removing a leaf deeper in the tree must not disturb the split above it.
+  PanelTree deep;
+  deep.splitPanel(0, PanelTree::Zone::Right, -1, QStringLiteral("/first"));
+  deep.splitPanel(1, PanelTree::Zone::Right, -1, QStringLiteral("/second"));
+  QCOMPARE(deep.panelsInReadingOrder(), QVector<int>({0, 1, 2}));
+  deep.closePanel(1);
+  QCOMPARE(deep.panels().size(), 2);
+  QCOMPARE(deep.panelsInReadingOrder(), QVector<int>({0, 1}));
+  QCOMPARE(deep.root()->kind, PanelNode::HSplit);
+  QCOMPARE(deep.root()->a->panelIndex, 0);
+  QCOMPARE(deep.root()->b->panelIndex, 1);
+  QCOMPARE(deep.panels().at(1).tabs.at(0).path, QStringLiteral("/second"));
+  QCOMPARE(deep.layout(QSize(800, 600)).at(1).width(), 399);
+}
+
+void HermesQtUiTest::panelTreeLayoutSplitsTheArea()
+{
+  PanelTree horizontal;
+  horizontal.splitPanel(0, PanelTree::Zone::Right, -1, QString());
+  const QVector<QRect> h = horizontal.layout(QSize(800, 600));
+  QCOMPARE(h.size(), 2);
+  QCOMPARE(h.at(0), QRect(0, 0, 400, 600));
+  QCOMPARE(h.at(1), QRect(401, 0, 399, 600));
+
+  PanelTree vertical;
+  vertical.splitPanel(0, PanelTree::Zone::Bottom, -1, QString());
+  const QVector<QRect> v = vertical.layout(QSize(800, 600));
+  QCOMPARE(v.size(), 2);
+  QCOMPARE(v.at(0), QRect(0, 0, 800, 300));
+  QCOMPARE(v.at(1), QRect(0, 301, 800, 299));
 }
 
 QTEST_MAIN(HermesQtUiTest)

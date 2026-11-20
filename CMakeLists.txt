@@ -57,6 +57,7 @@ if(HERMES_BUILD_QT_UI)
       qtui/hermes-qt.qrc
       qtui/directory_model.cpp
       qtui/directory_watcher.cpp
+      qtui/panel_tree.cpp
       qtui/places_model.cpp
       qtui/shell_controller.cpp)
   set_target_properties(hermes-kirigami-ui PROPERTIES AUTOMOC ON)
