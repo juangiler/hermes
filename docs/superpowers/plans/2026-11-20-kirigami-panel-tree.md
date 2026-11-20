@@ -109,7 +109,8 @@ class PaneTree {
 
   // Removes the pane and its state. The sibling of its leaf takes the leaf's
   // place, so the space it leaves goes to that sibling. If the removed pane
-  // was focused, the first pane in reading order becomes focused.
+  // was focused, the first pane of the promoted sibling subtree in reading
+  // order becomes focused.
   void closePane(int paneIndex);
 
   // The panes in reading order: left to right, top to bottom.
