@@ -140,6 +140,92 @@ void installShellCoreHost()
   hermes_core_set_host(&kShellHost);
 }
 
+// TEMPORARY (Task 2 removes this): the panel-shaped adapter above keeps the
+// controller and the shipped QML working while the tree data changes shape.
+PanelTree::PanelTree()
+{
+  Panel first;
+  first.tabs.append(PanelTab{});
+  m_panes.append(first);
+}
+
+QVector<Panel> &PanelTree::panels()
+{
+  return m_panes;
+}
+
+const QVector<Panel> &PanelTree::panels() const
+{
+  return m_panes;
+}
+
+int PanelTree::activePanel() const
+{
+  return m_tree.focusedPane();
+}
+
+void PanelTree::setActivePanel(int index)
+{
+  m_tree.setFocusedPane(index);
+}
+
+int PanelTree::splitPanel(int panelIndex, Zone zone, int tabIndex,
+                          const QString &path)
+{
+  if (panelIndex < 0 || panelIndex >= m_panes.size()
+      || m_panes.size() >= MaxPanels)
+    return -1;
+  if (tabIndex >= 0 && (tabIndex >= m_panes[panelIndex].tabs.size()
+                        || m_panes[panelIndex].tabs.size() < 2))
+    return -1;
+  const PaneTree::Zone pane_zone =
+      zone == PanelTree::Zone::Left || zone == PanelTree::Zone::Right
+          ? (zone == PanelTree::Zone::Left ? PaneTree::Zone::Left
+                                           : PaneTree::Zone::Right)
+          : (zone == PanelTree::Zone::Top ? PaneTree::Zone::Top
+                                          : PaneTree::Zone::Bottom);
+  const int created = m_tree.splitPane(panelIndex, pane_zone, path);
+  if (created < 0)
+    return -1;
+
+  Panel pane;
+  if (tabIndex >= 0) {
+    PanelTab moved = m_panes[panelIndex].tabs.takeAt(tabIndex);
+    pane.tabs.append(moved);
+    // The cursor follows its tab; when the moved tab was current, the legacy's
+    // panel_neighbor() picks the next tab or the last one when there is none.
+    if (m_panes[panelIndex].currentTab > tabIndex) {
+      --m_panes[panelIndex].currentTab;
+    } else if (m_panes[panelIndex].currentTab >= m_panes[panelIndex].tabs.size()) {
+      m_panes[panelIndex].currentTab = m_panes[panelIndex].tabs.size() - 1;
+    }
+  } else {
+    PanelTab tab;
+    tab.path = path;
+    pane.tabs.append(tab);
+  }
+  m_panes.append(pane);
+  return created;
+}
+
+void PanelTree::closePanel(int panelIndex)
+{
+  if (panelIndex < 0 || panelIndex >= m_panes.size())
+    return;
+  m_tree.closePane(panelIndex);
+  m_panes.remove(panelIndex);
+}
+
+QVector<int> PanelTree::panelsInReadingOrder() const
+{
+  return m_tree.panesInReadingOrder();
+}
+
+QVector<QRect> PanelTree::layout(const QSize &area) const
+{
+  return m_tree.layout(area);
+}
+
 ShellController::ShellController(QObject *parent)
   : QObject(parent),
     m_openUri(new OpenUriClient(this))

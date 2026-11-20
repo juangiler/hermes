@@ -1,7 +1,7 @@
 #pragma once
 #include "core_api.h"
 #include "core_host.h"
-#include "panel_tree.h"
+#include "pane_tree.h"
 #include <QByteArray>
 #include <QObject>
 #include <QSize>
@@ -12,8 +12,43 @@
 #include <atomic>
 
 class DirectoryModel;
+class DirectoryWatcher;
 class OpenUriClient;
 class PlacesModel;
+
+// TEMPORARY (Task 2 removes this): the shipped QML and the controller still
+// speak the panel-shaped tree API. Adapt it onto PaneTree so the tree data
+// change lands without rewriting the controller in the same commit.
+using PanelTab = PaneState;
+
+struct Panel {
+  QVector<PanelTab> tabs;
+  int currentTab = 0;
+  DirectoryModel *model = nullptr;
+  DirectoryWatcher *watcher = nullptr;
+};
+
+class PanelTree {
+ public:
+  static constexpr int MaxPanels = PaneTree::MaxPanes;
+
+  enum class Zone { Left, Right, Top, Bottom };
+
+  PanelTree();
+  QVector<Panel> &panels();
+  const QVector<Panel> &panels() const;
+  int activePanel() const;
+  void setActivePanel(int index);
+
+  int splitPanel(int panelIndex, Zone zone, int tabIndex, const QString &path);
+  void closePanel(int panelIndex);
+  QVector<int> panelsInReadingOrder() const;
+  QVector<QRect> layout(const QSize &area) const;
+
+ private:
+  PaneTree m_tree;
+  QVector<Panel> m_panes;
+};
 
 // Install the Qt host table before any HermesCore is created. The controller
 // also does this in its constructor so standalone consumers (tests) get hooks.
