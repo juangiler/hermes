@@ -69,7 +69,8 @@ if(HERMES_BUILD_QT_UI)
              hermes_core hermes-portals)
   # BASE strips the qtui/ directory so the runtime path is qrc:/qtui/qml/main.qml.
   qt_add_resources(hermes-kirigami-ui "hermes-qml"
-      PREFIX "/qtui" BASE qtui FILES qtui/qml/main.qml qtui/qml/DirectoryPage.qml)
+      PREFIX "/qtui" BASE qtui FILES qtui/qml/main.qml qtui/qml/DirectoryPage.qml
+      qtui/qml/PaneView.qml)
 
   add_executable(hermes-qt qtui/main.cpp)
   file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/src/app.c" HERMES_APP_VERSION_LINE

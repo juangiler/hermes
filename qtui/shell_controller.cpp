@@ -148,20 +148,6 @@ static const HermesCoreHost kShellHost = {
 
 void installShellCoreHost()
 {
-  // A tab entry is a QVariantMap for C++; the conversions keep the shipped QML
-  // tab strip, which treats entries as path strings, working until Task 3.
-  // Every controller calls this, but the converters are process-wide.
-  static const bool registered = [] {
-    qRegisterMetaType<TabEntry>("TabEntry");
-    QMetaType::registerConverter<TabEntry, QVariantMap>([](const TabEntry &entry) {
-      return static_cast<const QVariantMap &>(entry);
-    });
-    QMetaType::registerConverter<TabEntry, QString>([](const TabEntry &entry) {
-      return entry.value(QStringLiteral("path")).toString();
-    });
-    return true;
-  }();
-  Q_UNUSED(registered);
   hermes_core_set_host(&kShellHost);
 }
 
@@ -373,9 +359,8 @@ DirectoryModel *ShellController::activeModel() const
 
 void ShellController::syncCurrentTab()
 {
-  const int value = m_active_tab;
-  if (m_currentTab.exchange(value) != value)
-    emit currentTabChanged();
+  // The engine reads this on its own thread; only the GUI thread writes it.
+  m_currentTab.store(m_active_tab);
 }
 
 void ShellController::emitTabsChanged()
@@ -387,23 +372,6 @@ void ShellController::emitTabsChanged()
 int ShellController::activeTab() const
 {
   return m_active_tab;
-}
-
-QStringList ShellController::legacyTabs() const
-{
-  return tabPaths();
-}
-
-QStringList ShellController::tabPaths() const
-{
-  QStringList paths;
-  for (int i = 0; i < m_tabs.size(); ++i) {
-    const TabState &tab = m_tabs.at(i);
-    const int id = tab.tree->focusedPane();
-    paths.append(id >= 0 && id < tab.tree->panes().size()
-                 ? tab.tree->panes().at(id).state.path : QString());
-  }
-  return paths;
 }
 
 QVariantList ShellController::tabs() const
@@ -425,7 +393,7 @@ QVariantList ShellController::tabs() const
         {QStringLiteral("path"), path},
         {QStringLiteral("index"), i},
     };
-    result.append(QVariant::fromValue(TabEntry(entry)));
+    result.append(entry);
   }
   return result;
 }
@@ -968,7 +936,6 @@ void ShellController::setFocusedPane(int paneId)
   tab->tree->setFocusedPane(paneId);
   emit focusedPaneChanged();
   emitTabsChanged();
-  emit activePanelChanged();
   emitHistory();
 }
 
@@ -996,7 +963,6 @@ int ShellController::splitPane(PaneTree::Zone zone, const QString &path)
   createPaneResources(m_active_tab, created);
   emitTabsChanged();
   emit focusedPaneChanged();
-  emit activePanelChanged();
   emitHistory();
   return created;
 }
@@ -1036,7 +1002,6 @@ void ShellController::closeFocusedPane()
   delete model;
   emitTabsChanged();
   emit focusedPaneChanged();
-  emit activePanelChanged();
   emitHistory();
 }
 
@@ -1063,7 +1028,6 @@ void ShellController::setContentSize(int width, int height)
     return;
   m_contentSize = size;
   emitTabsChanged();
-  emit panelsChanged();
 }
 
 void ShellController::up()
@@ -1096,89 +1060,4 @@ void ShellController::forward()
     return;
   const int index = state->historyIndex + 1;
   goTo(state->history.at(index), false, index);
-}
-
-// TEMPORARY panel-shaped shims for the shipped QML and the S1 tests.
-
-int ShellController::activePanel() const
-{
-  const TabState *tab = tabAt(m_active_tab);
-  return tab ? tab->tree->focusedPane() : -1;
-}
-
-QVariantList ShellController::panels() const
-{
-  QVariantList result;
-  const TabState *tab = tabAt(m_active_tab);
-  if (!tab)
-    return result;
-  const QVector<QRect> rects = tab->tree->layout(m_contentSize);
-  const QVector<Pane> &panes = tab->tree->panes();
-  result.reserve(panes.size());
-  for (int i = 0; i < panes.size(); ++i) {
-    const Pane &pane = panes.at(i);
-    const QVariantList legacyTabs = QVariantList({
-        QVariantMap{{QStringLiteral("label"), labelForPath(pane.state.path)},
-                    {QStringLiteral("path"), pane.state.path}},
-    });
-    const QRect &rect = rects.at(i);
-    result.append(QVariantMap{
-        {QStringLiteral("id"), i},
-        {QStringLiteral("tabs"), legacyTabs},
-        {QStringLiteral("currentTab"), 0},
-        {QStringLiteral("model"), QVariant::fromValue(static_cast<QObject *>(pane.model))},
-        {QStringLiteral("x"), rect.x()},
-        {QStringLiteral("y"), rect.y()},
-        {QStringLiteral("width"), rect.width()},
-        {QStringLiteral("height"), rect.height()},
-    });
-  }
-  return result;
-}
-
-void ShellController::activatePanel(int paneId)
-{
-  setFocusedPane(paneId);
-}
-
-void ShellController::selectTab(int paneId, int tabIndex)
-{
-  setFocusedPane(paneId);
-  selectTab(tabIndex);
-}
-
-void ShellController::closeTab(int paneId, int tabIndex)
-{
-  setFocusedPane(paneId);
-  closeTab(tabIndex);
-}
-
-void ShellController::newTabInPanel(int paneId)
-{
-  setFocusedPane(paneId);
-  newTab();
-}
-
-void ShellController::splitActiveRight()
-{
-  splitFocusedRight();
-}
-
-void ShellController::splitActiveDown()
-{
-  splitFocusedDown();
-}
-
-void ShellController::moveTabToSplit(int paneId, int tabIndex, bool right)
-{
-  const QString path = tabPaths().value(tabIndex);
-  if (path.isEmpty())
-    return;
-  setFocusedPane(paneId);
-  openInSplit(path, right);
-}
-
-void ShellController::cyclePanel(int direction)
-{
-  cyclePane(direction);
 }

@@ -29,20 +29,6 @@ struct TabState {
   TabState() : tree(new PaneTree) {}
 };
 
-// The shipped QML tab strip treats each entry of `tabs` as a path string. A
-// tab entry is still a QVariantMap for the C++ API, but this gadget gives it a
-// QString conversion so that binding keeps working until Task 3 rewrites it.
-struct TabEntry : QVariantMap {
-  Q_GADGET
- public:
-  explicit TabEntry(const QVariantMap &map = QVariantMap()) : QVariantMap(map) {}
-  Q_INVOKABLE QString toString() const
-  {
-    return value(QStringLiteral("path")).toString();
-  }
-};
-Q_DECLARE_METATYPE(TabEntry)
-
 // Install the Qt host table before any HermesCore is created. The controller
 // also does this in its constructor so standalone consumers (tests) get hooks.
 void installShellCoreHost();
@@ -66,13 +52,6 @@ class ShellController : public QObject
   Q_PROPERTY(bool folderSizes READ folderSizes NOTIFY folderSizesChanged)
   Q_PROPERTY(QString sortKey READ sortKey NOTIFY sortKeyChanged)
 
-  // TEMPORARY compatibility shims for the shipped QML and the S1 tests. Task 3
-  // removes them when it rewrites the QML against tabs/panes.
-  Q_PROPERTY(QVariantList panels READ panels NOTIFY panelsChanged)
-  Q_PROPERTY(int activePanel READ activePanel NOTIFY activePanelChanged)
-  Q_PROPERTY(QStringList legacyTabs READ legacyTabs NOTIFY tabsChanged)
-  Q_PROPERTY(int currentTab READ currentTab NOTIFY currentTabChanged)
-
  public:
   explicit ShellController(QObject *parent = nullptr);
   ~ShellController() override;
@@ -82,7 +61,8 @@ class ShellController : public QObject
   QVariantList panes() const;
   DirectoryModel *directory() const;  // the focused pane's model
   PlacesModel *places() const;
-  QStringList legacyTabs() const;
+  // Only the engine's off-thread host hook uses the atomic mirror; QML binds
+  // to activeTab instead.
   int currentTab() const;
   bool canGoBack() const;
   bool canGoForward() const;
@@ -140,23 +120,11 @@ class ShellController : public QObject
   void setPaths(const QStringList &paths);
   void navigate(const QString &path);
   void openEntry(const QString &path);
-  // Compatibility slot: the shipped QML passes the path it wants opened.
+  // Opens path when given; an empty path copies the focused pane's directory.
   void newTab(const QString &path);
   void up();
   void back();
   void forward();
-
-  // TEMPORARY panel-shaped shims; see the properties above.
-  int activePanel() const;
-  QVariantList panels() const;
-  void activatePanel(int paneId);
-  void selectTab(int paneId, int tabIndex);
-  void closeTab(int paneId, int tabIndex);
-  void newTabInPanel(int paneId);
-  void splitActiveRight();
-  void splitActiveDown();
-  void moveTabToSplit(int paneId, int tabIndex, bool right);
-  void cyclePanel(int direction);
 
  signals:
   void tabsChanged();
@@ -174,9 +142,6 @@ class ShellController : public QObject
   void showHiddenChanged();
   void folderSizesChanged();
   void sortKeyChanged();
-  void panelsChanged();
-  void activePanelChanged();
-  void currentTabChanged();
 
  private:
   bool goTo(const QString &path, bool record, int historyIndex = -2);
@@ -199,7 +164,6 @@ class ShellController : public QObject
   static void destroyPaneResources(Pane &pane);
   int splitPane(PaneTree::Zone zone, const QString &path);
   void insertTab(const QString &path, int index, bool focus);
-  QStringList tabPaths() const;
 
   HermesCore *m_core = nullptr;
   QVector<TabState> m_tabs;
