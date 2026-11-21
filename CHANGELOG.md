@@ -7,20 +7,6 @@ will be listed above that history.
 ## Unreleased
 
 **New**
-- A tab can now be split into panes, each with its own directory and selection;
-  only the focused pane receives navigation and commands. Tabs keep their own
-  pane layout while the window is open, split tabs show `MULTI`, and tabs can be
-  renamed. The layout is not saved yet; the Qt-owned session arrives in S2b.
-- Kirigami shell: the new `hermes-qt` executable renders a native Plasma window
-  with a places drawer, tab strip, directory view, up/back/forward navigation
-  and basic create/rename/remove/copy/move operations through C++ controllers
-  and QML. CI builds both UIs on Arch, Fedora, Debian and Ubuntu. Offscreen Qt
-  Test runs verify headless plumbing only, not live Plasma 6.6-6.8 behaviour.
-- The Qt directory view now scans on the engine's worker pool, so navigating a
-  large or slow directory no longer freezes the window. It gained list, details
-  and grid views, a column set, a hidden-file toggle, folder sizes, range
-  selection and keyboard navigation, plus `--screenshot FILE` and
-  `HERMES_RECORD` equivalents for `hermes-qt`.
 - Headless Qt 6 D-Bus/portal plumbing against the `hermes_core` C ABI: async
   Settings/OpenURI/Documents clients, FileManager1 and FileChooser service
   stubs, and an opt-in file-chooser role CLI (`--enable-filechooser` /
@@ -33,8 +19,6 @@ will be listed above that history.
   draft after review.
 
 **Changed**
-- The Qt directory view now hides dotfiles by default, matching the legacy
-  application's `show_hidden = false`. The toolbar toggle still shows them.
 - Early Hermes carried a File Explorer compatibility layer: a startup importer,
   `FE_*` aliases, lazy keyring and cloud handover, and generated-launcher
   adoption. It has been **fully purged**: legacy data is ignored, overrides are
@@ -43,12 +27,7 @@ will be listed above that history.
 - `refactor(core)`: the SDL-free engine is now available as a `hermes_core` C
   library behind a small ABI, with host callbacks and headless self-tests. The
   SDL application and its behaviour are unchanged; this is groundwork for the
-  Qt/Kirigami port. The ABI now also exposes sorted directory scans and
-  engine-backed create/rename/remove/copy/move operations for the Qt shell.
-- CMake's `HERMES_DEFAULT_UI` is a temporary migration install flag: `legacy`
-  (the default) installs the SDL binary as `hermes`, `kirigami` installs the
-  Qt binary instead. Both executables are built in either case; the flag and
-  the legacy target disappear with the SDL UI in PR 5.
+  Qt/Kirigami port.
 
 ## 0.0.1
 

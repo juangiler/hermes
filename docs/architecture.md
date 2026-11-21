@@ -61,19 +61,10 @@
   build the SDL app.
 - `src/core_api.h` is the small C ABI (`hermes_core_create`, `hermes_core_scan`,
   `hermes_core_drain`, `hermes_core_destroy`, `hermes_listing_free`,
-  `hermes_core_set_host`) that a non-SDL frontend links against. Scans are
-  exposed both as a synchronous wrapper (`hermes_core_scan_sorted()`, for
-  unchanged callers) and as an async handle: `hermes_core_scan_start()` takes
-  `HermesScanOptions` (sort key, direction, hidden entries, folder sizes) and
-  returns a `HermesScan` that the frontend polls with `hermes_core_scan_poll()`
-  and releases with `hermes_core_scan_cancel()` / `hermes_core_scan_free()`;
-  `hermes_core_scan_start_folder_sizes()` starts the engine's recursive size
-  pass on a completed scan. The eight `HermesSortKey` values map to the legacy
-  sort fields, and `HERMES_ENTRY_SIZE_UNKNOWN` marks a folder whose recursive
-  size is not known yet. `src/core_host.h` carries the host callbacks the engine
-  uses for UI-side decisions, with inert defaults for headless use. A C++
-  frontend installs its table through `hermes_core_set_host()`; the SDL app
-  assigns its own table directly at startup.
+  `hermes_core_set_host`) that a non-SDL frontend links against. `src/core_host.h`
+  carries the host callbacks the engine uses for UI-side decisions, with inert
+  defaults for headless use. A C++ frontend installs its table through
+  `hermes_core_set_host()`; the SDL app assigns its own table directly at startup.
 - `tools/core-selftest.c` exercises the engine and the public ABI without SDL
   or a display server, including permission-denied scans, unusual filenames
   and cross-device copies. It is built by the `hermes-core-selftest` target.
@@ -104,61 +95,7 @@
   backend and its FileChooser interface as data files, not system-wide config.
 - `tools/portal-selftest.cpp` drives the clients, services and config through
   a private session bus, built as `hermes-portal-selftest`; see
-  [Building](building.md). The QML shell lives in `qtui/`; no picker window
-  exists yet.
-
-### Qt/Kirigami shell
-
-- `qtui/main.cpp` is the `hermes-qt` entry point: a `QGuiApplication` and
-  `QQmlApplicationEngine` that loads `qrc:/qtui/qml/main.qml`, installs the
-  controller as the `hermes` context property, and handles `--version`/`--help`.
-- `qtui/pane_tree.*` is the per-tab tree of panes. A leaf holds one pane (path,
-  history, selection, cursor and anchor); a split holds two children and their
-  ratio. `splitPane()` splits a pane on a chosen side and focuses the new one;
-  `closePane()` promotes the sibling into the closed leaf's place and refocuses
-  the first pane of that subtree in reading order. `layout()` returns one
-  rectangle per pane for a given content size. Trees are capped at 16 panes and
-  are move-only, so the controller holds each one indirectly.
-- `qtui/shell_controller.*` owns migration state: places, the ordered tab strip
-  with a distinct pane tree and custom name per tab, the active tab and its
-  focused pane, per-pane history, view mode (list/details/grid), the column set
-  and zoom, plus clipboard, conflict policy and operation completion. It creates
-  and owns one `DirectoryModel` and one `DirectoryWatcher` per pane; navigation,
-  selection (selected paths, cursor row and anchor) and commands act on the
-  active tab's focused pane, whose model is exposed to QML. It installs the
-  `core_host.h` hooks so engine callbacks (including open-tab requests off the
-  GUI thread) reach QML-safe slots and exposes invokable
-  create/rename/remove/copy/move calls that delegate to the C ABI. An on-disk
-  change asks the affected pane's model for a refresh; split tabs are reported
-  for the `MULTI` badge and closing a pane emits its old rectangle for QML's
-  collapse animation. In `qtui/qml/PaneView.qml`, each pane's geometry is
-  animated as the tree relayouts on split/close, and a newly opened pane fades
-  in via `paneOpenAnimation`.
-- `qtui/directory_watcher.*` watches the current directory on disk with a
-  debounced `QFileSystemWatcher` and reports changes to the controller; the
-  controller owns it so the model can still be used headless.
-- `qtui/directory_model.*` is a `QAbstractListModel` over the asynchronous
-  `hermes_core_scan_start()` / `hermes_core_scan_poll()` handle, with one
-  instance per pane owned by the controller. `navigate()` and `refresh()` start
-  a scan and hand its handle to one owned worker thread.
-  That worker polls the handle, sorts and copies the listing, builds the Qt-side
-  rows and posts a snapshot to the GUI thread; `pollScan()` only wakes it. The
-  GUI thread just applies the snapshot, while the rows on screen stay until the
-  new ones arrive. A generation guard drops a superseded result, and a failed
-  scan keeps the previous rows and emits `navigateFailed`. It exposes typed
-  name/path/size/date roles, the hidden-entry and folder-size toggles, the sort
-  key and direction (including the legacy key policy), the eight sort keys and
-  the ordered path list; `scanFinished()` fires once a result is applied. QML
-  never scans disks.
-- `qtui/places_model.*` supplies the GlobalDrawer labels and paths.
-- `qtui/qml/main.qml` owns the `Kirigami.ApplicationWindow`, places drawer, tab
-  strip, navigation/operation controls and dialogs; `qtui/qml/DirectoryPage.qml`
-  owns the directory list, selection and single/double-click behaviour. Both
-  bind to C++ models/controller only and use the hardware scene graph, with no
-  `Canvas` or `QPainter`.
-- `tools/qtui-selftest.cpp` is the Qt Test suite for the model, controller and
-  offscreen QML load, built as `hermes-qt-selftest`. Offscreen runs prove
-  plumbing, not live Plasma behaviour; see [Building](building.md).
+  [Building](building.md). There is no Kirigami/QML shell or picker yet.
 
 ## Repository layout
 
@@ -172,9 +109,5 @@
   holds generated distributable artifacts.
 - `build.sh` remains the unity-build entry point. `install.sh` consumes an
   explicitly selected mode/binary and supports `DESTDIR` staging.
-- `CMakeLists.txt` builds `hermes_core`, the portal library and, when
-  `HERMES_BUILD_QT_UI=ON`, the `qtui/` frontend plus the legacy SDL target.
-  `HERMES_DEFAULT_UI` is a temporary install alias for `hermes`, removed with
-  the SDL UI in PR 5.
 - `tools/source-archive.sh` packages an explicit source allowlist, including
   working-tree edits but not local Git metadata, build products or home data.

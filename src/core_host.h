@@ -17,13 +17,11 @@ typedef struct HermesCoreHost {
     void (*request_redraw)(void);
     void (*open_tab)(const char *path, int index, bool focus);
     int (*current_tab)(void);
-    void (*operations_changed)(int kind, int error_count); // kind = HermesOpKind
 } HermesCoreHost;
 
 static bool core_host_false(void) { return false; }
 static int core_host_zero(void) { return 0; }
 static void core_host_noop(void) {}
-static void core_host_noop_op(int kind, int error_count) { (void)kind; (void)error_count; }
 static void core_host_open_tab_noop(const char *path, int index, bool focus) {
     (void)path;
     (void)index;
@@ -38,7 +36,6 @@ static const HermesCoreHost hermes_core_host_defaults = {
     core_host_noop,
     core_host_open_tab_noop,
     core_host_zero,
-    core_host_noop_op,
 };
 
 // Not every translation unit that needs the struct uses the hook table (for
