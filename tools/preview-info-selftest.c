@@ -15,6 +15,7 @@
 #pragma GCC diagnostic pop
 
 #include "../src/image_meta.c"
+#include "../src/ico_preview.c"
 
 static void write_file(const char *path, const void *data, size_t len) {
     FILE *f = fopen(path, "wb");
@@ -43,6 +44,21 @@ static size_t png_chunk(u8 *out, const char type[4], const u8 *data, u32 len) {
     if (len) memcpy(out + 8, data, len);
     be32(out + 8 + len, crc32(out + 4, 4 + len));
     return 12u + len;
+}
+
+// 1x1 fully transparent RGBA PNG. IDAT is a zlib stream with a single stored
+// (uncompressed) deflate block so no zlib dependency is needed.
+static size_t transparent_rgba_png(u8 *out) {
+    static const u8 sig[8] = {0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A};
+    size_t n = 0;
+    memcpy(out + n, sig, 8); n += 8;
+    const u8 ihdr[13] = {0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0}; // 1x1, 8-bit RGBA
+    n += png_chunk(out + n, "IHDR", ihdr, 13);
+    const u8 idat[16] = {0x78, 0x01, 0x01, 0x05, 0x00, 0xFA, 0xFF,
+                         0, 0, 0, 0, 0, 0x00, 0x05, 0x00, 0x01};
+    n += png_chunk(out + n, "IDAT", idat, 16);
+    n += png_chunk(out + n, "IEND", NULL, 0);
+    return n;
 }
 
 static void write_png_with_phys(const char *path, u32 x, u32 y, u8 unit) {
@@ -127,9 +143,46 @@ static void test_image_dpi(void) {
     unlink(path);
 }
 
+static void test_ico_alpha(void) {
+    char path[] = "/tmp/opencode/hermes-ico-XXXXXX";
+    int fd = mkstemp(path); assert(fd >= 0); close(fd);
+
+    // 1x1, 32-bit DIB entry: BGRA = 0,0,0,0; AND mask = 0.
+    const u8 dib[] = {
+        0,0, 1,0, 1,0,
+        1,1,0,0, 1,0, 32,0, 48,0,0,0, 22,0,0,0,
+        40,0,0,0, 1,0,0,0, 2,0,0,0, 1,0, 32,0, 0,0,0,0,
+        8,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0,
+        0,0,0,0, 0,0,0,0
+    };
+    write_file(path, dib, sizeof dib);
+    int w=0, h=0, sw=0, sh=0;
+    u8 *px = ico_preview_pixels(path, 64, &w, &h, &sw, &sh);
+    assert(px && w == 1 && h == 1 && sw == 1 && sh == 1 && px[3] == 0);
+    free(px);
+
+    // PNG-compressed ICO entry at offset 22.
+    u8 ico[128];
+    size_t pn = transparent_rgba_png(ico + 22);
+    ico[0] = 0; ico[1] = 0; ico[2] = 1; ico[3] = 0; ico[4] = 1; ico[5] = 0;
+    ico[6] = 1; ico[7] = 1; ico[8] = 0; ico[9] = 0; ico[10] = 1; ico[11] = 0;
+    ico[12] = 32; ico[13] = 0;
+    ico[14] = (u8)pn; ico[15] = (u8)(pn >> 8); ico[16] = (u8)(pn >> 16); ico[17] = (u8)(pn >> 24);
+    ico[18] = 22; ico[19] = 0; ico[20] = 0; ico[21] = 0;
+    write_file(path, ico, 22 + pn);
+    px = ico_preview_pixels(path, 64, &w, &h, &sw, &sh);
+    assert(px && w == 1 && h == 1 && sw == 1 && sh == 1 && px[3] == 0);
+    free(px);
+
+    write_file(path, (const u8 *)"\0\0\2\0\1\0", 6); // unsupported ICO type
+    assert(ico_preview_pixels(path, 64, &w, &h, &sw, &sh) == NULL);
+    unlink(path);
+}
+
 int main(void) {
     test_alpha_capable();
     test_image_dpi();
+    test_ico_alpha();
     puts("Preview info: passed");
     return 0;
 }
