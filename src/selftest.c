@@ -3465,6 +3465,30 @@ static int run_selftest_m9(void) {
     ST_CHECK(g_theme_cur == theme_find("System") && !strcmp(g_previous_theme, "Nord"));
     opt_bool_toggle(OPT_SYSTEM_BACKGROUND);
     ST_CHECK(!g_match_system_background && g_theme_cur == theme_find("Nord"));
+
+    opt_choice_set(OPT_THEME, theme_find("Nord"));
+    opt_bool_toggle(OPT_FOLLOW_LIGHT_DARK);
+    ST_CHECK(g_follow_light_dark && !g_match_system_background);
+    ST_CHECK(theme_active_index() == theme_find("Light") || theme_active_index() == theme_find("Dark"));
+    opt_bool_toggle(OPT_SYSTEM_BACKGROUND);
+    ST_CHECK(g_match_system_background && !g_follow_light_dark);
+    opt_bool_toggle(OPT_SYSTEM_BACKGROUND);
+    opt_bool_toggle(OPT_FOLLOW_LIGHT_DARK);
+    ST_CHECK(!g_follow_light_dark && g_theme_cur == theme_find("Nord"));
+
+    options_open_page(OC_APPEARANCE);
+    st_frames(1);
+    ST_CHECK(st_opt_hit(HP_TOGGLE, OPT_FOLLOW_LIGHT_DARK, 0) != NULL);
+    ST_CHECK(st_opt_hit(HP_DROP, OPT_THEME, 0) != NULL);
+    theme_follow_system(true);
+    st_frames(1);
+    ST_CHECK(st_opt_hit(HP_TOGGLE, OPT_FOLLOW_LIGHT_DARK, 0) == NULL);
+    theme_follow_system(false);
+    theme_follow_light_dark(true);
+    st_frames(1);
+    ST_CHECK(st_opt_hit(HP_DROP, OPT_THEME, 0) == NULL);
+    theme_follow_light_dark(false);
+
     options_open();
     ST_CHECK(!g_opt.search_focus);
     st_frames(1);
