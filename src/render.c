@@ -3769,8 +3769,8 @@ static void pv_duration_label(int ms, char *out, size_t cap) {
 }
 
 static void draw_preview(void) {
-    if (!A.preview_on || !A.ntabs) return;
     A.r_pv_text = (Rect){0, 0, 0, 0}; // no text hit test until the text box is drawn
+    if (!A.preview_on || !A.ntabs) return;
     Rect r = A.r_preview;
     Pane *p = active_pane();
     Font *f = &A.font, *fs = &A.font_small;

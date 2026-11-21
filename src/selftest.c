@@ -1543,19 +1543,18 @@ static int run_selftest_m5(void) {
     ST_CHECK(st_wait_cond(c_pv_ready, 3000));
     ST_CHECK(A.text_scroll_lines == 0);
 
-    // a big file pages to a later window while the content-search line stays untouched;
-    // a taller window gives enough visible lines for the worker's >40 page seek
-    int saved_h = A.win_h;
-    SDL_SetWindowSize(A.win, A.win_w, 1000);
-    st_frames(2);
+    // at the default 800px geometry, wheeling a big file pages to a later window
+    // while the content-search line stays untouched and the rendered target stays loaded
     st_select(p, "big.txt");
     ST_CHECK(st_wait_cond(c_pv_ready, 3000));
     ST_CHECK(A.pv->total_lines == 5000 && A.pv_line == 0);
     for (int k = 0; k < 40; k++) { wev.y = -1; on_wheel(&wev); st_frames(1); }
     ST_CHECK(st_wait_cond(c_pv_paged, 3000));
     ST_CHECK(A.pv_line == 0 && A.pv->first_line > 1);
-    SDL_SetWindowSize(A.win, A.win_w, saved_h);
-    st_frames(2);
+    int pv_lines = 0;
+    for (const char *s = A.pv->text; *s; s++) if (*s == '\n') pv_lines++;
+    ST_CHECK(pv_lines > 0 && A.text_scroll_lines < A.pv_text_vis);
+    ST_CHECK(A.pv->first_line + A.text_scroll_lines < A.pv->first_line + pv_lines - 2);
     // large text: the whole file is counted even though only a 64 KiB window is decoded
     st_select(p, "big.txt");
     ST_CHECK(st_wait_cond(c_pv_ready, 3000));
@@ -1601,9 +1600,15 @@ static int run_selftest_m5(void) {
     st_mouse(SDL_EVENT_MOUSE_MOTION, dx + S(60), A.r_pdiv.y + S(100), 0, 0, 0);
     st_mouse(SDL_EVENT_MOUSE_BUTTON_UP, 0, 0, SDL_BUTTON_LEFT, 1, 0);
     ST_CHECK(fabsf(A.r_preview.w - MAX(before_w - S(60), roundf(S(220)))) < S(4)); // min width 220
-    // Space toggles it off
+    // Space toggles it off; a stale text hit rect must not eat wheels afterwards
+    st_select(p, "notes.txt");
+    ST_CHECK(st_wait_cond(c_pv_ready, 3000));
+    st_frames(1);
+    ST_CHECK(A.r_pv_text.w > 0);
     on_text(" ");
     ST_CHECK(!A.preview_on);
+    st_frames(1);
+    ST_CHECK(A.r_pv_text.w == 0 && A.r_pv_text.h == 0);
 
     // zoom
     int px0 = A.font.px;

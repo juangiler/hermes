@@ -1057,7 +1057,7 @@ static void on_wheel(SDL_MouseWheelEvent *w) {
         if (target < A.pv->total_lines &&
             (A.text_scroll_lines + A.pv_text_vis >= max_scroll ||
              target >= loaded_last - 4))
-            preview_page_request(MAX(1, loaded_last - 4));
+            preview_page_request(MAX(1, A.pv->first_line + A.text_scroll_lines + 30));
         A.redraw = true;
         return;
     }

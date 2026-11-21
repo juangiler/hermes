@@ -15015,6 +15015,8 @@ static void preview_done_cb(void *arg) {
     preview_result_free(r);
     return;
   }
+  int old_first_line = A.pv && A.pv->kind == PV_TEXT ? A.pv->first_line : 0;
+  int old_scroll = A.text_scroll_lines;
   preview_result_free(A.pv);
   if (A.pv_tex) {
     SDL_DestroyTexture(A.pv_tex);
@@ -15032,6 +15034,10 @@ static void preview_done_cb(void *arg) {
     r->rgba = NULL;
   }
   A.pv = r;
+  // a paging re-seek moved the window: rebase the wheel offset onto the new
+  // first line so the old offset is not added again on top of it
+  if (r->kind == PV_TEXT && r->first_line > old_first_line)
+    A.text_scroll_lines = MAX(0, old_first_line + old_scroll - r->first_line);
   A.redraw = true;
 }
 
