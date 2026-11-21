@@ -1411,6 +1411,28 @@ static void st_write_png_rgba(const char *path, int w, int h, int dpi) {
 static void st_write_png_dpi(const char *path, int w, int h, int dpi) { st_write_png_rgba(path, w, h, dpi); }
 static void st_write_png_alpha(const char *path, int w, int h) { st_write_png_rgba(path, w, h, 0); }
 
+static char *st_path_save(void) {
+    const char *p = getenv("PATH");
+    size_t n = p ? strlen(p) : 0;
+    char *out = xmalloc(n + 1);
+    memcpy(out, p ? p : "", n + 1);
+    return out;
+}
+
+static char *st_path_prepend(const char *dir) {
+    const char *p = getenv("PATH");
+    size_t a = dir ? strlen(dir) : 0, b = p ? strlen(p) : 0;
+    char *out = xmalloc(a + b + 2);
+    snprintf(out, a + b + 2, "%s:%s", dir, p ? p : "");
+    return out;
+}
+
+static void st_path_restore(char *saved, char *temporary) {
+    setenv("PATH", saved, 1);
+    free(saved);
+    free(temporary);
+}
+
 static void st_setup_m5(void) {
     st_rmrf(M5_BASE);
     st_rmrf("/tmp/fe-selftest-config");
@@ -1542,6 +1564,156 @@ static int run_selftest_m5(void) {
         free(tr.rgba);
         unlink(png);
         unlink(pdf);
+    }
+    // A small desktop thumbnail must not win over a freshly rendered PDF page.
+    {
+        const char *pdf = M5_BASE "/hires.pdf";
+        const char *bindir = "/tmp/fe-selftest-m5-bin";
+        const char *tool = "/tmp/fe-selftest-m5-bin/pdftoppm";
+        const char *page = "/tmp/fe-selftest-m5-page.png";
+        FILE *pf = fopen(pdf, "wb");
+        ST_CHECK(pf != NULL);
+        if (pf) { fputs("%PDF-1.4\n", pf); fclose(pf); }
+        st_write_png_alpha(page, 32, 32); // what the fake renderer produces
+        char enc[PATH_MAX * 3], uri[PATH_MAX * 3 + 8], md5[33];
+        url_encode_path(pdf, enc, sizeof enc);
+        snprintf(uri, sizeof uri, "file://%s", enc);
+        md5_hex(uri, strlen(uri), md5);
+        const char *xc = getenv("XDG_CACHE_HOME");
+        if (!xc || xc[0] != '/') xc = "/tmp/fe-selftest-cache";
+        char sdir[PATH_MAX + 64], shared[PATH_MAX + 96];
+        snprintf(sdir, sizeof sdir, "%s/thumbnails/large", xc);
+        snprintf(shared, sizeof shared, "%s/%s.png", sdir, md5);
+        ST_CHECK(mkdir_p(sdir, 0700) == 0);
+        st_write_png_alpha(shared, 8, 8); // stale-looking desktop thumbnail
+        char dir[PATH_MAX], png[PATH_MAX];
+        cache_dir(dir, sizeof dir);
+        pdf_page_cache_path(dir, pdf, png, sizeof png);
+        st_rmrf(dir); // first preview must work with no cache directory yet
+        ST_CHECK(mkdir_p(bindir, 0700) == 0);
+        pf = fopen(tool, "w");
+        ST_CHECK(pf != NULL);
+        if (pf) {
+            fputs("#!/bin/sh\nfor arg do out=$arg; done\ncp ", pf);
+            fputs(page, pf);
+            fputs(" \"$out.png\"\n", pf);
+            fclose(pf);
+        }
+        ST_CHECK(chmod(tool, 0755) == 0);
+        char *oldpath = st_path_save();
+        char *newpath = st_path_prepend(bindir);
+        setenv("PATH", newpath, 1);
+        pane_refresh(p);
+        st_wait();
+        ST_CHECK(st_select(p, "hires.pdf"));
+        ST_CHECK(st_wait_cond(c_pv_ready, 3000));
+        ST_CHECK(A.pv && A.pv->kind == PV_IMAGE && A.pv->w == 32 && A.pv->h == 32);
+        st_path_restore(oldpath, newpath);
+        unlink(png);
+        unlink(pdf);
+        unlink(page);
+        unlink(tool);
+        unlink(shared);
+        rmdir(bindir);
+        rmdir(sdir);
+    }
+    // Grid thumbnails must never run pdftoppm, even with no cached page.
+    {
+        const char *pdf = M5_BASE "/grid.pdf";
+        const char *bindir = "/tmp/fe-selftest-m5-bin";
+        const char *tool = "/tmp/fe-selftest-m5-bin/pdftoppm";
+        const char *marker = "/tmp/fe-selftest-m5-render-ran";
+        FILE *pf = fopen(pdf, "wb");
+        ST_CHECK(pf != NULL);
+        if (pf) { fputs("%PDF-1.4\n", pf); fclose(pf); }
+        unlink(marker);
+        char enc[PATH_MAX * 3], uri[PATH_MAX * 3 + 8], md5[33], own[PATH_MAX];
+        url_encode_path(pdf, enc, sizeof enc);
+        snprintf(uri, sizeof uri, "file://%s", enc);
+        md5_hex(uri, strlen(uri), md5);
+        const char *xc = getenv("XDG_CACHE_HOME");
+        if (!xc || xc[0] != '/') xc = "/tmp/fe-selftest-cache";
+        char sdir[PATH_MAX + 64], shared[PATH_MAX + 96], dir[PATH_MAX], png[PATH_MAX];
+        snprintf(sdir, sizeof sdir, "%s/thumbnails/large", xc);
+        snprintf(shared, sizeof shared, "%s/%s.png", sdir, md5);
+        cache_dir(dir, sizeof dir);
+        pdf_page_cache_path(dir, pdf, png, sizeof png);
+        snprintf(own, sizeof own, "%s/%s.png", dir, md5);
+        unlink(png);
+        unlink(own);
+        ST_CHECK(mkdir_p(sdir, 0700) == 0);
+        st_write_png_alpha(shared, 16, 16);
+        ST_CHECK(mkdir_p(bindir, 0700) == 0);
+        pf = fopen(tool, "w");
+        ST_CHECK(pf != NULL);
+        if (pf) { fputs("#!/bin/sh\ntouch " , pf); fputs(marker, pf); fputs("\n", pf); fclose(pf); }
+        ST_CHECK(chmod(tool, 0755) == 0);
+        char *oldpath = st_path_save();
+        char *newpath = st_path_prepend(bindir);
+        setenv("PATH", newpath, 1);
+        ThumbReq tr;
+        memset(&tr, 0, sizeof tr);
+        snprintf(tr.path, sizeof tr.path, "%s", pdf);
+        struct stat ps;
+        ST_CHECK(stat(pdf, &ps) == 0);
+        tr.mtime = ps.st_mtime;
+        tr.px = 64;
+        thumb_build(&tr);
+        struct stat mst;
+        ST_CHECK(stat(marker, &mst) != 0); // the grid never spawned pdftoppm
+        ST_CHECK(tr.rgba && tr.w == 16 && tr.h == 16);
+        free(tr.rgba);
+        st_path_restore(oldpath, newpath);
+        unlink(marker);
+        unlink(pdf);
+        unlink(tool);
+        unlink(shared);
+        rmdir(bindir);
+        rmdir(sdir);
+    }
+    // Without pdftoppm the preview still shows a small desktop thumbnail.
+    {
+        const char *pdf = M5_BASE "/fallback.pdf";
+        const char *bindir = "/tmp/fe-selftest-m5-nopdf-bin";
+        FILE *pf = fopen(pdf, "wb");
+        ST_CHECK(pf != NULL);
+        if (pf) { fputs("%PDF-1.4\n", pf); fclose(pf); }
+        char enc[PATH_MAX * 3], uri[PATH_MAX * 3 + 8], md5[33];
+        url_encode_path(pdf, enc, sizeof enc);
+        snprintf(uri, sizeof uri, "file://%s", enc);
+        md5_hex(uri, strlen(uri), md5);
+        const char *xc = getenv("XDG_CACHE_HOME");
+        if (!xc || xc[0] != '/') xc = "/tmp/fe-selftest-cache";
+        char sdir[PATH_MAX + 64], shared[PATH_MAX + 96], dir[PATH_MAX], png[PATH_MAX];
+        snprintf(sdir, sizeof sdir, "%s/thumbnails/large", xc);
+        snprintf(shared, sizeof shared, "%s/%s.png", sdir, md5);
+        cache_dir(dir, sizeof dir);
+        pdf_page_cache_path(dir, pdf, png, sizeof png);
+        unlink(png);
+        ST_CHECK(mkdir_p(sdir, 0700) == 0);
+        st_write_png_alpha(shared, 8, 8);
+        ST_CHECK(mkdir_p(bindir, 0700) == 0);
+        char ash[PATH_MAX], acp[PATH_MAX];
+        snprintf(ash, sizeof ash, "%s/sh", bindir);
+        snprintf(acp, sizeof acp, "%s/cp", bindir);
+        unlink(ash); unlink(acp);
+        ST_CHECK(symlink("/bin/sh", ash) == 0);
+        ST_CHECK(symlink("/bin/cp", acp) == 0);
+        char *oldpath = st_path_save();
+        setenv("PATH", bindir, 1);
+        pane_refresh(p);
+        st_wait();
+        ST_CHECK(st_select(p, "fallback.pdf"));
+        ST_CHECK(st_wait_cond(c_pv_ready, 3000));
+        ST_CHECK(A.pv && A.pv->kind == PV_IMAGE && A.pv->w == 8 && A.pv->h == 8);
+        st_path_restore(oldpath, NULL);
+        unlink(png);
+        unlink(pdf);
+        unlink(shared);
+        unlink(ash);
+        unlink(acp);
+        rmdir(bindir);
+        rmdir(sdir);
     }
     // text
     st_select(p, "notes.txt");

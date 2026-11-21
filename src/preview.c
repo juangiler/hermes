@@ -301,22 +301,27 @@ static void cache_dir(char *out, size_t cap) {
     else snprintf(out, cap, "%s/.cache/hermes/thumbs", getenv("HOME") ? getenv("HOME") : "/tmp");
 }
 
-static bool try_thumbnail(PreviewResult *r, const char *path, i64 mtime, const char *ext) {
+static bool try_thumbnail(PreviewResult *r, const char *path, i64 mtime, const char *ext, bool allow_render) {
     char enc[PATH_MAX * 3], uri[PATH_MAX * 3 + 8], md5[33], dir[PATH_MAX], f[PATH_MAX + 64];
     url_encode_path(path, enc, sizeof enc);
     snprintf(uri, sizeof uri, "file://%s", enc);
     md5_hex(uri, strlen(uri), md5);
-    // 1. our own cache
     cache_dir(dir, sizeof dir);
-    snprintf(f, sizeof f, "%s/%s.png", dir, md5);
-    if (newer_than(f, mtime) && load_image(r, f)) return true;
-    // 1b. page 1 rendered by the preview panel: same cache dir, different key.
+    // 1. Preview PDFs prefer a freshly rendered page over a small desktop
+    // thumbnail. Grid thumbnails may reuse an existing page, never render one.
     if (ext && !strcmp(ext, "pdf")) {
         char pp[PATH_MAX];
         pdf_page_cache_path(dir, path, pp, sizeof pp);
+        if (allow_render && !newer_than(pp, mtime)) {
+            mkdir_p(dir, 0700);
+            render_pdf_page(path, dir, PDF_RENDER_PX, NULL, 0);
+        }
         if (newer_than(pp, mtime) && load_image(r, pp)) return true;
     }
-    // 2. thumbnails other apps already made
+    // 2. our own cache
+    snprintf(f, sizeof f, "%s/%s.png", dir, md5);
+    if (newer_than(f, mtime) && load_image(r, f)) return true;
+    // 3. thumbnails other apps already made
     const char *home = getenv("HOME");
     const char *sizes[] = {"xx-large", "x-large", "large", "normal"};
     for (size_t i = 0; i < ARRAY_COUNT(sizes) && home; i++) {
@@ -326,7 +331,7 @@ static bool try_thumbnail(PreviewResult *r, const char *path, i64 mtime, const c
         else snprintf(g, sizeof g, "%s/.cache/thumbnails/%s/%s.png", home, sizes[i], md5);
         if (newer_than(g, mtime) && load_image(r, g)) return true;
     }
-    // 3. run an installed thumbnailer
+    // 4. run an installed thumbnailer
     const char *mime = mime_for_ext(ext);
     const Thumbnailer *t = mime ? thumbnailer_for(mime) : NULL;
     if (!t) return false;
@@ -403,17 +408,9 @@ static void preview_build(PreviewResult *r) {
             snprintf(r->doc_author, sizeof r->doc_author, "%s", dm.author);
         }
     }
-    if (try_thumbnail(r, r->path, st.st_mtime, ext)) {
+    if (try_thumbnail(r, r->path, st.st_mtime, ext, true)) {
         r->from_thumb = true;
         return;
-    }
-    if (is_pdf) { // fallback: render page 1 into the shared cache, at one fixed size
-        char dir[PATH_MAX], png[PATH_MAX];
-        cache_dir(dir, sizeof dir);
-        pdf_page_cache_path(dir, r->path, png, sizeof png);
-        if (!newer_than(png, st.st_mtime))
-            render_pdf_page(r->path, dir, PDF_RENDER_PX, NULL, 0);
-        if (load_image(r, png)) { r->from_thumb = true; return; }
     }
     // text: known extension, or small file without NUL bytes
     bool textish = ext_in(ext, TEXT_EXTS) || !ext[0] || st.st_size < (1 << 20);
@@ -561,7 +558,7 @@ static void thumb_build(ThumbReq *r) {
             }
         }
         if (!ok && !strcmp(ext, "svg")) ok = load_svg_preview(&tmp, r->path);
-        if (!ok) ok = try_thumbnail(&tmp, r->path, st.st_mtime, ext);
+        if (!ok) ok = try_thumbnail(&tmp, r->path, st.st_mtime, ext, false);
     }
     if (ok && tmp.rgba) {
         r->rgba = tmp.rgba;
