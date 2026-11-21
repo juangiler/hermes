@@ -3180,6 +3180,28 @@ static int run_selftest_m9(void) {
     opt_int_step(OPT_NAV_SELECTION_OPACITY, -1);
     ST_CHECK(g_navigation_selection_opacity == 40);
 
+    // Navigation field colors have their own defaults, persistence and clamping.
+    settings_defaults();
+    qa_defaults(); // settings_defaults() frees Quick Access; keep later frames renderable
+    ST_CHECK(g_pathbar_brightness == 0 && g_searchbar_brightness == 0 && !g_transparent_pathbar);
+    g_pathbar_brightness = -15;
+    g_searchbar_brightness = 20;
+    g_transparent_pathbar = true;
+    settings_save(); settings_load();
+    ST_CHECK(g_pathbar_brightness == -15 && g_searchbar_brightness == 20 && g_transparent_pathbar);
+    char cfg[PATH_MAX];
+    settings_file(cfg, sizeof cfg, false);
+    FILE *sf = fopen(cfg, "w");
+    ST_CHECK(sf != NULL);
+    if (sf) {
+        fputs("pathbar_brightness=99\nsearchbar_brightness=-99\ntransparent_pathbar=1\n", sf);
+        fclose(sf);
+    }
+    settings_load();
+    ST_CHECK(g_pathbar_brightness == 30 && g_searchbar_brightness == -30 && g_transparent_pathbar);
+    settings_defaults();
+    qa_defaults();
+
     // settings round trip
     g_theme_cur = theme_find("Nord");
     g_accent_custom = 0x01000000u | 0x123456;

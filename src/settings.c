@@ -81,6 +81,8 @@ static void settings_defaults(void) {
     g_scroll_custom = 0;
     g_unified_surfaces = g_show_separators = true;
     g_navigation_selection_opacity = NAV_SELECTION_DEFAULT;
+    g_pathbar_brightness = g_searchbar_brightness = 0;
+    g_transparent_pathbar = false;
     tab_preferences_defaults();
     header_preferences_defaults();
     memset(g_surface_brightness, 0, sizeof g_surface_brightness);
@@ -282,6 +284,9 @@ static void settings_load(void) {
         else if (!strcmp(k, "sidebar_brightness")) g_surface_brightness[SURFACE_SIDEBAR] = CLAMP(atoi(v), -30, 30);
         else if (!strcmp(k, "preview_brightness")) g_surface_brightness[SURFACE_PREVIEW] = CLAMP(atoi(v), -30, 30);
         else if (!strcmp(k, "header_brightness")) g_surface_brightness[SURFACE_HEADER] = CLAMP(atoi(v), -30, 30);
+        else if (!strcmp(k, "pathbar_brightness")) g_pathbar_brightness = CLAMP(atoi(v), -30, 30);
+        else if (!strcmp(k, "searchbar_brightness")) g_searchbar_brightness = CLAMP(atoi(v), -30, 30);
+        else if (!strcmp(k, "transparent_pathbar")) g_transparent_pathbar = atoi(v) != 0;
         else if (!strcmp(k, "main_brightness")) g_surface_brightness[SURFACE_MAIN] = CLAMP(atoi(v), -30, 30);
         else if (!strcmp(k, "status_brightness")) g_surface_brightness[SURFACE_STATUS] = CLAMP(atoi(v), -30, 30);
         else if (!strcmp(k, "settings_version")) g_settings_file_version = atoi(v);
@@ -536,10 +541,12 @@ static void settings_write(FILE *f) {
     else fprintf(f, "scrollbar_color=auto\n");
     fprintf(f, "match_system_background=%d\n", g_match_system_background);
     fprintf(f, "system_accent=%d\nunified_surfaces=%d\nshow_separators=%d\n"
-               "sidebar_brightness=%d\nheader_brightness=%d\nmain_brightness=%d\nstatus_brightness=%d\npreview_brightness=%d\n",
+               "sidebar_brightness=%d\nheader_brightness=%d\nmain_brightness=%d\nstatus_brightness=%d\npreview_brightness=%d\n"
+               "pathbar_brightness=%d\nsearchbar_brightness=%d\ntransparent_pathbar=%d\n",
             g_accent_system, g_unified_surfaces, g_show_separators,
             g_surface_brightness[SURFACE_SIDEBAR], g_surface_brightness[SURFACE_HEADER],
-            g_surface_brightness[SURFACE_MAIN], g_surface_brightness[SURFACE_STATUS], g_surface_brightness[SURFACE_PREVIEW]);
+            g_surface_brightness[SURFACE_MAIN], g_surface_brightness[SURFACE_STATUS], g_surface_brightness[SURFACE_PREVIEW],
+            g_pathbar_brightness, g_searchbar_brightness, g_transparent_pathbar);
     if (g_accent_custom) fprintf(f, "accent=#%06X\n", g_accent_custom & 0xFFFFFF);
     else fprintf(f, "accent=\n");
     fprintf(f, "view=%s\nicon_size=%d\nlist_icon_size=%d\nlist_view_icon_size=%d\nview_per_folder=%d\ngroup=%d\n",
