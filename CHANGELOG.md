@@ -7,6 +7,9 @@ will be listed above that history.
 ## Unreleased
 
 **New**
+- A **Follow light/dark** switch follows the desktop light/dark preference using
+  the built-in Light and Dark themes, mutually exclusive with following the full
+  System appearance.
 - Headless Qt 6 D-Bus/portal plumbing against the `hermes_core` C ABI: async
   Settings/OpenURI/Documents clients, FileManager1 and FileChooser service
   stubs, and an opt-in file-chooser role CLI (`--enable-filechooser` /
