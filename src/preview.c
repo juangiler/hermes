@@ -13,6 +13,7 @@
 #include <sys/wait.h>
 #include <pwd.h>
 #include <grp.h>
+#include "preview_meta.h"
 
 extern char **environ;
 
