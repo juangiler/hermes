@@ -77,6 +77,7 @@ static void settings_defaults(void) {
     snprintf(A.theme_name, sizeof A.theme_name, "Dark");
     g_accent_custom = 0;
     g_accent_system = g_match_system_background = false;
+    g_follow_light_dark = false;
     snprintf(g_previous_theme, sizeof g_previous_theme, "Dark");
     g_scroll_custom = 0;
     g_unified_surfaces = g_show_separators = true;
@@ -285,6 +286,7 @@ static void settings_load(void) {
         else if (!strcmp(k, "scrollbar_color")) { u32 color; if (scrollbar_color_parse(v, &color)) g_scroll_custom = color; }
         else if (tab_preferences_read(k, v) || header_preferences_read(k, v)) {}
         else if (!strcmp(k, "match_system_background")) g_match_system_background = atoi(v) != 0;
+        else if (!strcmp(k, "follow_light_dark")) g_follow_light_dark = atoi(v) != 0;
         else if (!strcmp(k, "system_accent")) g_accent_system = atoi(v) != 0;
         else if (!strcmp(k, "unified_surfaces")) g_unified_surfaces = atoi(v) != 0;
         else if (!strcmp(k, "show_separators")) g_show_separators = atoi(v) != 0;
@@ -364,6 +366,7 @@ static void settings_load(void) {
         else settings_keep_other(k, v);
     }
     fclose(f);
+    if (g_match_system_background && g_follow_light_dark) g_follow_light_dark = false;
     if (g_settings_file_version < SETTINGS_VERSION) {
         char bak[PATH_MAX + 8];
         snprintf(bak, sizeof bak, "%s.bak", path);
@@ -546,7 +549,7 @@ static void settings_write(FILE *f) {
     fprintf(f, "previous_theme=%s\n", g_previous_theme);
     if (g_scroll_custom) fprintf(f, "scrollbar_color=#%06X\n", g_scroll_custom & 0xFFFFFF);
     else fprintf(f, "scrollbar_color=auto\n");
-    fprintf(f, "match_system_background=%d\n", g_match_system_background);
+    fprintf(f, "match_system_background=%d\nfollow_light_dark=%d\n", g_match_system_background, g_follow_light_dark);
     fprintf(f, "system_accent=%d\nunified_surfaces=%d\nshow_separators=%d\n"
                "sidebar_brightness=%d\nheader_brightness=%d\nmain_brightness=%d\nstatus_brightness=%d\npreview_brightness=%d\n"
                "pathbar_brightness=%d\nsearchbar_brightness=%d\ntransparent_pathbar=%d\n",

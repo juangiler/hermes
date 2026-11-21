@@ -11,7 +11,7 @@ enum {
     OPT_DEF_VIEW, OPT_VIEW_PER_FOLDER, OPT_DEF_SORT, OPT_SORT_DESC, OPT_DEF_GROUP,
     OPT_RENDERER, OPT_SETTINGS_FILE, OPT_REINDEX, OPT_TITLE_BAR, OPT_ROUND_CORNERS, OPT_IG_DEFAULT_FM, OPT_IG_UPDATES,
     OPT_UPD_NOW, OPT_UPD_HOW, OPT_UPD_NOTES, OPT_UPD_AUTO,
-    OPT_SYSTEM_ACCENT, OPT_SYSTEM_BACKGROUND, OPT_UNIFIED_SURFACES, OPT_SEPARATORS,
+    OPT_SYSTEM_ACCENT, OPT_SYSTEM_BACKGROUND, OPT_FOLLOW_LIGHT_DARK, OPT_UNIFIED_SURFACES, OPT_SEPARATORS,
     OPT_SIDEBAR_BRIGHTNESS, OPT_HEADER_BRIGHTNESS, OPT_MAIN_BRIGHTNESS, OPT_STATUS_BRIGHTNESS, OPT_PREVIEW_BRIGHTNESS,
     OPT_PATHBAR_BRIGHTNESS, OPT_SEARCHBAR_BRIGHTNESS, OPT_TRANSPARENT_PATHBAR,
     OPT_TAB_POSITION, OPT_TAB_STYLE, OPT_SCROLL_COLOR, OPT_NAV_SELECTION_OPACITY, OPT_HEADER_LABEL, OPT_HEADER_TEXT, OPT_WINDOW_CONTROLS, OPT_HEADER_ICON, OPT_APP_ICON,
@@ -26,6 +26,7 @@ static const OptDef g_opts[] = {
     {OC_APPEARANCE, OK_CHOICE, OPT_THEME, "Theme", "Colour scheme (add your own JSON schemes below)"},
     {OC_APPEARANCE, OK_ACCENT, OPT_ACCENT, "Accent colour", "Selection, focus and highlight colour"},
     {OC_APPEARANCE, OK_BOOL, OPT_SYSTEM_BACKGROUND, "Follow system appearance", "Automatically select the System theme; turn off to restore your previous theme"},
+    {OC_APPEARANCE, OK_BOOL, OPT_FOLLOW_LIGHT_DARK, "Follow light/dark", "Use the app's Light or Dark theme when the desktop switches light or dark; off while System appearance is followed"},
     {OC_APPEARANCE, OK_BOOL, OPT_SYSTEM_ACCENT, "Match system highlight", "Follow the desktop portal accent; use the theme accent if unavailable"},
     {OC_APPEARANCE, OK_CHOICE, OPT_ICON_THEME, "File icons", "Icon set for files and folders"},
     {OC_APPEARANCE, OK_APP_ICON, OPT_APP_ICON, "Application icon", "Choose an SVG or PNG image; Use system restores the desktop icon"},
@@ -235,7 +236,7 @@ static int opt_choice_get(int id) {
     switch (id) {
     case OPT_TAB_POSITION: return g_tab_position;
     case OPT_TAB_STYLE: return g_tab_style;
-    case OPT_THEME: return g_theme_cur;
+    case OPT_THEME: return theme_active_index();
     case OPT_ICON_THEME: return g_icon_theme;
     case OPT_TERM_LOOK: return g_term_look_setting;
     case OPT_TITLE_BAR: return A.title_bar == TITLEBAR_SYSTEM ? 1 : 0;
@@ -308,11 +309,23 @@ static void opt_choice_set(int id, int i) {
     A.settings_dirty = true;
 }
 
+// Follow modes are mutually exclusive: one grays out the other, and the Theme
+// dropdown shows the active theme instead of accepting a manual choice.
+static bool opt_enabled(int id) {
+    if (id == OPT_FOLLOW_LIGHT_DARK)
+        return !g_match_system_background &&
+               (g_theme_cur < 0 || g_theme_cur >= g_nthemes ||
+                strcmp(g_themes[g_theme_cur].name, "System"));
+    if (id == OPT_THEME) return !g_follow_light_dark;
+    return true;
+}
+
 static bool opt_bool_get(int id) {
     switch (id) {
     case OPT_WINDOW_CONTROLS: return g_show_window_controls;
     case OPT_HEADER_ICON: return g_show_header_icon;
     case OPT_SYSTEM_BACKGROUND: return g_match_system_background;
+    case OPT_FOLLOW_LIGHT_DARK: return g_follow_light_dark;
     case OPT_SYSTEM_ACCENT: return g_accent_system;
     case OPT_UNIFIED_SURFACES: return g_unified_surfaces;
     case OPT_TRANSPARENT_PATHBAR: return g_transparent_pathbar;
@@ -352,6 +365,10 @@ static void opt_bool_toggle(int id) {
     case OPT_SYSTEM_BACKGROUND:
         theme_follow_system(!g_match_system_background);
         if (g_match_system_background) system_accent_start();
+        theme_apply();
+        break;
+    case OPT_FOLLOW_LIGHT_DARK:
+        theme_follow_light_dark(!g_follow_light_dark);
         theme_apply();
         break;
     case OPT_SYSTEM_ACCENT:
@@ -734,11 +751,13 @@ static void opt_drop_pick(int k) {
 
 // --- drawing ---------------------------------------------------------------------
 
-static void opt_toggle_draw(Rect t, bool on, bool hv) {
+static void opt_toggle_draw(Rect t, bool on, bool hv, bool enabled) {
     f32 kr = t.h * 0.5f - S(2.5f);
-    draw_rrect(t.x, t.y, t.w, t.h, t.h * 0.5f, on ? C(hv ? COL_ACCENT_HOVER : COL_ACCENT) : C(hv ? COL_CONTROL_HOVER : COL_CHIP));
+    draw_rrect(t.x, t.y, t.w, t.h, t.h * 0.5f,
+               !enabled ? C(COL_CONTROL_OFF) : C(on ? (hv ? COL_ACCENT_HOVER : COL_ACCENT) : (hv ? COL_CONTROL_HOVER : COL_CHIP)));
     f32 kx = on ? t.x + t.w - t.h * 0.5f : t.x + t.h * 0.5f;
-    draw_rrect(kx - kr, t.y + t.h * 0.5f - kr, kr * 2, kr * 2, kr, C(on ? COL_ON_ACCENT : COL_KNOB_OFF));
+    draw_rrect(kx - kr, t.y + t.h * 0.5f - kr, kr * 2, kr * 2, kr,
+               C(!enabled ? COL_TEXT_FAINT : on ? COL_ON_ACCENT : COL_KNOB_OFF));
 }
 
 // Apply/reset actions use a visible accent hover independent of subtle theme control shades.
@@ -811,8 +830,9 @@ static void opt_draw_control(const OptDef *o, f32 x, f32 cy, f32 w) {
     }
     case OK_BOOL: {
         Rect t = {x + w - roundf(S(40)), roundf(cy - S(10)), roundf(S(40)), roundf(S(20))};
-        opt_toggle_draw(t, opt_bool_get(o->id), opt_hover(t));
-        opt_hit(t, HP_TOGGLE, o->id, 0);
+        bool enabled = opt_enabled(o->id);
+        opt_toggle_draw(t, opt_bool_get(o->id), enabled && opt_hover(t), enabled);
+        if (enabled) opt_hit(t, HP_TOGGLE, o->id, 0);
         break;
     }
     case OK_INT: {
@@ -831,29 +851,33 @@ static void opt_draw_control(const OptDef *o, f32 x, f32 cy, f32 w) {
     }
     case OK_CHOICE: {
         int n = opt_choice_count(o->id), cur = opt_choice_get(o->id);
+        bool enabled = opt_enabled(o->id);
         if (n <= 3 && o->id != OPT_THEME && o->id != OPT_FONT) { // segmented
             f32 sw = roundf(S(96)), x0 = x + w - sw * (f32)n;
-            draw_rrect(x0, y, sw * (f32)n, ch, S(7), C(COL_FIELD));
+            draw_rrect(x0, y, sw * (f32)n, ch, S(7), C(enabled ? COL_FIELD : COL_CONTROL_OFF));
             for (int i = 0; i < n; i++) {
                 Rect r = {x0 + sw * (f32)i, y, sw, ch};
                 bool on = i == cur;
-                if (on) draw_rrect(r.x + S(2), r.y + S(2), r.w - S(4), r.h - S(4), S(6), C(COL_ACCENT));
-                else if (opt_hover(r)) draw_rrect(r.x + S(2), r.y + S(2), r.w - S(4), r.h - S(4), S(6), C(COL_CONTROL_HOVER));
+                if (enabled && on) draw_rrect(r.x + S(2), r.y + S(2), r.w - S(4), r.h - S(4), S(6), C(COL_ACCENT));
+                else if (enabled && opt_hover(r)) draw_rrect(r.x + S(2), r.y + S(2), r.w - S(4), r.h - S(4), S(6), C(COL_CONTROL_HOVER));
                 const char *l = opt_choice_label(o->id, i);
-                draw_text_fit(fs, r.x + S(4), text_y(fs, y, ch), r.w - S(8), l, (int)strlen(l), C(on ? COL_ON_ACCENT : COL_TEXT), 2);
-                opt_hit(r, HP_SEG, o->id, i);
+                draw_text_fit(fs, r.x + S(4), text_y(fs, y, ch), r.w - S(8), l, (int)strlen(l),
+                              C(!enabled ? COL_TEXT_FAINT : on ? COL_ON_ACCENT : COL_TEXT), 2);
+                if (enabled) opt_hit(r, HP_SEG, o->id, i);
             }
         } else { // dropdown button
             f32 dw = roundf(S(220));
             Rect r = {x + w - dw, y, dw, ch};
-            bool open = g_opt.drop_opt == o->id;
-            draw_rrect(r.x, r.y, r.w, r.h, S(7), C(open || opt_hover(r) ? COL_FIELD_HOVER : COL_FIELD));
+            bool open = g_opt.drop_opt == o->id && enabled;
+            draw_rrect(r.x, r.y, r.w, r.h, S(7),
+                       C(!enabled ? COL_CONTROL_OFF : (open || opt_hover(r) ? COL_FIELD_HOVER : COL_FIELD)));
             if (open) draw_rrect_outline(r.x, r.y, r.w, r.h, S(7), MAX(1.f, S(1.2f)), C(COL_ACCENT));
             const char *l = cur < n ? opt_choice_label(o->id, cur) : "";
             if (o->id == OPT_FONT && A.ui_font[0] && cur == 0) l = A.ui_font; // not in the list (yet)
-            draw_text_fit(f, r.x + S(10), text_y(f, y, ch), r.w - S(36), l, (int)strlen(l), C(COL_TEXT), 0);
-            draw_chevron(r.x + r.w - S(16), cy, S(6), 3, MAX(1.f, S(1.4f)), C(COL_TEXT_DIM));
-            opt_hit(r, HP_DROP, o->id, 0);
+            draw_text_fit(f, r.x + S(10), text_y(f, y, ch), r.w - S(36), l, (int)strlen(l),
+                          C(!enabled ? COL_TEXT_FAINT : COL_TEXT), 0);
+            draw_chevron(r.x + r.w - S(16), cy, S(6), 3, MAX(1.f, S(1.4f)), C(!enabled ? COL_TEXT_FAINT : COL_TEXT_DIM));
+            if (enabled) opt_hit(r, HP_DROP, o->id, 0);
         }
         break;
     }
@@ -1405,7 +1429,9 @@ static void options_click(f32 x, f32 y, int clicks) {
         }
     }
     // clicking a row's label toggles booleans (like a checkbox label)
-    if (g_opt.hover_row >= 0 && g_opts[g_opt.hover_row].kind == OK_BOOL) opt_bool_toggle(g_opts[g_opt.hover_row].id);
+    if (g_opt.hover_row >= 0 && g_opts[g_opt.hover_row].kind == OK_BOOL &&
+        opt_enabled(g_opts[g_opt.hover_row].id))
+        opt_bool_toggle(g_opts[g_opt.hover_row].id);
     (void)clicks;
 }
 

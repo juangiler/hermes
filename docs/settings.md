@@ -83,6 +83,12 @@ selects **System** in the Theme dropdown. Turning it off restores the previous t
 turns following off. Older `match_system_background=1` settings are kept compatible and select System on startup.
 All surface brightness controls still apply afterward.
 
+**Follow light/dark.** Options > Appearance > **Follow light/dark** follows only the desktop's light/dark preference,
+switching between the app's built-in **Light** and **Dark** themes. It does not use the desktop palette. This switch is
+disabled while **Follow system appearance** is on or the **System** theme is selected; enabling either of those turns
+it off. While it is on, the Theme dropdown shows the active Light or Dark theme and is disabled. The two follow modes
+are mutually exclusive, and turning either one off restores the previously chosen manual theme.
+
 File icons > **System** follows the current desktop icon theme; **System: Reversal** (or another installed name)
 selects that theme explicitly. Themes are discovered from `~/.local/share/icons`, `~/.icons`, and the XDG data
 locations. Distrobox also checks `/run/host/usr/share/icons` when available. PNG/SVG files, sizes/scales and theme
@@ -151,6 +157,7 @@ searchbar_brightness=0
 transparent_pathbar=0
 system_accent=0
 match_system_background=0
+follow_light_dark=0
 previous_theme=Dark
 scrollbar_color=auto
 header_label=app
