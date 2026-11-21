@@ -146,7 +146,7 @@ static void settings_keep_other(const char *k, const char *v) {
     g_settings_other_len += (size_t)snprintf(g_settings_other + g_settings_other_len, sizeof g_settings_other - g_settings_other_len, "%s=%s\n", k, v);
 }
 
-#define SETTINGS_VERSION 1 // bumped when a migration in settings_migrate() changes a stored value
+#define SETTINGS_VERSION 2 // bumped when a migration in settings_migrate() changes a stored value
 
 static char *file_read_all(const char *path) {
     FILE *f = fopen(path, "r");
@@ -166,11 +166,17 @@ static char *file_read_all(const char *path) {
 static char *g_settings_base; // this process's settings when it last synced (started up / saved); NULL: not yet
 static char *g_settings_disk; // the file as it was then (NULL: there was none)
 static int g_settings_file_version; // settings_version= of the file loaded (0: from before it was written)
+static bool g_pathbar_key_seen, g_searchbar_key_seen; // legacy-key presence while loading
 
 // Changes to stored values when a default changes (only ever for values the user can't have picked themselves).
 // from: the file's settings_version. The file was copied to settings.conf.bak first.
 static void settings_migrate(int from) {
-    (void)from; // (none yet: version 1 is the first)
+    if (from < 2) {
+        // Before the separate controls, path/pills/search followed header brightness. Seed only keys the
+        // file did not set, so an upgrade preserves the user's existing appearance.
+        if (!g_pathbar_key_seen) g_pathbar_brightness = g_surface_brightness[SURFACE_HEADER];
+        if (!g_searchbar_key_seen) g_searchbar_brightness = g_surface_brightness[SURFACE_HEADER];
+    }
 }
 
 static void settings_load(void) {
@@ -178,6 +184,7 @@ static void settings_load(void) {
     g_settings_other_len = 0;
     g_settings_other[0] = 0;
     g_settings_file_version = 0;
+    g_pathbar_key_seen = g_searchbar_key_seen = false;
     free(g_settings_base); // (a load replaces what this process knew: until settings_snapshot, saves write it all)
     free(g_settings_disk);
     g_settings_base = g_settings_disk = NULL;
@@ -284,8 +291,8 @@ static void settings_load(void) {
         else if (!strcmp(k, "sidebar_brightness")) g_surface_brightness[SURFACE_SIDEBAR] = CLAMP(atoi(v), -30, 30);
         else if (!strcmp(k, "preview_brightness")) g_surface_brightness[SURFACE_PREVIEW] = CLAMP(atoi(v), -30, 30);
         else if (!strcmp(k, "header_brightness")) g_surface_brightness[SURFACE_HEADER] = CLAMP(atoi(v), -30, 30);
-        else if (!strcmp(k, "pathbar_brightness")) g_pathbar_brightness = CLAMP(atoi(v), -30, 30);
-        else if (!strcmp(k, "searchbar_brightness")) g_searchbar_brightness = CLAMP(atoi(v), -30, 30);
+        else if (!strcmp(k, "pathbar_brightness")) { g_pathbar_key_seen = true; g_pathbar_brightness = CLAMP(atoi(v), -30, 30); }
+        else if (!strcmp(k, "searchbar_brightness")) { g_searchbar_key_seen = true; g_searchbar_brightness = CLAMP(atoi(v), -30, 30); }
         else if (!strcmp(k, "transparent_pathbar")) g_transparent_pathbar = atoi(v) != 0;
         else if (!strcmp(k, "main_brightness")) g_surface_brightness[SURFACE_MAIN] = CLAMP(atoi(v), -30, 30);
         else if (!strcmp(k, "status_brightness")) g_surface_brightness[SURFACE_STATUS] = CLAMP(atoi(v), -30, 30);

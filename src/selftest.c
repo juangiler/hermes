@@ -3199,6 +3199,26 @@ static int run_selftest_m9(void) {
     }
     settings_load();
     ST_CHECK(g_pathbar_brightness == 30 && g_searchbar_brightness == -30 && g_transparent_pathbar);
+
+    // Legacy files had no field keys: inherit the old header-derived fill once on upgrade.
+    sf = fopen(cfg, "w");
+    ST_CHECK(sf != NULL);
+    if (sf) {
+        fputs("settings_version=1\nheader_brightness=-30\n", sf);
+        fclose(sf);
+    }
+    settings_load();
+    ST_CHECK(g_pathbar_brightness == -30 && g_searchbar_brightness == -30);
+
+    // Explicit keys in a legacy file win over the inherited header value.
+    sf = fopen(cfg, "w");
+    ST_CHECK(sf != NULL);
+    if (sf) {
+        fputs("settings_version=1\nheader_brightness=-30\npathbar_brightness=15\nsearchbar_brightness=-10\n", sf);
+        fclose(sf);
+    }
+    settings_load();
+    ST_CHECK(g_pathbar_brightness == 15 && g_searchbar_brightness == -10);
     settings_defaults();
     qa_defaults();
 

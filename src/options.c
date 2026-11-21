@@ -53,7 +53,7 @@ static const OptDef g_opts[] = {
     {OC_APPEARANCE, OK_INT, OPT_NAV_SELECTION_OPACITY, "Navigation selection opacity", "Sidebar, configuration navigation and pill tabs: 0-100%, default 40%; hover stays at 8%"},
     {OC_APPEARANCE, OK_INT, OPT_SIDEBAR_BRIGHTNESS, "Sidebar brightness", "Left sidebar only: negative darkens, positive lightens, zero resets"},
     {OC_APPEARANCE, OK_INT, OPT_PREVIEW_BRIGHTNESS, "Preview panel brightness", "Right preview panel only: -30% to +30%, independent of the sidebar"},
-    {OC_APPEARANCE, OK_INT, OPT_HEADER_BRIGHTNESS, "Header brightness", "Label, navigation, tabs and window controls: -30% to +30%"},
+    {OC_APPEARANCE, OK_INT, OPT_HEADER_BRIGHTNESS, "Header brightness", "Title strip, tab bar, selected tab fill and window controls: -30% to +30%"},
     {OC_APPEARANCE, OK_INT, OPT_PATHBAR_BRIGHTNESS, "Path bar and pills brightness", "Path field and pill-tab enclosure: -30% to +30%"},
     {OC_APPEARANCE, OK_INT, OPT_SEARCHBAR_BRIGHTNESS, "Folder search background brightness", "Folder search field only: -30% to +30%"},
     {OC_APPEARANCE, OK_BOOL, OPT_TRANSPARENT_PATHBAR, "Transparent path bar", "Remove only the path field fill; pills and search stay filled"},

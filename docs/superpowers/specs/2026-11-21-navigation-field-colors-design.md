@@ -48,7 +48,10 @@ transparent.
 ## Decisions
 
 - Settings keys: `pathbar_brightness`, `searchbar_brightness`,
-  `transparent_pathbar`; defaults `0`, `0`, `0` so existing installs look the same.
+  `transparent_pathbar`; defaults `0`, `0`, `0` for new installs. Legacy files
+  without the two brightness keys inherit the saved header brightness once during
+  `settings_migrate()` so existing installs keep their appearance; explicit new
+  keys in a legacy file win.
 - Brightness range: -30 to +30 in 5% steps, matching the existing surface sliders.
 - Add `pathbar_field_color()` and `searchbar_field_color()` beside the existing
   `navigation_field_color()`, which stays the neutral text-selection base so

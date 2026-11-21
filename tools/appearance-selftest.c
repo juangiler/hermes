@@ -32,6 +32,7 @@ static void test_navigation_fields(void) {
     g_surface_brightness[SURFACE_HEADER] = -30;
     theme_apply();
     assert(navigation_field_color() != neutral);
+    u32 selection_base = navigation_field_color();
     assert(pathbar_field_color() == neutral && searchbar_field_color() == neutral);
 
     g_pathbar_brightness = -30;
@@ -44,7 +45,7 @@ static void test_navigation_fields(void) {
     u32 search_light = searchbar_field_color();
     assert(rgb_luma(search_light) > rgb_luma(path_dark));
     assert(tab_container_color() == path_dark);
-    assert(navigation_field_color() != neutral); // header still independent
+    assert(navigation_field_color() == selection_base); // field brightness never moves text selection
 
     g_transparent_pathbar = true;
     assert(pathbar_field_fill_alpha() == 0.f);
