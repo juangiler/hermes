@@ -71,7 +71,7 @@ static void system_appearance_apply(void *arg) {
         icons_flush(); // Trash and window controls follow the desktop even with a bundled file-icon set
     }
     free(state);
-    if (!g_scroll_custom || g_accent_system || g_match_system_background || !strcmp(g_themes[g_theme_cur].name, "System"))
+    if (!g_scroll_custom || g_accent_system || g_match_system_background || g_follow_light_dark || !strcmp(g_themes[g_theme_cur].name, "System"))
         theme_apply();
     A.redraw = true;
 }

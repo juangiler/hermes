@@ -109,6 +109,9 @@ static int g_navigation_selection_opacity = NAV_SELECTION_DEFAULT;
 static int g_pathbar_brightness, g_searchbar_brightness;
 static bool g_transparent_pathbar;
 static bool g_accent_system, g_match_system_background;
+static bool g_follow_light_dark;
+static void theme_follow_light_dark(bool enabled);
+static int theme_active_index(void);
 static char g_previous_theme[64] = "Dark";
 static u32 g_scroll_custom; // 0 = automatic; otherwise 0x01000000 | rgb
 static int g_system_color_scheme; // portal: 0 unknown, 1 dark, 2 light
@@ -271,6 +274,7 @@ static bool scrollbar_color_parse(const char *value, u32 *out) {
 static void theme_apply(void) {
     if (g_theme_cur < 0 || g_theme_cur >= g_nthemes) g_theme_cur = 0;
     T = g_themes[g_theme_cur].t;
+    if (g_follow_light_dark) T = g_themes[theme_active_index()].t;
     bool system = !strcmp(g_themes[g_theme_cur].name, "System");
     if (system || g_match_system_background) {
         if (g_system_palette_valid) T = g_system_palette;
@@ -462,9 +466,42 @@ static void theme_select(int index) {
         snprintf(g_previous_theme, sizeof g_previous_theme, "%s", g_themes[g_theme_cur].name);
     g_theme_cur = index;
     g_match_system_background = system;
+    if (system) g_follow_light_dark = false;
     if (!system) snprintf(g_previous_theme, sizeof g_previous_theme, "%s", g_themes[index].name);
 }
+static int theme_active_index(void) {
+    if (g_follow_light_dark)
+        return MAX(0, theme_find(g_system_color_scheme == 2 ? "Light" : "Dark"));
+    return g_theme_cur;
+}
+static void theme_follow_light_dark(bool enabled) {
+    if (enabled) {
+        if (g_match_system_background) {
+            g_match_system_background = false;
+            if (g_theme_cur >= 0 && g_theme_cur < g_nthemes &&
+                !strcmp(g_themes[g_theme_cur].name, "System"))
+                g_theme_cur = MAX(0, theme_find("Dark"));
+        }
+        if (g_theme_cur >= 0 && g_theme_cur < g_nthemes &&
+            strcmp(g_themes[g_theme_cur].name, "System"))
+            snprintf(g_previous_theme, sizeof g_previous_theme, "%s", g_themes[g_theme_cur].name);
+        g_follow_light_dark = true;
+    } else {
+        g_follow_light_dark = false;
+        int index = theme_find(g_previous_theme);
+        if (index < 0 || !strcmp(g_themes[index].name, "System")) index = 0;
+        theme_select(index);
+    }
+}
 static void theme_follow_system(bool enabled) {
+    if (enabled) {
+        // Keep the manual theme underneath a follow-light session, so turning
+        // both modes off in sequence still returns to what the user picked.
+        if (!g_follow_light_dark && g_theme_cur >= 0 && g_theme_cur < g_nthemes &&
+            strcmp(g_themes[g_theme_cur].name, "System"))
+            snprintf(g_previous_theme, sizeof g_previous_theme, "%s", g_themes[g_theme_cur].name);
+        g_follow_light_dark = false;
+    }
     int index = theme_find(enabled ? "System" : g_previous_theme);
     if (!enabled && index >= 0 && !strcmp(g_themes[index].name, "System")) index = 0;
     theme_select(index);

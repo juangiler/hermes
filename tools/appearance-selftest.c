@@ -500,7 +500,48 @@ static void test_portal_messages(void) {
     assert(!g_system_appearance.started);
 }
 
+static void test_follow_light_dark(void) {
+    themes_scan();
+    theme_select(theme_find("Nord"));
+    g_unified_surfaces = true;
+    g_system_palette_valid = true;
+    g_system_palette.bg = 0x123456;   // must be ignored while following light/dark
+    g_system_accent = 0;
+    g_system_color_scheme = 2;        // desktop is light
+    theme_follow_light_dark(true);
+    assert(g_follow_light_dark && !g_match_system_background);
+    theme_apply();
+    assert(theme_active_index() == theme_find("Light") && T.bg == g_theme_light.bg);
+
+    g_system_color_scheme = 1;        // desktop is dark
+    theme_apply();
+    assert(theme_active_index() == theme_find("Dark") && T.bg == g_theme_dark.bg);
+
+    g_accent_system = true;
+    g_system_accent = 0x01000000u | 0x123456;
+    theme_apply();
+    assert(T.accent == 0x123456);
+    g_accent_system = false;
+    g_system_accent = 0;
+    g_system_palette_valid = false;
+
+    theme_follow_system(true);
+    assert(g_match_system_background && !g_follow_light_dark);
+    theme_follow_light_dark(true);
+    assert(g_follow_light_dark && !g_match_system_background);
+    theme_select(theme_find("System"));
+    assert(!g_follow_light_dark);
+
+    theme_select(theme_find("Nord"));
+    theme_follow_light_dark(true);
+    theme_follow_system(true);        // must preserve the manual theme underneath
+    theme_follow_system(false);
+    theme_follow_light_dark(false);
+    assert(!g_follow_light_dark && !strcmp(g_themes[g_theme_cur].name, "Nord"));
+}
+
 int main(void) {
+    test_follow_light_dark();
     test_follow_system_and_scrollbars();
     test_tab_preferences();
     test_tab_highlight();
