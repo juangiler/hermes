@@ -3770,6 +3770,7 @@ static void pv_duration_label(int ms, char *out, size_t cap) {
 
 static void draw_preview(void) {
     if (!A.preview_on || !A.ntabs) return;
+    A.r_pv_text = (Rect){0, 0, 0, 0}; // no text hit test until the text box is drawn
     Rect r = A.r_preview;
     Pane *p = active_pane();
     Font *f = &A.font, *fs = &A.font_small;
@@ -3935,20 +3936,22 @@ static void draw_preview(void) {
             ClipSave c2 = draw_clip_push((SDL_Rect){(int)box.x + 2, (int)box.y + 2, (int)box.w - 4, (int)box.h - 4});
             Font *fm = &A.font_mono;
             f32 lh = roundf(fm->line_h * 1.15f), ty = box.y + S(8);
+            A.r_pv_text = box;
+            A.pv_text_vis = (int)((box.h - S(8)) / lh);
             f32 gw = text_width(fm, "00000", 5);
             const char *s0 = pv->text;
             int lineno = pv->first_line > 0 ? pv->first_line : 1;
-            // contents search: the line in the upper third, it and the matches highlighted
+            // a content-search hit owns the base position; paging adds only the wheel offset,
+            // so neither one silently replaces the other
             Pane *ap = active_pane();
             const CQuery *cq = ap->L && ap->L->is_content && pv->want_line ? ap->L->cq : NULL;
-            if (pv->want_line) {
-                int vis = (int)((box.h - S(8)) / lh), skip_to = pv->want_line - vis / 3;
-                while (*s0 && lineno < skip_to) {
-                    const char *eol = strchr(s0, '\n');
-                    if (!eol) break;
-                    s0 = eol + 1;
-                    lineno++;
-                }
+            int target_first = (pv->want_line ? pv->want_line - A.pv_text_vis / 3 : pv->first_line) + A.text_scroll_lines;
+            target_first = MAX(pv->first_line, target_first);
+            while (*s0 && lineno < target_first) {
+                const char *eol = strchr(s0, '\n');
+                if (!eol) break;
+                s0 = eol + 1;
+                lineno++;
             }
             while (*s0 && ty < box.y + box.h - S(4)) {
                 const char *eol = strchr(s0, '\n');

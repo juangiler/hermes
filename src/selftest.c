@@ -1449,6 +1449,10 @@ static bool c_pv_ready(void) {
     return A.pv && !strcmp(A.pv_want, cur) && !strcmp(A.pv->path, A.pv_want) && !A.pv_due;
 }
 
+static bool c_pv_paged(void) {
+    return A.pv && A.pv->kind == PV_TEXT && A.pv->first_line > 1;
+}
+
 // A fully transparent preview must leave the panel background visible through the texture and around it
 // (no opaque frame/checkerboard), so a renderer that flattens alpha cannot pass on screenshots alone.
 static void st_check_preview_alpha(void) {
@@ -1517,6 +1521,41 @@ static int run_selftest_m5(void) {
     ST_CHECK(A.pv->kind == PV_TEXT && A.pv->text && !strncmp(A.pv->text, "line 1\t", 7));
     ST_CHECK(A.pv->total_lines == 50);
     st_shot("preview-text");
+    // wheel over the text preview scrolls, clamps at both ends, and resets on a new file
+    st_frames(2);
+    SDL_MouseWheelEvent wev;
+    SDL_zero(wev);
+    wev.mouse_x = A.r_pv_text.x + S(10);
+    wev.mouse_y = A.r_pv_text.y + S(10);
+    wev.y = -1; // project convention: negative wheel scrolls down
+    on_wheel(&wev);
+    ST_CHECK(A.text_scroll_lines == 3);
+    wev.y = -1000;
+    on_wheel(&wev);
+    ST_CHECK(A.text_scroll_lines == MAX(0, A.pv->total_lines - A.pv_text_vis));
+    wev.y = 1000;
+    on_wheel(&wev);
+    ST_CHECK(A.text_scroll_lines == 0);
+
+    st_select(p, "photo.bmp");
+    ST_CHECK(st_wait_cond(c_pv_ready, 3000));
+    st_select(p, "notes.txt");
+    ST_CHECK(st_wait_cond(c_pv_ready, 3000));
+    ST_CHECK(A.text_scroll_lines == 0);
+
+    // a big file pages to a later window while the content-search line stays untouched;
+    // a taller window gives enough visible lines for the worker's >40 page seek
+    int saved_h = A.win_h;
+    SDL_SetWindowSize(A.win, A.win_w, 1000);
+    st_frames(2);
+    st_select(p, "big.txt");
+    ST_CHECK(st_wait_cond(c_pv_ready, 3000));
+    ST_CHECK(A.pv->total_lines == 5000 && A.pv_line == 0);
+    for (int k = 0; k < 40; k++) { wev.y = -1; on_wheel(&wev); st_frames(1); }
+    ST_CHECK(st_wait_cond(c_pv_paged, 3000));
+    ST_CHECK(A.pv_line == 0 && A.pv->first_line > 1);
+    SDL_SetWindowSize(A.win, A.win_w, saved_h);
+    st_frames(2);
     // large text: the whole file is counted even though only a 64 KiB window is decoded
     st_select(p, "big.txt");
     ST_CHECK(st_wait_cond(c_pv_ready, 3000));
