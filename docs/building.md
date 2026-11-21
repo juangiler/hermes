@@ -2,11 +2,10 @@
 
 [README](../README.md) · [Install](install.md) · [Distrobox](immutable-distros.md) · [Architecture](architecture.md)
 
-Hermes is a C11/SDL3 Linux application with a unity build, plus a Qt 6/Kirigami
-shell under development. `build.sh` compiles only `src/main.c` for the legacy
-SDL app; other C files are included into that translation unit. CMake builds
-the headless core library and, during migration, both UI executables.
-`build.sh` remains authoritative for the legacy application.
+Hermes is a C11/SDL3 Linux application with a unity build. `build.sh` compiles
+only `src/main.c`; other C files are included into that translation unit.
+CMake is only used for the headless core library; ordinary application builds
+do not need it.
 
 ## Dependencies
 
@@ -83,83 +82,9 @@ sh tools/portal-selftest.sh   # private dbus-run-session, Qt Test portal suite
 local run and CI use the same entry point. The suite needs a working session
 bus; it does not open a picker window. CI's informational `portal-selftest`
 job runs on `archlinux:latest` with `qt6-base` and `dbus` (plus the core build
-dependencies) as a non-root user and configures with
-`-DHERMES_BUILD_QT_UI=OFF` to keep that smaller package set. The four `build`
-matrix legs install the Qt/Kirigami packages below and cover both UIs. These
-headless runs prove D-Bus plumbing only, not live KDE Plasma portal behaviour.
-
-### Qt/Kirigami shell (migration)
-
-The `hermes-qt` executable is built by CMake from Qt 6 Quick, Kirigami and KF6;
-it links the SDL-free `hermes_core` archive. `hermes-legacy` is a separate
-unity compilation of `src/main.c` and does not link that archive. Install the
-same packages the four CI build legs use:
-
-```sh
-# Arch (archlinux:latest)
-pacman -Syu --noconfirm --needed base-devel git pkgconf cmake sdl3 freetype2 harfbuzz fontconfig libarchive libvterm fuse3 openssl qt6-base qt6-declarative kirigami extra-cmake-modules qqc2-desktop-style
-# Fedora (fedora:latest)
-dnf install -y gcc git pkgconf-pkg-config cmake SDL3-devel freetype-devel harfbuzz-devel fontconfig-devel libarchive-devel libvterm-devel fuse3-devel openssl-devel qt6-qtbase-devel qt6-qtdeclarative-devel kf6-kirigami-devel extra-cmake-modules kf6-qqc2-desktop-style
-# Debian trixie / Ubuntu 26.04
-apt-get update
-DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential git pkg-config cmake libsdl3-dev libfreetype-dev libharfbuzz-dev libfontconfig-dev libarchive-dev libvterm-dev libfuse3-dev libssl-dev qt6-base-dev qt6-declarative-dev libkirigami-dev extra-cmake-modules qml6-module-org-kde-kirigami qml6-module-org-kde-desktop
-```
-
-Build both UIs and run the Qt Test suite the way CI does:
-
-```sh
-cmake -S . -B build/cmake-ui -DHERMES_BUILD_QT_UI=ON -DHERMES_DEFAULT_UI=legacy
-cmake --build build/cmake-ui --target hermes-legacy hermes-qt hermes-qt-selftest 2>&1 | tee cmake-ui-build.log
-if grep -q 'warning:' cmake-ui-build.log; then echo "::error::Qt UI compiler warnings"; exit 1; fi
-QT_QPA_PLATFORM=offscreen ./build/cmake-ui/hermes-qt-selftest
-cmake -S . -B build/cmake-ui-qt -DHERMES_BUILD_QT_UI=ON -DHERMES_DEFAULT_UI=kirigami
-cmake --build build/cmake-ui-qt --target hermes-qt
-```
-
-`HERMES_DEFAULT_UI` is a temporary migration install flag: `legacy` (the
-default) installs the SDL binary as `hermes`, `kirigami` installs `hermes-qt`
-as `hermes`. With `HERMES_BUILD_QT_UI=ON`, both executables are installed under
-their own names too; the flag and the legacy target are removed in PR 5.
-Core-only and portal-only CMake builds pass `-DHERMES_BUILD_QT_UI=OFF` and keep
-their smaller package sets.
-
-The Qt Test and QML load cases run with `QT_QPA_PLATFORM=offscreen`; they check
-build and headless plumbing only and do **not** prove live KDE Plasma behaviour
-(the target is Plasma 6.6-6.8). Runtime Qt Quick uses the hardware scene graph;
-offscreen/software backends are for tests only. The Qt frontend now has its own
-`--screenshot FILE` and `HERMES_RECORD` equivalents of the legacy diagnostics;
-those options apply to `hermes-qt`, while the originals still apply to the SDL
-binary at `./build/*/hermes`.
-
-The Qt window has one tab strip, and each tab holds its own tree of split panes
-instead of sharing a single directory view. Splitting a tab adds a pane; the
-focused pane receives navigation, selection and commands, and a tab with more
-than one pane is marked `MULTI`. Tabs can be renamed and each keeps its own pane
-layout while the window is open. The arrangement is not yet persisted: the
-Qt-owned session arrives in S2b. As noted above, the offscreen suites verify
-headless plumbing only, not live KDE Plasma behaviour.
-
-Directory scans run on the engine's worker pool: `DirectoryModel` hands each
-`hermes_core_scan_start()` handle to one worker thread, which polls it, sorts
-the listing, builds the rows and posts a finished snapshot to the GUI thread.
-The GUI thread only applies that snapshot, keeping the rows on screen until the
-new ones arrive; an engine wake merely nudges the worker. A superseded scan is
-dropped by generation, so navigating again cannot let an older result overwrite
-newer rows. The recursive folder-size pass still costs time on deep trees, but
-it runs on the worker too, so neither it nor the final sort blocks the event
-loop.
-
-Notes carried forward from this slice:
-
-- A file name that is not valid UTF-8 is decoded to the replacement character
-  for display. The model also retains the scanned raw bytes, so an operation
-  targets the exact file when the displayed path maps to one row. If two raw
-  names decode to the same displayed path, the operation is refused with a
-  visible message instead of guessing which file the user meant.
-- The date column relies on `QLocale::dateFormat` and `timeFormat` and the
-  `QLocale::toString(QDate, QString)` overload. The Qt suite runs on all four CI
-  images, so the formats are exercised on each distribution's Qt version; a
-  live Plasma session remains the only place to confirm the rendered result.
+dependencies) as a non-root user. The other images in the build matrix do not
+declare Qt packages in CI yet, so do not assume coverage there. These headless
+runs prove D-Bus plumbing only, not live KDE Plasma portal behaviour.
 
 ## Install and package
 
