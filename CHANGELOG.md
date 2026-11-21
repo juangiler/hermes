@@ -10,12 +10,6 @@ will be listed above that history.
 - A **Follow light/dark** switch follows the desktop light/dark preference using
   the built-in Light and Dark themes, mutually exclusive with following the full
   System appearance.
-- Headless Qt 6 D-Bus/portal plumbing against the `hermes_core` C ABI: async
-  Settings/OpenURI/Documents clients, FileManager1 and FileChooser service
-  stubs, and an opt-in file-chooser role CLI (`--enable-filechooser` /
-  `--disable-filechooser` / `--status`, with `portals.conf.hermes-backup`
-  restore). No desktop role is taken by default and no picker UI exists yet;
-  `sh tools/portal-selftest.sh` covers the plumbing headlessly.
 - Pushing a `v<version>` tag now creates a draft release with the Hermes source
   archive and its SHA256 checksum, using notes from that version's `CHANGELOG.md`
   section. Dispatching the `Publish release` workflow with the tag publishes the
@@ -27,15 +21,15 @@ will be listed above that history.
   adoption. It has been **fully purged**: legacy data is ignored, overrides are
   `HERMES_*` only, and a stale migration lock can no longer block startup.
   Existing legacy files are left untouched.
-- `refactor(core)`: the SDL-free engine is now available as a `hermes_core` C
-  library behind a small ABI, with host callbacks and headless self-tests. The
-  SDL application and its behaviour are unchanged; this is groundwork for the
-  Qt/Kirigami port.
 - Path bar/pill and folder search backgrounds now have independent brightness
   controls, plus a path-only transparency option.
 - Previews preserve transparency for PNG/ICO/SVG/WebP/GIF and now show image
   dimensions/DPI, optional video and PDF metadata, and compact grid image
   details; text previews scroll through the whole file.
+
+**Removed**
+- Removed the unused headless `hermes_core` C ABI and Qt portal plumbing; the
+  SDL app's Settings portal support is unchanged.
 
 ## 0.0.1
 
