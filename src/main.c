@@ -36,6 +36,7 @@ const char *__lsan_default_suppressions(void) { return "leak:libX11.so\nleak:lib
 #include "snapshots.c"
 #include "image_meta.c"
 #include "svg_preview.c"
+#include "media_probe.c"
 #include "preview.c"
 #include "ico_preview.c"
 #include "usb.c"

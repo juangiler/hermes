@@ -16,6 +16,7 @@
 
 #include "../src/image_meta.c"
 #include "../src/ico_preview.c"
+#include "../src/media_probe.c"
 
 static void write_file(const char *path, const void *data, size_t len) {
     FILE *f = fopen(path, "wb");
@@ -179,10 +180,34 @@ static void test_ico_alpha(void) {
     unlink(path);
 }
 
+static void test_media_parsers(void) {
+    VideoMeta v = {0};
+    assert(parse_ffprobe_output(
+        "codec_name=h264\nwidth=1920\nheight=1080\nduration=134.25\n", &v));
+    assert(v.duration_ms == 134250 && v.w == 1920 && v.h == 1080);
+    assert(!strcmp(v.codec, "H.264"));
+    memset(&v, 0, sizeof v);
+    assert(!parse_ffprobe_output("not probe output\n", &v));
+
+    DocMeta d = {0};
+    assert(parse_pdfinfo_output("Title: Report\nAuthor: Ada\nPages: 12\n", &d));
+    assert(d.pages == 12 && !strcmp(d.title, "Report") && !strcmp(d.author, "Ada"));
+    memset(&d, 0, sizeof d);
+    assert(!parse_pdfinfo_output("Pages: nope\n", &d));
+
+    char a[PATH_MAX], b[PATH_MAX], c[PATH_MAX];
+    pdf_page_cache_path("/tmp/opencode/hermes-thumbs", "/a/b.pdf", a, sizeof a);
+    pdf_page_cache_path("/tmp/opencode/hermes-thumbs", "/a/b.pdf", b, sizeof b);
+    pdf_page_cache_path("/tmp/opencode/hermes-thumbs", "/a/c.pdf", c, sizeof c);
+    assert(!strncmp(a, "/tmp/opencode/hermes-thumbs/pdf-", 32));
+    assert(!strcmp(a, b) && strcmp(a, c) && strstr(a, ".png") != NULL);
+}
+
 int main(void) {
     test_alpha_capable();
     test_image_dpi();
     test_ico_alpha();
+    test_media_parsers();
     puts("Preview info: passed");
     return 0;
 }
