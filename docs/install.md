@@ -1,6 +1,6 @@
 # Installing Hermes
 
-[README](../README.md) · [Building](building.md) · [Legacy support (removed)](migration.md)
+[README](../README.md) · [Building](building.md)
 
 Hermes currently ships source and local package recipes, not a public apt/dnf
 repository, AUR submission, or published AppImage channel. Do not use the
@@ -49,7 +49,7 @@ The helper builds `packaging/rpm/hermes.spec` with a private RPM tree under
 `sudo dnf install ./dist/<package>.rpm`. Do not install the source RPM as the app.
 
 On immutable Fedora desktops, build inside Distrobox rather than layering
-development dependencies onto the host; see [Distrobox](immutable-distros.md).
+development dependencies onto the host.
 
 ## Arch Linux
 
@@ -91,5 +91,4 @@ is claimed until an artifact has actually been built and tested.
 Remove Hermes through the same package manager used to install it. User data
 under the Hermes XDG directories is retained. The old File Explorer package and
 its repositories are not automatically uninstalled or deleted; Hermes does not
-import or modify their data. See [legacy support (removed)](migration.md) for
-the history.
+import or modify their data.

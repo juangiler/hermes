@@ -23,7 +23,7 @@ will be listed above that history.
   `FE_*` aliases, lazy keyring and cloud handover, and generated-launcher
   adoption. It has been **fully purged**: legacy data is ignored, overrides are
   `HERMES_*` only, and a stale migration lock can no longer block startup.
-  Existing legacy files are left untouched; see `docs/migration.md` for history.
+  Existing legacy files are left untouched.
 - `refactor(core)`: the SDL-free engine is now available as a `hermes_core` C
   library behind a small ABI, with host callbacks and headless self-tests. The
   SDL application and its behaviour are unchanged; this is groundwork for the
@@ -41,8 +41,7 @@ will be listed above that history.
   state are imported into the `hermes` namespaces with a per-file ledger,
   retained sources, and an early lock/probe that refuses to migrate while a
   legacy instance is still running. Existing Hermes files always win; the
-  legacy cloud subtree is excluded. Recovery steps are documented in
-  `docs/migration.md`.
+  legacy cloud subtree is excluded.
 - The generated folder launcher and an app-generated default folder handler are
   adopted in place at startup when their provenance is recognizable; user defaults
   are never reset and a default that names another application is left alone.

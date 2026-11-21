@@ -92,7 +92,6 @@ or file chooser.
 Hermes uses its own `hermes` configuration/data namespace and
 `io.github.juangiler.hermes` desktop identity. There is no automatic migration:
 existing File Explorer settings, data and desktop roles are left untouched.
-See [legacy support (removed)](docs/migration.md) for the history.
 
 ## First steps
 
@@ -109,7 +108,7 @@ See [legacy support (removed)](docs/migration.md) for the history.
 ## Documentation
 
 [Install](docs/install.md) · [Build and test](docs/building.md) ·
-[Legacy support (removed)](docs/migration.md) · [Keys](docs/keys.md) ·
+[Keys](docs/keys.md) ·
 [Settings](docs/settings.md) · [Integration](docs/integration.md) ·
 [Custom icons](docs/custom-icons.md) · [Architecture](docs/architecture.md) ·
 [Maintenance](MAINTENANCE.md)

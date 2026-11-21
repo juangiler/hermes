@@ -1,6 +1,6 @@
 # Building and testing Hermes
 
-[README](../README.md) · [Install](install.md) · [Distrobox](immutable-distros.md) · [Architecture](architecture.md)
+[README](../README.md) · [Install](install.md) · [Architecture](architecture.md)
 
 Hermes is a C11/SDL3 Linux application with a unity build. `build.sh` compiles
 only `src/main.c`; other C files are included into that translation unit.
