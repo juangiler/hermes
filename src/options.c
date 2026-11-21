@@ -1429,7 +1429,9 @@ static void options_click(f32 x, f32 y, int clicks) {
         }
     }
     // clicking a row's label toggles booleans (like a checkbox label)
-    if (g_opt.hover_row >= 0 && g_opts[g_opt.hover_row].kind == OK_BOOL) opt_bool_toggle(g_opts[g_opt.hover_row].id);
+    if (g_opt.hover_row >= 0 && g_opts[g_opt.hover_row].kind == OK_BOOL &&
+        opt_enabled(g_opts[g_opt.hover_row].id))
+        opt_bool_toggle(g_opts[g_opt.hover_row].id);
     (void)clicks;
 }
 

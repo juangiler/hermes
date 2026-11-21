@@ -513,6 +513,7 @@ static void theme_restore_selection(const char *name) {
             snprintf(g_previous_theme, sizeof g_previous_theme, "%s", name);
         g_theme_cur = MAX(0, theme_find("System"));
         g_match_system_background = true;
+        g_follow_light_dark = false; // System wins if a config sets both modes
     } else theme_select(theme_find(name));
 }
 

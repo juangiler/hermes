@@ -3473,21 +3473,42 @@ static int run_selftest_m9(void) {
     opt_bool_toggle(OPT_SYSTEM_BACKGROUND);
     ST_CHECK(g_match_system_background && !g_follow_light_dark);
     opt_bool_toggle(OPT_SYSTEM_BACKGROUND);
-    opt_bool_toggle(OPT_FOLLOW_LIGHT_DARK);
     ST_CHECK(!g_follow_light_dark && g_theme_cur == theme_find("Nord"));
 
     options_open_page(OC_APPEARANCE);
     st_frames(1);
-    ST_CHECK(st_opt_hit(HP_TOGGLE, OPT_FOLLOW_LIGHT_DARK, 0) != NULL);
+    OptHit *ld_hit = st_opt_hit(HP_TOGGLE, OPT_FOLLOW_LIGHT_DARK, 0);
+    ST_CHECK(ld_hit != NULL);
     ST_CHECK(st_opt_hit(HP_DROP, OPT_THEME, 0) != NULL);
+    f32 ld_x = ld_hit->r.x - S(160), ld_y = ld_hit->r.y + ld_hit->r.h * 0.5f;
+    st_mouse(SDL_EVENT_MOUSE_MOTION, ld_x, ld_y, 0, 0, 0);
+    st_frames(1);
+    st_mouse(SDL_EVENT_MOUSE_BUTTON_DOWN, ld_x, ld_y, SDL_BUTTON_LEFT, 1, 0);
+    st_mouse(SDL_EVENT_MOUSE_BUTTON_UP, ld_x, ld_y, SDL_BUTTON_LEFT, 1, 0);
+    st_frames(1);
+    ST_CHECK(g_follow_light_dark); // label click toggles an enabled switch
+    opt_bool_toggle(OPT_FOLLOW_LIGHT_DARK);
     theme_follow_system(true);
     st_frames(1);
     ST_CHECK(st_opt_hit(HP_TOGGLE, OPT_FOLLOW_LIGHT_DARK, 0) == NULL);
+    st_mouse(SDL_EVENT_MOUSE_MOTION, ld_x, ld_y, 0, 0, 0);
+    st_frames(1);
+    st_mouse(SDL_EVENT_MOUSE_BUTTON_DOWN, ld_x, ld_y, SDL_BUTTON_LEFT, 1, 0);
+    st_mouse(SDL_EVENT_MOUSE_BUTTON_UP, ld_x, ld_y, SDL_BUTTON_LEFT, 1, 0);
+    st_frames(1);
+    ST_CHECK(g_match_system_background && !g_follow_light_dark);
     theme_follow_system(false);
     theme_follow_light_dark(true);
     st_frames(1);
     ST_CHECK(st_opt_hit(HP_DROP, OPT_THEME, 0) == NULL);
     theme_follow_light_dark(false);
+
+    // A startup config with theme=System and follow_light_dark=1 must resolve to one mode.
+    g_match_system_background = false;
+    g_follow_light_dark = true;
+    theme_restore_selection("System");
+    ST_CHECK(g_match_system_background && !g_follow_light_dark);
+    theme_select(theme_find("Nord"));
 
     options_open();
     ST_CHECK(!g_opt.search_focus);
