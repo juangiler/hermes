@@ -46,49 +46,6 @@ jobs:
           if grep -q 'warning:' build.log; then echo "::error::compiler warnings"; exit 1; fi
           ./build/package/hermes --version
 
-  # Informational only until phase 5 of the Qt/Kirigami port: exercises the
-  # headless core library that the future frontend will link against.
-  core-selftest:
-    continue-on-error: true
-    runs-on: ubuntu-latest
-    container:
-      image: archlinux:latest
-      options: --shm-size=2g # the cross-device copy test uses /dev/shm
-    steps:
-      - name: Install dependencies
-        run: pacman -Syu --noconfirm --needed base-devel git pkgconf cmake libarchive fuse3 openssl qt6-base
-      - uses: actions/checkout@v4
-      - name: Headless core self-test (non-root)
-        run: |
-          useradd -m tester
-          chown -R tester .
-          su tester -c '
-            set -e
-            cmake -S . -B build/cmake
-            cmake --build build/cmake --target hermes-core-selftest hermes-core-abi-selftest hermes-cpp-probe
-            ./build/cmake/hermes-core-selftest
-            ./build/cmake/hermes-core-abi-selftest
-            ./build/cmake/hermes-cpp-probe'
-
-  # Informational until the Qt/Kirigami port lands: headless portal harness.
-  # This job reports failures normally; it is not yet a required check.
-  portal-selftest:
-    runs-on: ubuntu-latest
-    container:
-      image: archlinux:latest
-    steps:
-      - name: Install dependencies
-        run: pacman -Syu --noconfirm --needed base-devel git pkgconf cmake libarchive fuse3 openssl qt6-base dbus
-      - uses: actions/checkout@v4
-      - name: Headless portal self-test (non-root)
-        run: |
-          useradd -m tester
-          chown -R tester .
-          su tester -c '
-            set -e
-            cmake -S . -B build/cmake
-            sh tools/portal-selftest.sh'
-
   # Debug build (ASan/UBSan) + the headless self-tests. A restricted seccomp profile
   # can make LeakSanitizer print a ptrace warning and "Child exited with signal 32";
   # suite exit codes are authoritative. Keep leak detection on; see docs/building.md.
@@ -117,7 +74,8 @@ jobs:
               echo "::group::selftest-$t"
               ./build/debug/hermes --selftest-$t || { echo "::error::selftest-$t failed"; exit 1; }
               echo "::endgroup::"
-            done'
+            done
+            sh tools/core-selftest.sh'
       - name: Screenshot
         run: su tester -c './build/debug/hermes --screenshot shot.bmp /usr'
       - uses: actions/upload-artifact@v4
