@@ -515,6 +515,7 @@ typedef struct ThumbReq {
     int px;
     u8 *rgba;
     int w, h;
+    ImageMeta img; // cheap image-header metadata for the grid caption
     struct ThumbReq *next;
 } ThumbReq;
 
@@ -545,7 +546,12 @@ static void thumb_build(ThumbReq *r) {
     if (stat(r->path, &st) == 0) {
         if (ext_in(ext, STB_EXTS) && st.st_size < (80ll << 20)) {
             int w = 0, h = 0, n = 0;
-            if (stbi_info(r->path, &w, &h, &n) && (i64)w * h <= 60000000) ok = load_image(&tmp, r->path);
+            if (stbi_info(r->path, &w, &h, &n)) {
+                r->img.w = w;
+                r->img.h = h;
+                image_dpi_info(r->path, &r->img.dpi_x, &r->img.dpi_y); // header bytes only: no media probes
+                if ((i64)w * h <= 60000000) ok = load_image(&tmp, r->path);
+            }
         }
         if (!ok && !strcmp(ext, "svg")) ok = load_svg_preview(&tmp, r->path);
         if (!ok) ok = try_thumbnail(&tmp, r->path, st.st_mtime, ext);

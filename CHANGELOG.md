@@ -30,6 +30,9 @@ will be listed above that history.
   Qt/Kirigami port.
 - Path bar/pill and folder search backgrounds now have independent brightness
   controls, plus a path-only transparency option.
+- Previews preserve transparency for PNG/ICO/SVG/WebP/GIF and now show image
+  dimensions/DPI, optional video and PDF metadata, and compact grid image
+  details; text previews scroll through the whole file.
 
 ## 0.0.1
 

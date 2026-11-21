@@ -1449,6 +1449,35 @@ static bool c_pv_ready(void) {
     return A.pv && !strcmp(A.pv_want, cur) && !strcmp(A.pv->path, A.pv_want) && !A.pv_due;
 }
 
+// A fully transparent preview must leave the panel background visible through the texture and around it
+// (no opaque frame/checkerboard), so a renderer that flattens alpha cannot pass on screenshots alone.
+static void st_check_preview_alpha(void) {
+    ST_CHECK(A.pv && A.pv->kind == PV_IMAGE && A.pv->w > 0 && A.pv->h > 0 && A.pv_tex);
+    if (!A.pv || A.pv->kind != PV_IMAGE || A.pv->w <= 0 || A.pv->h <= 0 || !A.pv_tex) return;
+    SDL_BlendMode bm = SDL_BLENDMODE_NONE;
+    ST_CHECK(SDL_GetTextureBlendMode(A.pv_tex, &bm) && bm == SDL_BLENDMODE_BLEND);
+
+    f32 pad = roundf(S(16)), x = A.r_preview.x + pad, w = A.r_preview.w - pad * 2, y = A.r_preview.y + pad;
+    f32 vh = roundf(MIN(w * 0.8f, A.r_preview.h * 0.42f));
+    f32 tw = (f32)A.pv->w, th = (f32)A.pv->h, sc = MIN(w / tw, vh / th);
+    sc = MIN(sc, 2.f * A.scale);
+    int bx = (int)roundf(x + (w - tw * sc) * 0.5f) - 1;
+    int by = (int)roundf(y + (vh - th * sc) * 0.5f) - 1;
+    int cx = (int)roundf(x + (w - tw * sc) * 0.5f + tw * sc * 0.5f);
+    int cy = (int)roundf(y + (vh - th * sc) * 0.5f + th * sc * 0.5f);
+    SDL_Surface *s = SDL_RenderReadPixels(A.ren, NULL);
+    ST_CHECK(s != NULL);
+    if (!s) return;
+    int wr = (int)((T.preview_bg >> 16) & 255), wg = (int)((T.preview_bg >> 8) & 255), wb = (int)(T.preview_bg & 255);
+    for (int k = 0; k < 2; k++) {
+        int sx = k ? cx : bx, sy = k ? cy : by; // just outside the image border, then its centre
+        Uint8 r8 = 0, g8 = 0, b8 = 0;
+        ST_CHECK(SDL_ReadSurfacePixel(s, sx, sy, &r8, &g8, &b8, NULL));
+        ST_CHECK(abs((int)r8 - wr) <= 6 && abs((int)g8 - wg) <= 6 && abs((int)b8 - wb) <= 6);
+    }
+    SDL_DestroySurface(s);
+}
+
 static int run_selftest_m5(void) {
     st_make_bmp(M5_BASE "/photo.bmp", 640, 480);
     pane_refresh(active_pane());
@@ -1472,6 +1501,16 @@ static int run_selftest_m5(void) {
     ST_CHECK(st_wait_cond(c_pv_ready, 3000));
     ST_CHECK(A.pv->kind == PV_IMAGE && A.pv->src_w == 64 && A.pv->src_h == 64);
     st_shot("preview-alpha");
+    st_check_preview_alpha();
+    // grid metadata helpers: compact labels only at large icon sizes
+    ImageMeta im = {3264, 2448, 240.f, 240.f};
+    char label[64];
+    ST_CHECK(grid_meta_allowed(96) && !grid_meta_allowed(80));
+    ST_CHECK(grid_meta_label(&im, label, sizeof label));
+    ST_CHECK(!strcmp(label, "3264x2448 240dpi"));
+    im.dpi_x = im.dpi_y = 0;
+    ST_CHECK(grid_meta_label(&im, label, sizeof label));
+    ST_CHECK(!strcmp(label, "3264x2448"));
     // text
     st_select(p, "notes.txt");
     ST_CHECK(st_wait_cond(c_pv_ready, 3000));
