@@ -309,6 +309,12 @@ static bool try_thumbnail(PreviewResult *r, const char *path, i64 mtime, const c
     cache_dir(dir, sizeof dir);
     snprintf(f, sizeof f, "%s/%s.png", dir, md5);
     if (newer_than(f, mtime) && load_image(r, f)) return true;
+    // 1b. page 1 rendered by the preview panel: same cache dir, different key.
+    if (ext && !strcmp(ext, "pdf")) {
+        char pp[PATH_MAX];
+        pdf_page_cache_path(dir, path, pp, sizeof pp);
+        if (newer_than(pp, mtime) && load_image(r, pp)) return true;
+    }
     // 2. thumbnails other apps already made
     const char *home = getenv("HOME");
     const char *sizes[] = {"xx-large", "x-large", "large", "normal"};

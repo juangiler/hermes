@@ -203,11 +203,63 @@ static void test_media_parsers(void) {
     assert(!strcmp(a, b) && strcmp(a, c) && strstr(a, ".png") != NULL);
 }
 
+static void test_ffprobe_optional_duration(void) {
+    struct {
+        const char *text;
+        const char *codec;
+        int w, h, duration_ms;
+    } cases[] = {
+        {"codec_name=h264\nwidth=1280\nheight=720\nduration=N/A\n", "H.264", 1280, 720, 0},
+        {"codec_name=vp9\nwidth=640\nheight=360\n", "VP9", 640, 360, 0},
+        {"codec_name=av1\nwidth=800\nheight=600\nduration=garbage\n", "AV1", 800, 600, 0},
+        {"codec_name=h264\nwidth=320\nheight=240\nduration=999999999999\n", "H.264", 320, 240, 0},
+        {"width=1920\nheight=1080\nduration=N/A\n", "", 1920, 1080, 0},
+        {"codec_name=hevc\nduration=N/A\n", "HEVC", 0, 0, 0},
+    };
+    for (size_t i = 0; i < ARRAY_COUNT(cases); i++) {
+        VideoMeta v = {0};
+        assert(parse_ffprobe_output(cases[i].text, &v));
+        assert(!strcmp(v.codec, cases[i].codec));
+        assert(v.w == cases[i].w && v.h == cases[i].h);
+        assert(v.duration_ms == cases[i].duration_ms);
+    }
+}
+
+static void test_pdf_render_failure_keeps_cached_page(void) {
+    char dir[] = "/tmp/opencode/hermes-pdf-cache-XXXXXX";
+    char empty_path[] = "/tmp/opencode/hermes-empty-path-XXXXXX";
+    assert(mkdtemp(dir) && mkdtemp(empty_path));
+
+    char png[PATH_MAX];
+    pdf_page_cache_path(dir, "/tmp/fixture.pdf", png, sizeof png);
+    u8 image[128];
+    size_t n = transparent_rgba_png(image);
+    write_file(png, image, n);
+
+    char old_path[PATH_MAX];
+    const char *p = getenv("PATH");
+    snprintf(old_path, sizeof old_path, "%s", p ? p : "");
+    struct stat before, after;
+    assert(stat(png, &before) == 0);
+    assert(setenv("PATH", empty_path, 1) == 0);
+    assert(!render_pdf_page("/tmp/fixture.pdf", dir, 256, NULL, 0));
+    assert(setenv("PATH", old_path, 1) == 0);
+    // A transient missing/broken tool must not destroy a previously rendered page.
+    assert(stat(png, &after) == 0);
+    assert(after.st_size == before.st_size && after.st_mtime == before.st_mtime);
+
+    unlink(png);
+    rmdir(empty_path);
+    rmdir(dir);
+}
+
 int main(void) {
     test_alpha_capable();
     test_image_dpi();
     test_ico_alpha();
     test_media_parsers();
+    test_ffprobe_optional_duration();
+    test_pdf_render_failure_keeps_cached_page();
     puts("Preview info: passed");
     return 0;
 }

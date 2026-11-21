@@ -1515,6 +1515,34 @@ static int run_selftest_m5(void) {
     im.dpi_x = im.dpi_y = 0;
     ST_CHECK(grid_meta_label(&im, label, sizeof label));
     ST_CHECK(!strcmp(label, "3264x2448"));
+    // A page-1 PNG rendered by the preview panel is also a grid thumbnail source:
+    // thumb_build() must discover it without running any PDF probe or renderer.
+    {
+        const char *pdf = M5_BASE "/page1.pdf";
+        FILE *pf = fopen(pdf, "wb");
+        ST_CHECK(pf != NULL);
+        if (pf) { fputs("%PDF-1.4\n", pf); fclose(pf); }
+        char dir[PATH_MAX], png[PATH_MAX];
+        cache_dir(dir, sizeof dir);
+        pdf_page_cache_path(dir, pdf, png, sizeof png);
+        ST_CHECK(mkdir_p(dir, 0700) == 0);
+        st_write_png_alpha(png, 16, 16);
+        struct stat ps;
+        ST_CHECK(stat(pdf, &ps) == 0);
+        struct timespec older[2] = {{ps.st_mtim.tv_sec - 60, 0}, {ps.st_mtim.tv_sec - 60, 0}};
+        ST_CHECK(utimensat(AT_FDCWD, pdf, older, 0) == 0);
+        ST_CHECK(stat(pdf, &ps) == 0);
+        ThumbReq tr;
+        memset(&tr, 0, sizeof tr);
+        snprintf(tr.path, sizeof tr.path, "%s", pdf);
+        tr.mtime = ps.st_mtime;
+        tr.px = 64;
+        thumb_build(&tr);
+        ST_CHECK(tr.rgba && tr.w > 0 && tr.h > 0);
+        free(tr.rgba);
+        unlink(png);
+        unlink(pdf);
+    }
     // text
     st_select(p, "notes.txt");
     ST_CHECK(st_wait_cond(c_pv_ready, 3000));

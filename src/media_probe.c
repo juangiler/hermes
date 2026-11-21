@@ -112,23 +112,40 @@ bool parse_ffprobe_output(const char *text, VideoMeta *out) {
     ProbeSpan w = probe_field(text, "width=");
     ProbeSpan h = probe_field(text, "height=");
     ProbeSpan dur = probe_field(text, "duration=");
-    if (!codec.s || !w.s || !h.s || !dur.s) return false;
-    char cbuf[64], wbuf[32], hbuf[32], dbuf[64];
+    char cbuf[64] = {0}, wbuf[32] = {0}, hbuf[32] = {0}, dbuf[64] = {0};
     probe_span_copy(cbuf, sizeof cbuf, codec);
     probe_span_copy(wbuf, sizeof wbuf, w);
     probe_span_copy(hbuf, sizeof hbuf, h);
     probe_span_copy(dbuf, sizeof dbuf, dur);
-    if (!cbuf[0]) return false;
 
+    // Each field stands on its own: containers without a duration (N/A or a
+    // missing key) still have a usable codec and resolution.
+    bool have_codec = cbuf[0] != 0;
     char *end = NULL;
-    long iw = strtol(wbuf, &end, 10);
-    if (end == wbuf || *end || iw <= 0 || iw > INT_MAX) return false;
-    long ih = strtol(hbuf, &end, 10);
-    if (end == hbuf || *end || ih <= 0 || ih > INT_MAX) return false;
-    float secs = strtof(dbuf, &end);
-    if (end == dbuf || *end || !isfinite(secs) || secs < 0.f) return false;
-    long ms = lroundf(secs * 1000.f);
-    if (ms < 0 || ms > INT_MAX) return false;
+    long iw = 0, ih = 0;
+    bool have_w = false, have_h = false;
+    if (w.s) {
+        iw = strtol(wbuf, &end, 10);
+        have_w = end != wbuf && !*end && iw > 0 && iw <= INT_MAX;
+    }
+    end = NULL;
+    if (h.s) {
+        ih = strtol(hbuf, &end, 10);
+        have_h = end != hbuf && !*end && ih > 0 && ih <= INT_MAX;
+    }
+    bool have_dims = have_w && have_h;
+    if (!have_codec && !have_dims) return false;
+
+    long ms = 0;
+    if (dur.s) {
+        char *dend = NULL;
+        float secs = strtof(dbuf, &dend);
+        if (dend != dbuf && !*dend && isfinite(secs) && secs > 0.f &&
+            secs <= (float)INT_MAX / 1000.f) {
+            long v = lroundf(secs * 1000.f);
+            if (v >= 0 && v <= INT_MAX) ms = v;
+        }
+    }
 
     static const struct {
         const char *from, *to;
@@ -136,14 +153,15 @@ bool parse_ffprobe_output(const char *text, VideoMeta *out) {
         {"h264", "H.264"}, {"hevc", "HEVC"}, {"vp9", "VP9"},
         {"av1", "AV1"}, {"mpeg4", "MPEG-4"},
     };
-    const char *name = cbuf;
-    for (size_t i = 0; i < ARRAY_COUNT(names); i++) {
-        if (str_ieq(cbuf, names[i].from)) { name = names[i].to; break; }
+    const char *name = have_codec ? cbuf : "";
+    if (have_codec) {
+        for (size_t i = 0; i < ARRAY_COUNT(names); i++) {
+            if (str_ieq(cbuf, names[i].from)) { name = names[i].to; break; }
+        }
     }
     VideoMeta tmp = {0};
     tmp.duration_ms = (int)ms;
-    tmp.w = (int)iw;
-    tmp.h = (int)ih;
+    if (have_dims) { tmp.w = (int)iw; tmp.h = (int)ih; }
     size_t nl = strlen(name);
     if (nl >= sizeof tmp.codec) nl = sizeof tmp.codec - 1;
     memcpy(tmp.codec, name, nl);
@@ -210,22 +228,32 @@ void pdf_page_cache_path(const char *cache_dir, const char *path, char *out, siz
 
 bool render_pdf_page(const char *path, const char *cache_dir, int max_px, char *out_png, size_t cap) {
     if (!path || !path[0]) return false;
-    char png[PATH_MAX], base[PATH_MAX];
+    char png[PATH_MAX], base[PATH_MAX], tmp_base[PATH_MAX], tmp_png[PATH_MAX];
     pdf_page_cache_path(cache_dir, path, png, sizeof png);
     snprintf(base, sizeof base, "%s", png);
     size_t bl = strlen(base);
     if (bl > 4 && !strcmp(base + bl - 4, ".png")) base[bl - 4] = 0;
     else return false;
+    // Keep the .png suffix so pdftoppm derives this exact output name, then
+    // publish it atomically: a failed render must not discard a good old page.
+    snprintf(tmp_base, sizeof tmp_base, "%s.tmp", base);
+    snprintf(tmp_png, sizeof tmp_png, "%s.png", tmp_base);
+    unlink(tmp_png);
 
     char sz[16];
     snprintf(sz, sizeof sz, "%d", CLAMP(max_px, 256, 2048));
     char *av[] = {"pdftoppm", "-f", "1", "-l", "1", "-singlefile", "-png",
-                  "-scale-to", sz, (char *)path, base, NULL};
-    unlink(png); // a stale cache file must not be reported when the tool is missing
+                  "-scale-to", sz, (char *)path, tmp_base, NULL};
     char scratch[64];
-    if (!probe_run(av, scratch, sizeof scratch, PROBE_TIMEOUT_MS)) return false;
+    if (!probe_run(av, scratch, sizeof scratch, PROBE_TIMEOUT_MS)) {
+        unlink(tmp_png);
+        return false;
+    }
     struct stat st;
-    if (stat(png, &st) != 0 || st.st_size <= 0) return false;
+    if (stat(tmp_png, &st) != 0 || st.st_size <= 0 || rename(tmp_png, png) != 0) {
+        unlink(tmp_png);
+        return false;
+    }
     if (out_png && cap) snprintf(out_png, cap, "%s", png);
     return true;
 }
