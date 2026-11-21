@@ -589,7 +589,9 @@ static void draw_toolbar_content(Pane *p, bool active, bool split) {
     bool editing = A.edit_pane == p;
     bool hover = A.mouse_in && in_rect(pb, A.mx, A.my);
     if (hover) A.ptr_text = true; // a click outside the crumbs edits the path
-    draw_rrect(pb.x, pb.y, pb.w, pb.h, S(NAV_CORNER_RADIUS), C(navigation_field_color()));
+    draw_rrect(pb.x, pb.y, pb.w, pb.h, S(NAV_CORNER_RADIUS), CA(pathbar_field_color(), pathbar_field_fill_alpha()));
+    if (g_transparent_pathbar && !editing)
+        draw_rrect_outline(pb.x, pb.y, pb.w, pb.h, S(NAV_CORNER_RADIUS), MAX(1.f, S(1.f)), CA(COL_BORDER, 0.7f));
     if (editing) draw_rrect_outline(pb.x, pb.y, pb.w, pb.h, S(NAV_CORNER_RADIUS), MAX(1.f, S(1.2f)), C(COL_ACCENT));
 
     Font *f = &A.font;
@@ -2484,7 +2486,7 @@ static void draw_searchbar(Pane *p) {
     Rect field, toggle, close, cont, opt[3];
     search_bar_layout(p, &field, &toggle, &close, &cont, opt);
     bool focused = A.search_pane == p;
-    draw_rrect(field.x, field.y, field.w, field.h, S(7), C(navigation_field_color()));
+    draw_rrect(field.x, field.y, field.w, field.h, S(7), C(searchbar_field_color()));
     if (focused) draw_rrect_outline(field.x, field.y, field.w, field.h, S(7), MAX(1.f, S(1.2f)), C(COL_ACCENT));
     // magnifier
     f32 r = roundf(S(5)), cx = field.x + S(15), cy = field.y + field.h * 0.5f - S(1);
