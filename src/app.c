@@ -941,12 +941,17 @@ static struct {
   char pv_want[PATH_MAX], pv_path[PATH_MAX];
   i64 pv_mtime;
   int pv_line; // contents search: the line the preview shows
+  int pv_page_line; // paging target, may differ from a search hit
+  u64 pv_page_due;
+  bool pv_page_pending;
   u64 pv_due;
   u32 pv_gen;
   PreviewResult *pv;
   SDL_Texture *pv_tex;
   Font font_mono;
   char *mono_path;
+  Rect r_pv_text; // text preview box (hit test)
+  int pv_text_vis, text_scroll_lines;
   // recursive search editing
   Pane *search_pane;
   TextEdit search_te;
@@ -15010,6 +15015,8 @@ static void preview_done_cb(void *arg) {
     preview_result_free(r);
     return;
   }
+  int old_first_line = A.pv && A.pv->kind == PV_TEXT ? A.pv->first_line : 0;
+  int old_scroll = A.text_scroll_lines;
   preview_result_free(A.pv);
   if (A.pv_tex) {
     SDL_DestroyTexture(A.pv_tex);
@@ -15027,6 +15034,10 @@ static void preview_done_cb(void *arg) {
     r->rgba = NULL;
   }
   A.pv = r;
+  // a paging re-seek moved the window: rebase the wheel offset onto the new
+  // first line so the old offset is not added again on top of it
+  if (r->kind == PV_TEXT && r->first_line > old_first_line)
+    A.text_scroll_lines = MAX(0, old_first_line + old_scroll - r->first_line);
   A.redraw = true;
 }
 
@@ -15059,21 +15070,36 @@ static void preview_update(void) {
     snprintf(path, sizeof path, "%s", p->path);
   }
   u64 now = now_ns();
+  if (strcmp(path, A.pv_want) || line != A.pv_line)
+    A.text_scroll_lines = 0; // an mtime-only refresh must keep manual scroll
   if (strcmp(path, A.pv_want) || mtime != A.pv_mtime || line != A.pv_line) {
     bool first = !A.pv_want[0];
     snprintf(A.pv_want, sizeof A.pv_want, "%s", path);
     A.pv_mtime = mtime;
     A.pv_line = line;
+    A.pv_page_line = line;
+    A.pv_page_pending = false;
     A.pv_due = now + (first ? 0 : 90000000ull); // don't decode every row while
                                                 // holding an arrow key
     A.pv_path[0] = 0;
   }
-  if (A.pv_due && now >= A.pv_due) {
+  int max_px = (int)CLAMP(A.r_preview.w * 1.25f, 256.f, 2048.f);
+  if (A.pv_page_pending && now >= A.pv_page_due) {
+    A.pv_page_pending = false;
+    if (A.pv_path[0])
+      preview_request(++A.pv_gen, A.pv_path, max_px, A.pv_line, A.pv_page_line);
+  } else if (A.pv_due && now >= A.pv_due) {
     A.pv_due = 0;
     snprintf(A.pv_path, sizeof A.pv_path, "%s", A.pv_want);
-    int max_px = (int)CLAMP(A.r_preview.w * 1.25f, 256.f, 2048.f);
-    preview_request(++A.pv_gen, A.pv_path, max_px, A.pv_line);
+    preview_request(++A.pv_gen, A.pv_path, max_px, A.pv_line, A.pv_page_line);
   }
+}
+
+// Page a text preview without touching the search line or manual scroll.
+static void preview_page_request(int page_line) {
+  A.pv_page_line = page_line;
+  A.pv_page_pending = true;
+  A.pv_page_due = now_ns() + 90000000ull;
 }
 
 #include "text_pointer.c"

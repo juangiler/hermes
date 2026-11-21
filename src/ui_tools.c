@@ -154,7 +154,7 @@ static SDL_Texture *app_icon_tex(const char *icon, int px) {
     } else {
         int n;
         u8 *px0 = stbi_load(found, &w, &h, &n, 4);
-        if (px0) rgba = downscale(px0, w, h, px, &w, &h);
+        if (px0) rgba = preview_downscale(px0, w, h, px, &w, &h);
     }
     if (!rgba) { ai->missing = true; return NULL; }
     ai->tex = SDL_CreateTexture(A.ren, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, w, h);

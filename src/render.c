@@ -1127,6 +1127,7 @@ typedef struct {
     int px;
     SDL_Texture *tex;
     int w, h;
+    ImageMeta img; // original image dimensions / DPI for the grid caption
     u64 used;
     u8 state; // 1 pending, 2 ready, 3 failed
 } Thumb;
@@ -1135,7 +1136,20 @@ static Thumb *g_thumbs;
 static int g_nthumbs;
 static u64 g_thumb_clock;
 
-static bool thumb_get(const char *path, i64 mtime, int px, SDL_Texture **tex, int *w, int *h) {
+// Grid captions get a metadata line only when the icon leaves enough room for one.
+static bool grid_meta_allowed(int icon_px) { return icon_px >= 96; }
+
+static bool grid_meta_label(const ImageMeta *im, char *out, size_t cap) {
+    if (!im || im->w <= 0 || im->h <= 0) return false;
+    int n;
+    if (im->dpi_x > 0.f && im->dpi_y > 0.f)
+        n = snprintf(out, cap, "%dx%d %lddpi", im->w, im->h, lroundf(im->dpi_x));
+    else
+        n = snprintf(out, cap, "%dx%d", im->w, im->h);
+    return n > 0 && (size_t)n < cap;
+}
+
+static bool thumb_get(const char *path, i64 mtime, int px, SDL_Texture **tex, int *w, int *h, ImageMeta *out) {
     u32 hsh = str_hash(path);
     g_thumb_clock++;
     for (int i = 0; i < g_nthumbs; i++) {
@@ -1146,6 +1160,7 @@ static bool thumb_get(const char *path, i64 mtime, int px, SDL_Texture **tex, in
             *tex = t->tex;
             *w = t->w;
             *h = t->h;
+            if (out) *out = t->img;
             return true;
         }
     }
@@ -1184,6 +1199,7 @@ static void thumb_done_cb(void *arg) {
                 SDL_SetTextureScaleMode(t->tex, SDL_SCALEMODE_LINEAR);
                 t->w = r->w;
                 t->h = r->h;
+                t->img = r->img;
                 t->state = 2;
             }
         }
@@ -1194,10 +1210,10 @@ static void thumb_done_cb(void *arg) {
     A.redraw = true;
 }
 
-static void render_tex_fit(SDL_Texture *t, int tw, int th, f32 x, f32 y, f32 box, bool frame, bool dim) {
+static void render_tex_fit(SDL_Texture *t, int tw, int th, f32 x, f32 y, f32 box, bool keep_alpha, bool dim) {
     f32 sc = MIN(box / (f32)tw, box / (f32)th);
     SDL_FRect dst = {roundf(x + (box - tw * sc) * 0.5f), roundf(y + (box - th * sc) * 0.5f), roundf(tw * sc), roundf(th * sc)};
-    if (frame) draw_rect(dst.x - 1, dst.y - 1, dst.w + 2, dst.h + 2, C(COL_TRACK));
+    if (!keep_alpha) draw_rect(dst.x - 1, dst.y - 1, dst.w + 2, dst.h + 2, C(COL_TRACK));
     draw_flush();
     SDL_SetTextureAlphaMod(t, dim ? 115 : 255);
     SDL_RenderTexture(A.ren, t, NULL, &dst);
@@ -1219,8 +1235,8 @@ static void draw_item_icon_big(Pane *p, Entry *e, f32 ix, f32 iy, f32 isz, bool 
         path_join(full, sizeof full, p->path, e->name);
         SDL_Texture *t;
         int tw, th;
-        if (thumb_get(full, e->mtime, (int)isz, &t, &tw, &th)) {
-            render_tex_fit(t, tw, th, ix, iy, isz, strcmp(ext, "svg") != 0, cut);
+        if (thumb_get(full, e->mtime, (int)isz, &t, &tw, &th, NULL)) {
+            render_tex_fit(t, tw, th, ix, iy, isz, preview_alpha_capable(ext), cut);
             return;
         }
     }
@@ -1231,7 +1247,7 @@ static void draw_item_icon_big(Pane *p, Entry *e, f32 ix, f32 iy, f32 isz, bool 
         if (g) { draw_glyph(g, roundf(ix), roundf(iy), (Color){1, 1, 1, 1}); return; }
     }
     SDL_Texture *bt = big_icon_tex(id, (int)isz);
-    if (bt) render_tex_fit(bt, (int)isz, (int)isz, ix, iy, isz, false, cut);
+    if (bt) render_tex_fit(bt, (int)isz, (int)isz, ix, iy, isz, true, cut);
     else draw_file_icon(ix, iy, isz, file_color(e));
 }
 
@@ -1345,7 +1361,7 @@ static void draw_cells(Pane *p, bool active, i64 hover, u32 sel_col, u32 sel_cur
     git_view(p, &gv);
     PaneLayout *ly = &p->ly;
     Rect lr = ly->list;
-    Font *f = &A.font;
+    Font *f = &A.font, *fs = &A.font_small;
     int pr = MAX(1, ly->per_row);
     i64 first = (i64)MAX(0.0, floor((p->scroll - ly->pad) / ly->cell_h)) * pr;
     for (i64 i = first; i < (i64)p->count; i++) {
@@ -1417,10 +1433,27 @@ static void draw_cells(Pane *p, bool active, i64 hover, u32 sel_col, u32 sel_cur
             } else {
                 int st[3], ln[3];
                 int nl = wrap_text(f, name, lw, st, ln, 3);
+                char meta_label[64];
+                bool have_meta = false;
+                if (nl == 1 && grid_meta_allowed(p->icon_px) && !(e->flags & ENT_DIR) && !pane_is_archive(p) && thumb_capable(name) &&
+                    atomic_load_explicit(&e->meta, memory_order_acquire) == META_READY) {
+                    char full[PATH_MAX];
+                    path_join(full, sizeof full, p->path, e->name);
+                    SDL_Texture *mt;
+                    int mw, mh;
+                    ImageMeta mi;
+                    if (thumb_get(full, e->mtime, (int)isz, &mt, &mw, &mh, &mi) && grid_meta_label(&mi, meta_label, sizeof meta_label))
+                        have_meta = true;
+                }
                 for (int k = 0; k < MIN(nl, 2); k++) {
                     int len = (k == 1 && nl > 2) ? nlen - st[1] : ln[k]; // second line takes the rest, elided
                     f32 tw = MIN(text_width(f, name + st[k], len), lw);
                     draw_text_fit(f, roundf(r.x + (r.w - tw) * 0.5f), lyy + k * lh, lw, name + st[k], len, name_c, 0);
+                }
+                if (have_meta) { // replaces the second name line; long names keep both lines instead
+                    int mlen = (int)strlen(meta_label);
+                    f32 tw = MIN(text_width(fs, meta_label, mlen), lw);
+                    draw_text_fit(fs, roundf(r.x + (r.w - tw) * 0.5f), lyy + lh, lw, meta_label, mlen, C(COL_TEXT_FAINT), 0);
                 }
             }
         }
@@ -3729,7 +3762,14 @@ static f32 pv_row(Font *f, f32 x, f32 y, f32 w, const char *label, const char *v
     return y + h;
 }
 
+static void pv_duration_label(int ms, char *out, size_t cap) {
+    int sec = ms / 1000;
+    if (sec >= 3600) snprintf(out, cap, "%d:%02d:%02d", sec / 3600, sec / 60 % 60, sec % 60);
+    else snprintf(out, cap, "%d:%02d", sec / 60, sec % 60);
+}
+
 static void draw_preview(void) {
+    A.r_pv_text = (Rect){0, 0, 0, 0}; // no text hit test until the text box is drawn
     if (!A.preview_on || !A.ntabs) return;
     Rect r = A.r_preview;
     Pane *p = active_pane();
@@ -3784,7 +3824,7 @@ static void draw_preview(void) {
         SDL_FRect dst = {roundf(x + (w - tw * sc) * 0.5f), roundf(y + (vh - th * sc) * 0.5f), roundf(tw * sc), roundf(th * sc)};
         char ext[24];
         path_ext_lower(name, ext, sizeof ext);
-        if (strcmp(ext, "svg")) draw_rect(dst.x - 1, dst.y - 1, dst.w + 2, dst.h + 2, C(COL_FIELD));
+        if (!preview_alpha_capable(ext)) draw_rect(dst.x - 1, dst.y - 1, dst.w + 2, dst.h + 2, C(COL_FIELD));
         draw_flush();
         SDL_RenderTexture(A.ren, A.pv_tex, NULL, &dst);
         y += vh + S(16);
@@ -3814,7 +3854,6 @@ static void draw_preview(void) {
     char buf[256], b2[64];
     if (e) {
         type_label(e, buf, sizeof buf);
-        if (pv && pv->kind == PV_IMAGE && pv->src_w) snprintf(buf + strlen(buf), sizeof buf - strlen(buf), "  \xC2\xB7  %d \xC3\x97 %d", pv->src_w, pv->src_h);
         y = pv_row(fs, x, y, w, "Type", buf);
         bool meta = atomic_load_explicit(&e->meta, memory_order_acquire) == META_READY;
         if (is_dir) {
@@ -3835,6 +3874,34 @@ static void draw_preview(void) {
             strftime(buf, sizeof buf, "%Y-%m-%d %H:%M:%S", &tm);
             y = pv_row(fs, x, y, w, "Modified", buf);
         }
+    }
+    // richer metadata: only rows with known values, right after Modified (or Type when it is absent)
+    if (pv) {
+        char m[96];
+        if (pv->kind == PV_IMAGE && pv->src_w > 0 && pv->src_h > 0) {
+            snprintf(m, sizeof m, "%d x %d", pv->src_w, pv->src_h);
+            y = pv_row(fs, x, y, w, "Dimensions", m);
+        }
+        if (pv->kind == PV_IMAGE && pv->dpi_x > 0.f && pv->dpi_y > 0.f) {
+            snprintf(m, sizeof m, "%ld x %ld", lroundf(pv->dpi_x), lroundf(pv->dpi_y));
+            y = pv_row(fs, x, y, w, "DPI", m);
+        }
+        if (pv->duration_ms > 0) {
+            pv_duration_label(pv->duration_ms, m, sizeof m);
+            y = pv_row(fs, x, y, w, "Duration", m);
+        }
+        if (pv->codec[0]) y = pv_row(fs, x, y, w, "Codec", pv->codec);
+        if (pv->vid_w > 0 && pv->vid_h > 0) {
+            snprintf(m, sizeof m, "%d x %d", pv->vid_w, pv->vid_h);
+            y = pv_row(fs, x, y, w, "Resolution", m);
+        }
+        if (pv->pages > 0) {
+            snprintf(m, sizeof m, "%d", pv->pages);
+            y = pv_row(fs, x, y, w, "Pages", m);
+        }
+        if (pv->doc_title[0]) y = pv_row(fs, x, y, w, "Title", pv->doc_title);
+        if (pv->doc_author[0]) y = pv_row(fs, x, y, w, "Author", pv->doc_author);
+        // Detail is intentionally not drawn: no worker step populates PreviewResult.detail.
     }
     if (pv && pv->kind == PV_DIR) {
         char a[32], b[32];
@@ -3869,20 +3936,22 @@ static void draw_preview(void) {
             ClipSave c2 = draw_clip_push((SDL_Rect){(int)box.x + 2, (int)box.y + 2, (int)box.w - 4, (int)box.h - 4});
             Font *fm = &A.font_mono;
             f32 lh = roundf(fm->line_h * 1.15f), ty = box.y + S(8);
+            A.r_pv_text = box;
+            A.pv_text_vis = (int)((box.h - S(8)) / lh);
             f32 gw = text_width(fm, "00000", 5);
             const char *s0 = pv->text;
             int lineno = pv->first_line > 0 ? pv->first_line : 1;
-            // contents search: the line in the upper third, it and the matches highlighted
+            // a content-search hit owns the base position; paging adds only the wheel offset,
+            // so neither one silently replaces the other
             Pane *ap = active_pane();
             const CQuery *cq = ap->L && ap->L->is_content && pv->want_line ? ap->L->cq : NULL;
-            if (pv->want_line) {
-                int vis = (int)((box.h - S(8)) / lh), skip_to = pv->want_line - vis / 3;
-                while (*s0 && lineno < skip_to) {
-                    const char *eol = strchr(s0, '\n');
-                    if (!eol) break;
-                    s0 = eol + 1;
-                    lineno++;
-                }
+            int target_first = (pv->want_line ? pv->want_line - A.pv_text_vis / 3 : pv->first_line) + A.text_scroll_lines;
+            target_first = MAX(pv->first_line, target_first);
+            while (*s0 && lineno < target_first) {
+                const char *eol = strchr(s0, '\n');
+                if (!eol) break;
+                s0 = eol + 1;
+                lineno++;
             }
             while (*s0 && ty < box.y + box.h - S(4)) {
                 const char *eol = strchr(s0, '\n');

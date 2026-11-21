@@ -13,8 +13,11 @@
 #include <sys/wait.h>
 #include <pwd.h>
 #include <grp.h>
+#include "preview_meta.h"
 
 extern char **environ;
+
+u8 *ico_preview_pixels(const char *path, int max_px, int *w, int *h, int *src_w, int *src_h); // ico_preview.c
 
 // --- MD5 (RFC 1321), for freedesktop thumbnail names -----------------------
 
@@ -77,15 +80,21 @@ typedef struct {
     int w, h;         // decoded (possibly downscaled)
     int src_w, src_h; // original dimensions (0 if unknown, e.g. from a thumbnail)
     bool from_thumb;
+    float dpi_x, dpi_y;
     // text
     char *text;       // UTF-8, up to ~64 KB
     bool binary;
     int want_line;    // contents search: show this line (0 = the top)
     int first_line;   // line number of the first line in text (a window further down a big file)
+    int page_line;    // paging target (may differ from a search hit)
+    int total_lines;  // 0 if unknown
     // folder
     u32 n_dirs, n_files;
     bool truncated;
     char note[160];   // e.g. "No preview available"
+    // optional media / document metadata (blank without the runtime probes)
+    int duration_ms, pages, vid_w, vid_h;
+    char codec[32], doc_title[128], doc_author[128], detail[256];
 } PreviewResult;
 
 static void preview_result_free(PreviewResult *r) {
@@ -126,36 +135,11 @@ static bool ext_in(const char *ext, const char *list) {
 #define STB_EXTS " png jpg jpeg jpe gif bmp tga psd hdr pnm ppm pgm pic "
 #define TEXT_EXTS " txt md markdown rst log csv tsv json jsonc yaml yml toml ini cfg conf c h cc cpp hpp cxx rs go py rb js mjs ts tsx jsx java kt swift cs php lua sh bash zsh fish ps1 sql html htm xml css scss less vue svelte zig nim hs ml ex exs erl clj lisp el vim diff patch gitignore env makefile cmake mk gradle properties tex bib srt vtt desktop service "
 
-// Box-filter downscale RGBA so the longest side is <= max_px.
-static u8 *downscale(u8 *src, int w, int h, int max_px, int *ow, int *oh) {
-    int f = 1;
-    while ((w / f) > max_px || (h / f) > max_px) f++;
-    if (f == 1) { *ow = w; *oh = h; return src; }
-    int nw = w / f, nh = h / f;
-    u8 *dst = malloc((size_t)nw * nh * 4);
-    if (!dst) { *ow = w; *oh = h; return src; }
-    for (int y = 0; y < nh; y++)
-        for (int x = 0; x < nw; x++) {
-            u32 acc[4] = {0, 0, 0, 0};
-            for (int yy = 0; yy < f; yy++) {
-                const u8 *row = src + ((size_t)(y * f + yy) * w + (size_t)x * f) * 4;
-                for (int xx = 0; xx < f; xx++)
-                    for (int c = 0; c < 4; c++) acc[c] += row[xx * 4 + c];
-            }
-            u8 *o = dst + ((size_t)y * nw + x) * 4;
-            for (int c = 0; c < 4; c++) o[c] = (u8)(acc[c] / (u32)(f * f));
-        }
-    stbi_image_free(src);
-    *ow = nw;
-    *oh = nh;
-    return dst;
-}
-
 static bool load_image(PreviewResult *r, const char *file) {
     int w, h, n;
     u8 *px = stbi_load(file, &w, &h, &n, 4);
     if (!px) return false;
-    r->rgba = downscale(px, w, h, r->max_px, &r->w, &r->h);
+    r->rgba = preview_downscale(px, w, h, r->max_px, &r->w, &r->h);
     r->kind = PV_IMAGE;
     return true;
 }
@@ -171,6 +155,27 @@ static bool newer_than(const char *a, i64 mtime) {
     struct stat st;
     return stat(a, &st) == 0 && st.st_size > 0 && st.st_mtime >= mtime;
 }
+
+#define TEXT_SCAN_CAP ((off_t)256 << 20)
+// Full-file line count; -1 when the cap is hit or the file cannot be scanned,
+// in which case the caller estimates from the decoded window instead.
+static int preview_text_line_count(int fd, off_t size) {
+    if (size > TEXT_SCAN_CAP) return -1;
+    char buf[64 * 1024];
+    int lines = 0;
+    for (off_t off = 0; off < size;) {
+        ssize_t k = pread(fd, buf, sizeof buf, off);
+        if (k <= 0) return -1;
+        for (ssize_t i = 0; i < k; i++) if (buf[i] == '\n') lines++;
+        off += k;
+    }
+    char last = 0;
+    if (size > 0 && pread(fd, &last, 1, size - 1) == 1 && last != '\n') lines++;
+    return lines;
+}
+
+// PDF pages are cached by path only, so every render uses one fixed size.
+#define PDF_RENDER_PX 1024
 
 // --- freedesktop thumbnailers ----------------------------------------------
 
@@ -305,6 +310,12 @@ static bool try_thumbnail(PreviewResult *r, const char *path, i64 mtime, const c
     cache_dir(dir, sizeof dir);
     snprintf(f, sizeof f, "%s/%s.png", dir, md5);
     if (newer_than(f, mtime) && load_image(r, f)) return true;
+    // 1b. page 1 rendered by the preview panel: same cache dir, different key.
+    if (ext && !strcmp(ext, "pdf")) {
+        char pp[PATH_MAX];
+        pdf_page_cache_path(dir, path, pp, sizeof pp);
+        if (newer_than(pp, mtime) && load_image(r, pp)) return true;
+    }
     // 2. thumbnails other apps already made
     const char *home = getenv("HOME");
     const char *sizes[] = {"xx-large", "x-large", "large", "normal"};
@@ -358,19 +369,51 @@ static void preview_build(PreviewResult *r) {
         return;
     }
     char ext[24];
-    path_ext_lower(r->path, ext, sizeof ext);
+    path_ext_lower(r->path, ext, sizeof ext); // every format helper gets lowercase
     if (ext_in(ext, STB_EXTS) && st.st_size < (200ll << 20)) {
         int w = 0, h = 0, n = 0;
         if (stbi_info(r->path, &w, &h, &n)) {
             r->src_w = w;
             r->src_h = h;
+            image_dpi_info(r->path, &r->dpi_x, &r->dpi_y);
             if ((i64)w * h <= 120000000 && load_image(r, r->path)) return; // skip absurdly large images
         }
     }
+    if (!strcmp(ext, "ico")) {
+        u8 *px = ico_preview_pixels(r->path, r->max_px, &r->w, &r->h, &r->src_w, &r->src_h);
+        if (px) { r->rgba = px; r->kind = PV_IMAGE; return; }
+    }
     if (!strcmp(ext, "svg") && load_svg_preview(r, r->path)) return;
+    const char *mime = mime_for_ext(ext);
+    if (mime && !strncmp(mime, "video/", 6)) {
+        VideoMeta vm;
+        if (probe_video(r->path, &vm)) {
+            r->duration_ms = vm.duration_ms;
+            snprintf(r->codec, sizeof r->codec, "%s", vm.codec);
+            r->vid_w = vm.w; // a thumbnail's raster size is not the video resolution
+            r->vid_h = vm.h;
+        }
+    }
+    bool is_pdf = !strcmp(ext, "pdf");
+    if (is_pdf) {
+        DocMeta dm;
+        if (probe_pdf(r->path, &dm)) {
+            r->pages = dm.pages;
+            snprintf(r->doc_title, sizeof r->doc_title, "%s", dm.title);
+            snprintf(r->doc_author, sizeof r->doc_author, "%s", dm.author);
+        }
+    }
     if (try_thumbnail(r, r->path, st.st_mtime, ext)) {
         r->from_thumb = true;
         return;
+    }
+    if (is_pdf) { // fallback: render page 1 into the shared cache, at one fixed size
+        char dir[PATH_MAX], png[PATH_MAX];
+        cache_dir(dir, sizeof dir);
+        pdf_page_cache_path(dir, r->path, png, sizeof png);
+        if (!newer_than(png, st.st_mtime))
+            render_pdf_page(r->path, dir, PDF_RENDER_PX, NULL, 0);
+        if (load_image(r, png)) { r->from_thumb = true; return; }
     }
     // text: known extension, or small file without NUL bytes
     bool textish = ext_in(ext, TEXT_EXTS) || !ext[0] || st.st_size < (1 << 20);
@@ -381,9 +424,9 @@ static void preview_build(PreviewResult *r) {
             char *buf = xmalloc(cap + 1);
             off_t start = 0;
             r->first_line = 1;
-            if (r->want_line > 40 && st.st_size > (off_t)cap) { // a line further down: start a little above it
-                int target = r->want_line - 30, line = 1;
-                for (off_t off = 0; line < target && off < (256 << 20);) {
+            if (r->page_line > 40 && st.st_size > (off_t)cap) { // paging target: start a little above it
+                int target = r->page_line - 30, line = 1;
+                for (off_t off = 0; line < target && off < TEXT_SCAN_CAP;) {
                     ssize_t k = pread(fd, buf, cap, off);
                     if (k <= 0) break;
                     for (ssize_t i = 0; i < k; i++)
@@ -394,13 +437,18 @@ static void preview_build(PreviewResult *r) {
                 else start = 0;
             }
             ssize_t n = pread(fd, buf, cap, start);
+            bool bin = n > 0 && memchr(buf, 0, (size_t)n) != NULL;
+            int total = (n > 0 && !bin) ? preview_text_line_count(fd, st.st_size) : -1;
             close(fd);
             if (n > 0) {
-                bool bin = memchr(buf, 0, (size_t)n) != NULL;
                 if (!bin) {
                     buf[n] = 0;
                     r->text = buf;
                     r->kind = PV_TEXT;
+                    int win_lines = 0;
+                    for (ssize_t i = 0; i < n; i++) if (buf[i] == '\n') win_lines++;
+                    if (buf[n - 1] != '\n') win_lines++;
+                    r->total_lines = total >= 0 ? total : r->first_line + win_lines - 1;
                     return;
                 }
                 r->binary = true;
@@ -445,10 +493,11 @@ static void *preview_thread(void *arg) {
     return NULL;
 }
 
-static void preview_request(u32 gen, const char *path, int max_px, int line) {
+static void preview_request(u32 gen, const char *path, int max_px, int line, int page_line) {
     PreviewResult *r = xcalloc(1, sizeof *r);
     r->gen = gen;
     r->want_line = line;
+    r->page_line = page_line;
     snprintf(r->path, sizeof r->path, "%s", path);
     r->max_px = max_px;
     pthread_mutex_lock(&g_pv.mtx);
@@ -473,6 +522,7 @@ typedef struct ThumbReq {
     int px;
     u8 *rgba;
     int w, h;
+    ImageMeta img; // cheap image-header metadata for the grid caption
     struct ThumbReq *next;
 } ThumbReq;
 
@@ -503,7 +553,12 @@ static void thumb_build(ThumbReq *r) {
     if (stat(r->path, &st) == 0) {
         if (ext_in(ext, STB_EXTS) && st.st_size < (80ll << 20)) {
             int w = 0, h = 0, n = 0;
-            if (stbi_info(r->path, &w, &h, &n) && (i64)w * h <= 60000000) ok = load_image(&tmp, r->path);
+            if (stbi_info(r->path, &w, &h, &n)) {
+                r->img.w = w;
+                r->img.h = h;
+                image_dpi_info(r->path, &r->img.dpi_x, &r->img.dpi_y); // header bytes only: no media probes
+                if ((i64)w * h <= 60000000) ok = load_image(&tmp, r->path);
+            }
         }
         if (!ok && !strcmp(ext, "svg")) ok = load_svg_preview(&tmp, r->path);
         if (!ok) ok = try_thumbnail(&tmp, r->path, st.st_mtime, ext);

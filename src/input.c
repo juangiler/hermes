@@ -1047,6 +1047,20 @@ static void on_wheel(SDL_MouseWheelEvent *w) {
         else set_zoom(A.zoom + (w->y > 0 ? 0.1f : -0.1f));
         return;
     }
+    if (A.preview_on && A.pv && A.pv->kind == PV_TEXT &&
+        in_rect(A.r_pv_text, w->mouse_x, w->mouse_y)) {
+        int max_scroll = MAX(0, A.pv->total_lines - A.pv_text_vis);
+        A.text_scroll_lines =
+            CLAMP(A.text_scroll_lines - w->y * 3, 0, max_scroll);
+        int target = A.pv->first_line + A.text_scroll_lines + A.pv_text_vis;
+        int loaded_last = A.pv->first_line + MAX(0, A.pv_text_vis - 1);
+        if (target < A.pv->total_lines &&
+            (A.text_scroll_lines + A.pv_text_vis >= max_scroll ||
+             target >= loaded_last - 4))
+            preview_page_request(MAX(1, A.pv->first_line + A.text_scroll_lines + 30));
+        A.redraw = true;
+        return;
+    }
     if (A.pal_open) {
         pal_move(w->y < 0 ? 3 : -3);
         return;

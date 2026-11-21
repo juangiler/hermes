@@ -1333,6 +1333,84 @@ static int run_selftest_m4(void) {
 
 #define M5_BASE "/tmp/fe-m5-test"
 
+// --- PNG fixtures for preview DPI/alpha checks (chunk + CRC as in the standalone test) ---
+
+static u32 st_png_crc32(const u8 *data, size_t len) {
+    u32 c = 0xFFFFFFFFu;
+    for (size_t i = 0; i < len; i++) {
+        c ^= data[i];
+        for (int k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320u ^ (c >> 1)) : (c >> 1);
+    }
+    return c ^ 0xFFFFFFFFu;
+}
+
+static void st_png_be32(u8 *p, u32 v) {
+    p[0] = (u8)(v >> 24); p[1] = (u8)(v >> 16); p[2] = (u8)(v >> 8); p[3] = (u8)v;
+}
+
+static size_t st_png_chunk(u8 *out, const char type[4], const u8 *data, u32 len) {
+    st_png_be32(out, len);
+    memcpy(out + 4, type, 4);
+    if (len) memcpy(out + 8, data, len);
+    st_png_be32(out + 8 + len, st_png_crc32(out + 4, 4 + len));
+    return 12u + len;
+}
+
+// zlib stream with uncompressed deflate blocks: no zlib dependency in the test.
+static size_t st_png_zlib_stored(const u8 *raw, size_t len, u8 *out) {
+    size_t n = 0;
+    out[n++] = 0x78; out[n++] = 0x01; // deflate, no preset dictionary
+    size_t off = 0;
+    do {
+        size_t k = MIN(len - off, (size_t)65535);
+        out[n++] = (off + k == len) ? 1 : 0; // BFINAL, BTYPE=stored
+        out[n++] = (u8)k; out[n++] = (u8)(k >> 8);
+        out[n++] = (u8)~k; out[n++] = (u8)(~k >> 8);
+        if (k) { memcpy(out + n, raw + off, k); n += k; }
+        off += k;
+    } while (off < len);
+    u32 a = 1, b = 0; // Adler-32; the fixture is all zeroes
+    for (size_t i = 0; i < len; i++) {
+        a += raw[i]; if (a >= 65521u) a -= 65521u;
+        b += a;      if (b >= 65521u) b -= 65521u;
+    }
+    st_png_be32(out + n, (b << 16) | a);
+    return n + 4;
+}
+
+// Fully transparent w x h RGBA PNG; dpi > 0 adds pHYs (300 dpi -> 11811 px/metre).
+static void st_write_png_rgba(const char *path, int w, int h, int dpi) {
+    static const u8 sig[8] = {0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A};
+    u8 ihdr[13];
+    st_png_be32(ihdr, (u32)w);
+    st_png_be32(ihdr + 4, (u32)h);
+    ihdr[8] = 8; ihdr[9] = 6; ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0;
+    size_t raw_len = (size_t)h * (1 + (size_t)w * 4);
+    u8 *raw = xcalloc(raw_len, 1); // filter 0 on every row; every pixel transparent
+    u8 *z = xmalloc(2 + 5 * (raw_len / 65535 + 1) + raw_len + 4);
+    size_t zn = st_png_zlib_stored(raw, raw_len, z);
+    free(raw);
+    u8 *buf = xmalloc(8 + 25 + 21 + (12 + zn) + 12);
+    size_t n = 0;
+    memcpy(buf, sig, 8); n = 8;
+    n += st_png_chunk(buf + n, "IHDR", ihdr, 13);
+    if (dpi > 0) {
+        u8 phys[9];
+        u32 ppm = (u32)lroundf((float)dpi / 0.0254f);
+        st_png_be32(phys, ppm); st_png_be32(phys + 4, ppm); phys[8] = 1;
+        n += st_png_chunk(buf + n, "pHYs", phys, 9);
+    }
+    n += st_png_chunk(buf + n, "IDAT", z, (u32)zn);
+    n += st_png_chunk(buf + n, "IEND", NULL, 0);
+    free(z);
+    FILE *f = fopen(path, "wb");
+    if (f) { fwrite(buf, 1, n, f); fclose(f); }
+    free(buf);
+}
+
+static void st_write_png_dpi(const char *path, int w, int h, int dpi) { st_write_png_rgba(path, w, h, dpi); }
+static void st_write_png_alpha(const char *path, int w, int h) { st_write_png_rgba(path, w, h, 0); }
+
 static void st_setup_m5(void) {
     st_rmrf(M5_BASE);
     st_rmrf("/tmp/fe-selftest-config");
@@ -1345,6 +1423,11 @@ static void st_setup_m5(void) {
     FILE *f = fopen(M5_BASE "/notes.txt", "w");
     for (int i = 1; i <= 50; i++) fprintf(f, "line %d\tof the notes\n", i);
     fclose(f);
+    f = fopen(M5_BASE "/big.txt", "w"); // > 64 KiB, 5000 lines to count
+    for (int i = 1; i <= 5000; i++) fprintf(f, "line %d of the big file\n", i);
+    fclose(f);
+    st_write_png_dpi(M5_BASE "/dpi.png", 1, 1, 300);
+    st_write_png_alpha(M5_BASE "/alpha.png", 64, 64);
     f = fopen(M5_BASE "/logo.svg", "w");
     fprintf(f, "<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64'><rect width='64' height='64' fill='#4c9bff'/></svg>\n");
     fclose(f);
@@ -1366,6 +1449,39 @@ static bool c_pv_ready(void) {
     return A.pv && !strcmp(A.pv_want, cur) && !strcmp(A.pv->path, A.pv_want) && !A.pv_due;
 }
 
+static bool c_pv_paged(void) {
+    return A.pv && A.pv->kind == PV_TEXT && A.pv->first_line > 1;
+}
+
+// A fully transparent preview must leave the panel background visible through the texture and around it
+// (no opaque frame/checkerboard), so a renderer that flattens alpha cannot pass on screenshots alone.
+static void st_check_preview_alpha(void) {
+    ST_CHECK(A.pv && A.pv->kind == PV_IMAGE && A.pv->w > 0 && A.pv->h > 0 && A.pv_tex);
+    if (!A.pv || A.pv->kind != PV_IMAGE || A.pv->w <= 0 || A.pv->h <= 0 || !A.pv_tex) return;
+    SDL_BlendMode bm = SDL_BLENDMODE_NONE;
+    ST_CHECK(SDL_GetTextureBlendMode(A.pv_tex, &bm) && bm == SDL_BLENDMODE_BLEND);
+
+    f32 pad = roundf(S(16)), x = A.r_preview.x + pad, w = A.r_preview.w - pad * 2, y = A.r_preview.y + pad;
+    f32 vh = roundf(MIN(w * 0.8f, A.r_preview.h * 0.42f));
+    f32 tw = (f32)A.pv->w, th = (f32)A.pv->h, sc = MIN(w / tw, vh / th);
+    sc = MIN(sc, 2.f * A.scale);
+    int bx = (int)roundf(x + (w - tw * sc) * 0.5f) - 1;
+    int by = (int)roundf(y + (vh - th * sc) * 0.5f) - 1;
+    int cx = (int)roundf(x + (w - tw * sc) * 0.5f + tw * sc * 0.5f);
+    int cy = (int)roundf(y + (vh - th * sc) * 0.5f + th * sc * 0.5f);
+    SDL_Surface *s = SDL_RenderReadPixels(A.ren, NULL);
+    ST_CHECK(s != NULL);
+    if (!s) return;
+    int wr = (int)((T.preview_bg >> 16) & 255), wg = (int)((T.preview_bg >> 8) & 255), wb = (int)(T.preview_bg & 255);
+    for (int k = 0; k < 2; k++) {
+        int sx = k ? cx : bx, sy = k ? cy : by; // just outside the image border, then its centre
+        Uint8 r8 = 0, g8 = 0, b8 = 0;
+        ST_CHECK(SDL_ReadSurfacePixel(s, sx, sy, &r8, &g8, &b8, NULL));
+        ST_CHECK(abs((int)r8 - wr) <= 6 && abs((int)g8 - wg) <= 6 && abs((int)b8 - wb) <= 6);
+    }
+    SDL_DestroySurface(s);
+}
+
 static int run_selftest_m5(void) {
     st_make_bmp(M5_BASE "/photo.bmp", 640, 480);
     pane_refresh(active_pane());
@@ -1379,11 +1495,106 @@ static int run_selftest_m5(void) {
     ST_CHECK(st_wait_cond(c_pv_ready, 3000));
     ST_CHECK(A.pv->kind == PV_IMAGE && A.pv->src_w == 640 && A.pv->src_h == 480 && A.pv_tex);
     st_shot("preview-image");
+    // DPI from a PNG pHYs chunk
+    st_select(p, "dpi.png");
+    ST_CHECK(st_wait_cond(c_pv_ready, 3000));
+    ST_CHECK(A.pv->kind == PV_IMAGE && A.pv->src_w == 1 && A.pv->src_h == 1);
+    ST_CHECK(fabsf(A.pv->dpi_x - 300.f) < 0.5f && fabsf(A.pv->dpi_y - 300.f) < 0.5f);
+    // a fully transparent PNG keeps its alpha
+    st_select(p, "alpha.png");
+    ST_CHECK(st_wait_cond(c_pv_ready, 3000));
+    ST_CHECK(A.pv->kind == PV_IMAGE && A.pv->src_w == 64 && A.pv->src_h == 64);
+    st_shot("preview-alpha");
+    st_check_preview_alpha();
+    // grid metadata helpers: compact labels only at large icon sizes
+    ImageMeta im = {3264, 2448, 240.f, 240.f};
+    char label[64];
+    ST_CHECK(grid_meta_allowed(96) && !grid_meta_allowed(80));
+    ST_CHECK(grid_meta_label(&im, label, sizeof label));
+    ST_CHECK(!strcmp(label, "3264x2448 240dpi"));
+    im.dpi_x = im.dpi_y = 0;
+    ST_CHECK(grid_meta_label(&im, label, sizeof label));
+    ST_CHECK(!strcmp(label, "3264x2448"));
+    // A page-1 PNG rendered by the preview panel is also a grid thumbnail source:
+    // thumb_build() must discover it without running any PDF probe or renderer.
+    {
+        const char *pdf = M5_BASE "/page1.pdf";
+        FILE *pf = fopen(pdf, "wb");
+        ST_CHECK(pf != NULL);
+        if (pf) { fputs("%PDF-1.4\n", pf); fclose(pf); }
+        char dir[PATH_MAX], png[PATH_MAX];
+        cache_dir(dir, sizeof dir);
+        pdf_page_cache_path(dir, pdf, png, sizeof png);
+        ST_CHECK(mkdir_p(dir, 0700) == 0);
+        st_write_png_alpha(png, 16, 16);
+        struct stat ps;
+        ST_CHECK(stat(pdf, &ps) == 0);
+        struct timespec older[2] = {{ps.st_mtim.tv_sec - 60, 0}, {ps.st_mtim.tv_sec - 60, 0}};
+        ST_CHECK(utimensat(AT_FDCWD, pdf, older, 0) == 0);
+        ST_CHECK(stat(pdf, &ps) == 0);
+        ThumbReq tr;
+        memset(&tr, 0, sizeof tr);
+        snprintf(tr.path, sizeof tr.path, "%s", pdf);
+        tr.mtime = ps.st_mtime;
+        tr.px = 64;
+        thumb_build(&tr);
+        ST_CHECK(tr.rgba && tr.w > 0 && tr.h > 0);
+        free(tr.rgba);
+        unlink(png);
+        unlink(pdf);
+    }
     // text
     st_select(p, "notes.txt");
     ST_CHECK(st_wait_cond(c_pv_ready, 3000));
     ST_CHECK(A.pv->kind == PV_TEXT && A.pv->text && !strncmp(A.pv->text, "line 1\t", 7));
+    ST_CHECK(A.pv->total_lines == 50);
     st_shot("preview-text");
+    // wheel over the text preview scrolls, clamps at both ends, and resets on a new file
+    st_frames(2);
+    SDL_MouseWheelEvent wev;
+    SDL_zero(wev);
+    wev.mouse_x = A.r_pv_text.x + S(10);
+    wev.mouse_y = A.r_pv_text.y + S(10);
+    wev.y = -1; // project convention: negative wheel scrolls down
+    on_wheel(&wev);
+    ST_CHECK(A.text_scroll_lines == 3);
+    wev.y = -1000;
+    on_wheel(&wev);
+    ST_CHECK(A.text_scroll_lines == MAX(0, A.pv->total_lines - A.pv_text_vis));
+    wev.y = 1000;
+    on_wheel(&wev);
+    ST_CHECK(A.text_scroll_lines == 0);
+
+    st_select(p, "photo.bmp");
+    ST_CHECK(st_wait_cond(c_pv_ready, 3000));
+    st_select(p, "notes.txt");
+    ST_CHECK(st_wait_cond(c_pv_ready, 3000));
+    ST_CHECK(A.text_scroll_lines == 0);
+
+    // at the default 800px geometry, wheeling a big file pages to a later window
+    // while the content-search line stays untouched and the rendered target stays loaded
+    st_select(p, "big.txt");
+    ST_CHECK(st_wait_cond(c_pv_ready, 3000));
+    ST_CHECK(A.pv->total_lines == 5000 && A.pv_line == 0);
+    for (int k = 0; k < 40; k++) { wev.y = -1; on_wheel(&wev); st_frames(1); }
+    ST_CHECK(st_wait_cond(c_pv_paged, 3000));
+    ST_CHECK(A.pv_line == 0 && A.pv->first_line > 1);
+    int pv_lines = 0;
+    for (const char *s = A.pv->text; *s; s++) if (*s == '\n') pv_lines++;
+    ST_CHECK(pv_lines > 0 && A.text_scroll_lines < A.pv_text_vis);
+    ST_CHECK(A.pv->first_line + A.text_scroll_lines < A.pv->first_line + pv_lines - 2);
+    // large text: the whole file is counted even though only a 64 KiB window is decoded
+    st_select(p, "big.txt");
+    ST_CHECK(st_wait_cond(c_pv_ready, 3000));
+    ST_CHECK(A.pv->kind == PV_TEXT && A.pv->total_lines == 5000);
+    // paging seeks the window by page_line, without changing want_line
+    preview_page_request(3000);
+    for (int k = 0; k < 300 && !(A.pv && A.pv->page_line == 3000 && !A.pv_page_pending); k++) {
+        st_frames(1);
+        SDL_Delay(3);
+    }
+    ST_CHECK(A.pv && A.pv->kind == PV_TEXT && A.pv->want_line == 0 && A.pv->page_line == 3000 &&
+             A.pv->first_line == 2970 && !strncmp(A.pv->text, "line 2970 ", 10));
     // folder
     st_select(p, "sub");
     ST_CHECK(st_wait_cond(c_pv_ready, 3000));
@@ -1417,9 +1628,15 @@ static int run_selftest_m5(void) {
     st_mouse(SDL_EVENT_MOUSE_MOTION, dx + S(60), A.r_pdiv.y + S(100), 0, 0, 0);
     st_mouse(SDL_EVENT_MOUSE_BUTTON_UP, 0, 0, SDL_BUTTON_LEFT, 1, 0);
     ST_CHECK(fabsf(A.r_preview.w - MAX(before_w - S(60), roundf(S(220)))) < S(4)); // min width 220
-    // Space toggles it off
+    // Space toggles it off; a stale text hit rect must not eat wheels afterwards
+    st_select(p, "notes.txt");
+    ST_CHECK(st_wait_cond(c_pv_ready, 3000));
+    st_frames(1);
+    ST_CHECK(A.r_pv_text.w > 0);
     on_text(" ");
     ST_CHECK(!A.preview_on);
+    st_frames(1);
+    ST_CHECK(A.r_pv_text.w == 0 && A.r_pv_text.h == 0);
 
     // zoom
     int px0 = A.font.px;
