@@ -15,6 +15,54 @@ static void main_drain(void) {}
 static void icons_flush(void) {}
 #include "../src/system_appearance.c"
 
+static void test_navigation_fields(void) {
+    theme_select(theme_find("Dark"));
+    g_unified_surfaces = true;
+    memset(g_surface_brightness, 0, sizeof g_surface_brightness);
+    g_pathbar_brightness = g_searchbar_brightness = 0;
+    g_transparent_pathbar = false;
+    theme_apply();
+
+    u32 neutral = navigation_field_color();
+    assert(pathbar_field_color() == neutral);
+    assert(searchbar_field_color() == neutral);
+    assert(tab_container_color() == pathbar_field_color());
+    assert(pathbar_field_fill_alpha() == 1.f);
+
+    g_surface_brightness[SURFACE_HEADER] = -30;
+    theme_apply();
+    assert(navigation_field_color() != neutral);
+    u32 selection_base = navigation_field_color();
+    assert(pathbar_field_color() == neutral && searchbar_field_color() == neutral);
+
+    g_pathbar_brightness = -30;
+    u32 path_dark = pathbar_field_color();
+    assert(tab_container_color() == path_dark);
+    assert(rgb_luma(path_dark) < rgb_luma(searchbar_field_color()));
+    assert(fabsf(rgb_luma(surface_foreground_color(path_dark, false, false)) - rgb_luma(path_dark)) >= 0.4f);
+
+    g_searchbar_brightness = 30;
+    u32 search_light = searchbar_field_color();
+    assert(rgb_luma(search_light) > rgb_luma(path_dark));
+    assert(tab_container_color() == path_dark);
+    assert(navigation_field_color() == selection_base); // field brightness never moves text selection
+
+    g_transparent_pathbar = true;
+    assert(pathbar_field_fill_alpha() == 0.f);
+    assert(tab_container_color() == path_dark && searchbar_field_color() == search_light);
+
+    theme_apply();
+    theme_apply();
+    assert(pathbar_field_color() == path_dark && searchbar_field_color() == search_light);
+
+    g_transparent_pathbar = false;
+    g_pathbar_brightness = g_searchbar_brightness = 0;
+    memset(g_surface_brightness, 0, sizeof g_surface_brightness);
+    theme_apply();
+    assert(pathbar_field_fill_alpha() == 1.f);
+    assert(tab_container_color() == navigation_field_color());
+}
+
 static void test_surfaces(void) {
     themes_scan();
     assert(g_show_separators && g_unified_surfaces);
@@ -26,7 +74,7 @@ static void test_surfaces(void) {
         assert(T.bg == T.sidebar && T.bg == T.preview_bg && T.bg == T.toolbar && T.bg == T.status);
         Theme base = T;
         u32 container = tab_container_color();
-        assert(container == navigation_field_color());
+        assert(container == pathbar_field_color());
         u32 hover = tab_surface_color(false, true), focus = tab_surface_color(true, true);
         assert(hover != container && focus != container);
         assert(hover != T.toolbar && focus != hover);
@@ -240,16 +288,17 @@ static void test_tab_highlight(void) {
         assert(tab_surface_color(true, true) == T.toolbar);
         assert(tab_surface_color(true, false) == T.toolbar);
         assert(classic_tab_color(true, false) == T.toolbar);
-        assert(classic_tab_color(false, false) == navigation_field_color());
-        assert(tab_container_color() == navigation_field_color());
+        assert(classic_tab_color(false, false) == pathbar_field_color());
+        assert(tab_container_color() == pathbar_field_color());
         assert(classic_tab_color(false, false) == container);
         assert(classic_tab_color(false, true) != classic_tab_color(false, false));
     }
-    // A changed header tint/brightness changes the enclosure, with no accent dependency.
-    g_surface_brightness[SURFACE_HEADER] = 15;
-    theme_apply();
-    assert(tab_container_color() != container && tab_container_color() == navigation_field_color());
-    g_surface_brightness[SURFACE_HEADER] = 0;
+    // Path-field brightness changes the enclosure, with no accent or header dependency.
+    u32 toolbar = T.toolbar;
+    g_pathbar_brightness = 15;
+    assert(tab_container_color() != container && tab_container_color() == pathbar_field_color());
+    assert(T.toolbar == toolbar);
+    g_pathbar_brightness = 0;
     g_theme_cur = theme;
     g_accent_custom = manual;
     g_system_accent = system;
@@ -457,10 +506,11 @@ int main(void) {
     test_tab_highlight();
     test_sidebar_accent();
     test_theme_capture();
+    test_navigation_fields();
     test_surfaces();
     test_integrated_header();
     test_system_palette();
     test_portal_messages();
-    puts("Appearance checks passed: independent/reversible surfaces, tab/header preferences, shared-row geometry, control visibility, accent contrast, system palette/tint, accent fallback, RGB validation, real D-Bus decoding.");
+    puts("Appearance checks passed: independent/reversible surfaces, independent field colors, tab/header preferences, shared-row geometry, control visibility, accent contrast, system palette/tint, accent fallback, RGB validation, real D-Bus decoding.");
     return 0;
 }

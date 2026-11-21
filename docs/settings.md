@@ -113,9 +113,17 @@ an unapplied edit. Saved setting: `scrollbar_color=auto` or, for example, `scrol
 
 **Surfaces and system highlight** (Options > Appearance): "Unified surfaces" uses the theme's main background
 for the sidebar, preview, header, center and status bar (enabled by default). Independent brightness controls adjust
-each area from -30% to +30% in 5% steps; 0 restores its original brightness. The header control includes navigation,
-pill tabs and the app-drawn title strip. Sidebar and preview brightness are independent. Turning off unified surfaces
-restores the selected theme's original surface differences. Terminal content keeps its terminal palette.
+each area from -30% to +30% in 5% steps; 0 restores its original brightness. The header control adjusts the app-drawn
+title strip, tab bar, selected tab fill and window controls. Sidebar and preview brightness are independent. Turning off
+unified surfaces restores the selected theme's original surface differences. Terminal content keeps its terminal palette.
+
+The path field and pill-tab enclosure have their own **Path bar and pills brightness** control, and the folder search
+field has its own **Folder search background brightness** control. Both default to 0 for new installs and adjust only
+those surfaces, so darkening the path bar no longer darkens the whole header strip. When upgrading an older settings
+file that has neither key, each inherits the saved header brightness once so the existing appearance is preserved.
+**Transparent path bar** removes only the path
+field fill, keeping a faint outline so it stays discoverable; pill tabs and the folder search field stay filled, and
+the accent focus outline while editing the path is unchanged.
 
 "Show separator lines" is **on by default**. The sidebar separator runs continuously from the integrated header
 through the sidebar. Turn the option off to hide panel/header/status borders and column dividers.
@@ -137,6 +145,9 @@ preview_brightness=0
 header_brightness=0
 main_brightness=0
 status_brightness=0
+pathbar_brightness=0
+searchbar_brightness=0
+transparent_pathbar=0
 system_accent=0
 match_system_background=0
 previous_theme=Dark

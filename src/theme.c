@@ -106,6 +106,8 @@ enum { SURFACE_SIDEBAR, SURFACE_HEADER, SURFACE_MAIN, SURFACE_STATUS, SURFACE_PR
 static int g_surface_brightness[SURFACE_COUNT]; // signed percentage, -30 .. +30
 static bool g_unified_surfaces = true, g_show_separators = true;
 static int g_navigation_selection_opacity = NAV_SELECTION_DEFAULT;
+static int g_pathbar_brightness, g_searchbar_brightness;
+static bool g_transparent_pathbar;
 static bool g_accent_system, g_match_system_background;
 static char g_previous_theme[64] = "Dark";
 static u32 g_scroll_custom; // 0 = automatic; otherwise 0x01000000 | rgb
@@ -212,17 +214,27 @@ static u32 navigation_surface_color(u32 background, bool selected) {
     return rgb_mix(background, T.accent, selected ? CLAMP(g_navigation_selection_opacity, 0, 100) / 100.f : 0.08f);
 }
 
-// One neutral fill for path/search fields, the pill enclosure and unfocused
-// classic tabs. Keep accent highlights separate from the shared background.
+// Neutral base for text selection in every field; header brightness only.
 static u32 navigation_field_color(void) {
     return rgb_mix(surface_adjust(T.field, g_surface_brightness[SURFACE_HEADER]), 0x000000, 0.05f);
 }
+// Field backgrounds have their own brightness so darkening path/pills does not
+// move the title strip or the folder search box.
+static u32 pathbar_field_color(void) {
+    return rgb_mix(surface_adjust(T.field, g_pathbar_brightness), 0x000000, 0.05f);
+}
+static u32 searchbar_field_color(void) {
+    return rgb_mix(surface_adjust(T.field, g_searchbar_brightness), 0x000000, 0.05f);
+}
+static f32 pathbar_field_fill_alpha(void) {
+    return g_transparent_pathbar ? 0.f : 1.f;
+}
 static u32 tab_container_color(void) {
-    return navigation_field_color();
+    return pathbar_field_color();
 }
 static u32 classic_tab_color(bool selected, bool hovered) {
     if (selected) return T.toolbar;
-    u32 base = navigation_field_color();
+    u32 base = pathbar_field_color();
     return hovered ? rgb_mix(base, T.text, 0.04f) : base;
 }
 static u32 tab_surface_color(bool focused, bool active) {

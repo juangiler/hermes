@@ -13,6 +13,7 @@ enum {
     OPT_UPD_NOW, OPT_UPD_HOW, OPT_UPD_NOTES, OPT_UPD_AUTO,
     OPT_SYSTEM_ACCENT, OPT_SYSTEM_BACKGROUND, OPT_UNIFIED_SURFACES, OPT_SEPARATORS,
     OPT_SIDEBAR_BRIGHTNESS, OPT_HEADER_BRIGHTNESS, OPT_MAIN_BRIGHTNESS, OPT_STATUS_BRIGHTNESS, OPT_PREVIEW_BRIGHTNESS,
+    OPT_PATHBAR_BRIGHTNESS, OPT_SEARCHBAR_BRIGHTNESS, OPT_TRANSPARENT_PATHBAR,
     OPT_TAB_POSITION, OPT_TAB_STYLE, OPT_SCROLL_COLOR, OPT_NAV_SELECTION_OPACITY, OPT_HEADER_LABEL, OPT_HEADER_TEXT, OPT_WINDOW_CONTROLS, OPT_HEADER_ICON, OPT_APP_ICON,
 };
 
@@ -52,7 +53,10 @@ static const OptDef g_opts[] = {
     {OC_APPEARANCE, OK_INT, OPT_NAV_SELECTION_OPACITY, "Navigation selection opacity", "Sidebar, configuration navigation and pill tabs: 0-100%, default 40%; hover stays at 8%"},
     {OC_APPEARANCE, OK_INT, OPT_SIDEBAR_BRIGHTNESS, "Sidebar brightness", "Left sidebar only: negative darkens, positive lightens, zero resets"},
     {OC_APPEARANCE, OK_INT, OPT_PREVIEW_BRIGHTNESS, "Preview panel brightness", "Right preview panel only: -30% to +30%, independent of the sidebar"},
-    {OC_APPEARANCE, OK_INT, OPT_HEADER_BRIGHTNESS, "Header brightness", "Label, navigation, tabs and window controls: -30% to +30%"},
+    {OC_APPEARANCE, OK_INT, OPT_HEADER_BRIGHTNESS, "Header brightness", "Title strip, tab bar, selected tab fill and window controls: -30% to +30%"},
+    {OC_APPEARANCE, OK_INT, OPT_PATHBAR_BRIGHTNESS, "Path bar and pills brightness", "Path field and pill-tab enclosure: -30% to +30%"},
+    {OC_APPEARANCE, OK_INT, OPT_SEARCHBAR_BRIGHTNESS, "Folder search background brightness", "Folder search field only: -30% to +30%"},
+    {OC_APPEARANCE, OK_BOOL, OPT_TRANSPARENT_PATHBAR, "Transparent path bar", "Remove only the path field fill; pills and search stay filled"},
     {OC_APPEARANCE, OK_INT, OPT_MAIN_BRIGHTNESS, "File area brightness", "Main central window: -30% to +30%"},
     {OC_APPEARANCE, OK_INT, OPT_STATUS_BRIGHTNESS, "Status bar brightness", "Lower status bar: -30% to +30%"},
     {OC_APPEARANCE, OK_CHOICE, OPT_TAB_STYLE, "Tab style", "Classic tabs above navigation, or centered pills below navigation"},
@@ -311,6 +315,7 @@ static bool opt_bool_get(int id) {
     case OPT_SYSTEM_BACKGROUND: return g_match_system_background;
     case OPT_SYSTEM_ACCENT: return g_accent_system;
     case OPT_UNIFIED_SURFACES: return g_unified_surfaces;
+    case OPT_TRANSPARENT_PATHBAR: return g_transparent_pathbar;
     case OPT_SEPARATORS: return g_show_separators;
     case OPT_DIM_INACTIVE: return A.dim_inactive;
     case OPT_ROUND_CORNERS: return A.round_corners;
@@ -355,6 +360,7 @@ static void opt_bool_toggle(int id) {
         theme_apply();
         break;
     case OPT_UNIFIED_SURFACES: g_unified_surfaces = !g_unified_surfaces; theme_apply(); break;
+    case OPT_TRANSPARENT_PATHBAR: g_transparent_pathbar = !g_transparent_pathbar; break;
     case OPT_SEPARATORS: g_show_separators = !g_show_separators; break;
     case OPT_DIM_INACTIVE: A.dim_inactive = !A.dim_inactive; break;
     case OPT_ROUND_CORNERS:
@@ -404,6 +410,8 @@ static int opt_int_get(int id) {
     case OPT_HEADER_BRIGHTNESS: return g_surface_brightness[SURFACE_HEADER];
     case OPT_MAIN_BRIGHTNESS: return g_surface_brightness[SURFACE_MAIN];
     case OPT_STATUS_BRIGHTNESS: return g_surface_brightness[SURFACE_STATUS];
+    case OPT_PATHBAR_BRIGHTNESS: return g_pathbar_brightness;
+    case OPT_SEARCHBAR_BRIGHTNESS: return g_searchbar_brightness;
     case OPT_NAV_SELECTION_OPACITY: return g_navigation_selection_opacity;
     case OPT_FONT_SIZE: return A.font_size;
     case OPT_ZOOM: return (int)lroundf(A.zoom * 100);
@@ -420,6 +428,13 @@ static void opt_int_step(int id, int dir) {
         return;
     }
     switch (id) {
+    case OPT_PATHBAR_BRIGHTNESS:
+    case OPT_SEARCHBAR_BRIGHTNESS: {
+        int *value = id == OPT_PATHBAR_BRIGHTNESS ? &g_pathbar_brightness : &g_searchbar_brightness;
+        *value = CLAMP(*value + dir * 5, -30, 30);
+        theme_apply();
+        break;
+    }
     case OPT_NAV_SELECTION_OPACITY:
         g_navigation_selection_opacity = CLAMP(g_navigation_selection_opacity + dir * 5, 0, 100);
         break;
@@ -433,7 +448,8 @@ static void opt_int_step(int id, int dir) {
 }
 
 static void opt_int_fmt(int id, char *buf, size_t cap) {
-    if (id >= OPT_SIDEBAR_BRIGHTNESS && id <= OPT_PREVIEW_BRIGHTNESS)
+    if ((id >= OPT_SIDEBAR_BRIGHTNESS && id <= OPT_PREVIEW_BRIGHTNESS) ||
+        id == OPT_PATHBAR_BRIGHTNESS || id == OPT_SEARCHBAR_BRIGHTNESS)
         snprintf(buf, cap, "%+d%%", opt_int_get(id));
     else if (id == OPT_ZOOM || id == OPT_NAV_SELECTION_OPACITY) snprintf(buf, cap, "%d%%", opt_int_get(id));
     else snprintf(buf, cap, "%d px", opt_int_get(id));

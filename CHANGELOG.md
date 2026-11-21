@@ -28,6 +28,8 @@ will be listed above that history.
   library behind a small ABI, with host callbacks and headless self-tests. The
   SDL application and its behaviour are unchanged; this is groundwork for the
   Qt/Kirigami port.
+- Path bar/pill and folder search backgrounds now have independent brightness
+  controls, plus a path-only transparency option.
 
 ## 0.0.1
 

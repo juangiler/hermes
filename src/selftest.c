@@ -3180,6 +3180,61 @@ static int run_selftest_m9(void) {
     opt_int_step(OPT_NAV_SELECTION_OPACITY, -1);
     ST_CHECK(g_navigation_selection_opacity == 40);
 
+    // Navigation field colors have their own defaults, persistence and clamping.
+    settings_defaults();
+    qa_defaults(); // settings_defaults() frees Quick Access; keep later frames renderable
+    ST_CHECK(g_pathbar_brightness == 0 && g_searchbar_brightness == 0 && !g_transparent_pathbar);
+    g_pathbar_brightness = -15;
+    g_searchbar_brightness = 20;
+    g_transparent_pathbar = true;
+    settings_save(); settings_load();
+    ST_CHECK(g_pathbar_brightness == -15 && g_searchbar_brightness == 20 && g_transparent_pathbar);
+    char cfg[PATH_MAX];
+    settings_file(cfg, sizeof cfg, false);
+    FILE *sf = fopen(cfg, "w");
+    ST_CHECK(sf != NULL);
+    if (sf) {
+        fputs("pathbar_brightness=99\nsearchbar_brightness=-99\ntransparent_pathbar=1\n", sf);
+        fclose(sf);
+    }
+    settings_load();
+    ST_CHECK(g_pathbar_brightness == 30 && g_searchbar_brightness == -30 && g_transparent_pathbar);
+
+    // Legacy files had no field keys: inherit the old header-derived fill once on upgrade.
+    sf = fopen(cfg, "w");
+    ST_CHECK(sf != NULL);
+    if (sf) {
+        fputs("settings_version=1\nheader_brightness=-30\n", sf);
+        fclose(sf);
+    }
+    settings_load();
+    ST_CHECK(g_pathbar_brightness == -30 && g_searchbar_brightness == -30);
+
+    // Explicit keys in a legacy file win over the inherited header value.
+    sf = fopen(cfg, "w");
+    ST_CHECK(sf != NULL);
+    if (sf) {
+        fputs("settings_version=1\nheader_brightness=-30\npathbar_brightness=15\nsearchbar_brightness=-10\n", sf);
+        fclose(sf);
+    }
+    settings_load();
+    ST_CHECK(g_pathbar_brightness == 15 && g_searchbar_brightness == -10);
+    settings_defaults();
+    qa_defaults();
+
+    opt_int_step(OPT_PATHBAR_BRIGHTNESS, 1);
+    opt_int_step(OPT_SEARCHBAR_BRIGHTNESS, -1);
+    opt_bool_toggle(OPT_TRANSPARENT_PATHBAR);
+    ST_CHECK(g_pathbar_brightness == 5 && g_searchbar_brightness == -5 && g_transparent_pathbar);
+    settings_save(); settings_load();
+    ST_CHECK(g_pathbar_brightness == 5 && g_searchbar_brightness == -5 && g_transparent_pathbar);
+    opt_int_step(OPT_PATHBAR_BRIGHTNESS, -1);
+    opt_int_step(OPT_SEARCHBAR_BRIGHTNESS, 1);
+    opt_bool_toggle(OPT_TRANSPARENT_PATHBAR);
+    settings_defaults();
+    qa_defaults();
+    ST_CHECK(g_pathbar_brightness == 0 && g_searchbar_brightness == 0 && !g_transparent_pathbar);
+
     // settings round trip
     g_theme_cur = theme_find("Nord");
     g_accent_custom = 0x01000000u | 0x123456;
