@@ -3202,6 +3202,19 @@ static int run_selftest_m9(void) {
     settings_defaults();
     qa_defaults();
 
+    opt_int_step(OPT_PATHBAR_BRIGHTNESS, 1);
+    opt_int_step(OPT_SEARCHBAR_BRIGHTNESS, -1);
+    opt_bool_toggle(OPT_TRANSPARENT_PATHBAR);
+    ST_CHECK(g_pathbar_brightness == 5 && g_searchbar_brightness == -5 && g_transparent_pathbar);
+    settings_save(); settings_load();
+    ST_CHECK(g_pathbar_brightness == 5 && g_searchbar_brightness == -5 && g_transparent_pathbar);
+    opt_int_step(OPT_PATHBAR_BRIGHTNESS, -1);
+    opt_int_step(OPT_SEARCHBAR_BRIGHTNESS, 1);
+    opt_bool_toggle(OPT_TRANSPARENT_PATHBAR);
+    settings_defaults();
+    qa_defaults();
+    ST_CHECK(g_pathbar_brightness == 0 && g_searchbar_brightness == 0 && !g_transparent_pathbar);
+
     // settings round trip
     g_theme_cur = theme_find("Nord");
     g_accent_custom = 0x01000000u | 0x123456;
