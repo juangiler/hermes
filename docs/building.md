@@ -2,10 +2,9 @@
 
 [README](../README.md) · [Install](install.md) · [Architecture](architecture.md)
 
-Hermes is a C11/SDL3 Linux application with a unity build. `build.sh` compiles
-only `src/main.c`; other C files are included into that translation unit.
-CMake is only used for the headless core library; ordinary application builds
-do not need it.
+Hermes is a C11/SDL3 Linux application with a unity build. `build.sh` is the
+only build path: it compiles `src/main.c` with the other C files included into
+that translation unit.
 
 ## Dependencies
 
@@ -42,49 +41,6 @@ Use package mode for distribution packages; `-march=native` is release-only.
 `hermes --version` prints the application and SDL versions. Files open their
 parent folder with the file selected; folders open as tabs. Single-instance
 behavior and saved sessions remain configurable.
-
-## Headless core library
-
-`build.sh` remains authoritative for the SDL application. A separate CMake
-project builds the SDL-free `hermes_core` static library and its self-test:
-
-```sh
-cmake -S . -B build/cmake
-cmake --build build/cmake --target hermes-core-selftest hermes-core-abi-selftest hermes-cpp-probe
-./build/cmake/hermes-core-selftest
-./build/cmake/hermes-core-abi-selftest
-./build/cmake/hermes-cpp-probe
-```
-
-These targets link `libarchive`, `fuse3`, `openssl`, `m`, `dl` and `pthread`;
-they are used by the Qt/Kirigami port and by CI as an early parity check. The
-ABI self-test and C++ probe compile only against the public headers and link
-the static archive, which is what a Qt frontend will do. The cross-device copy
-case needs `/dev/shm`, and the permission-denied case must run as a normal user.
-
-### Qt portal plumbing
-
-Qt 6 (`Core`, `DBus`, `Test`) builds the headless portal library and its test
-through the same CMake project, separately from the `build.sh` application:
-
-```sh
-cmake -S . -B build/cmake
-cmake --build build/cmake     # all targets, including the portal backend and suite
-sh tools/portal-selftest.sh   # private dbus-run-session, Qt Test portal suite
-./build/cmake/hermes-portal-backend --help
-./build/cmake/hermes-core-abi-selftest
-./build/cmake/hermes-core-selftest
-./build/cmake/hermes-cpp-probe
-```
-
-`tools/portal-selftest.sh` builds `hermes-portal-backend` and
-`hermes-portal-selftest` itself and runs them under `dbus-run-session`, so a
-local run and CI use the same entry point. The suite needs a working session
-bus; it does not open a picker window. CI's informational `portal-selftest`
-job runs on `archlinux:latest` with `qt6-base` and `dbus` (plus the core build
-dependencies) as a non-root user. The other images in the build matrix do not
-declare Qt packages in CI yet, so do not assume coverage there. These headless
-runs prove D-Bus plumbing only, not live KDE Plasma portal behaviour.
 
 ## Install and package
 
@@ -150,7 +106,10 @@ enabled. Report that limitation, and do not disable leak detection in normal CI.
 
 ## Standalone regression checks
 
-These need no SDL display. Each C source starts with its exact compiler command:
+These need no SDL display. The engine's own self-test runs through
+`sh tools/core-selftest.sh`, which compiles `tools/core-selftest.c` with the
+command in that file's header and runs it without a display server. Each other C
+source starts with its exact compiler command:
 
 - `tools/appearance-selftest.c`
 - `tools/credentials-selftest.c`

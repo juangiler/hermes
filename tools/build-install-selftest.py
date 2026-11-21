@@ -164,20 +164,10 @@ class BuildInstallTest(unittest.TestCase):
         self.assertIn("LINUXDEPLOY_SHA256", result.stdout)
         self.assertFalse((self.root / "build/appimage").exists())
 
-    def test_cmake_core_targets(self):
-        cmake = (ROOT / "CMakeLists.txt").read_text()
-        self.assertIn("add_library(hermes_core STATIC src/hermes_core.c)", cmake)
-        self.assertIn("add_executable(hermes-core-selftest tools/core-selftest.c)", cmake)
-        self.assertIn("add_executable(hermes-cpp-probe tools/core-api-probe.cpp)", cmake)
-        self.assertIn("add_executable(hermes-core-abi-selftest tools/core-abi-selftest.c)", cmake)
-
-    def test_docs_describe_opt_in_portal_roles_and_headless_tests(self):
-        docs = self.root / "docs"
-        integration = (docs / "integration.md").read_text()
-        building = (docs / "building.md").read_text()
-        self.assertIn("--enable-filechooser", integration)
-        self.assertIn("portals.conf.hermes-backup", integration)
-        self.assertIn("hermes-portal-selftest", building)
+    def test_standalone_core_selftest_entry_point(self):
+        script = ROOT / "tools/core-selftest.sh"
+        self.assertTrue(script.is_file())
+        self.assertTrue(os.access(script, os.X_OK))
 
 
 if __name__ == "__main__":
