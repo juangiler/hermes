@@ -160,6 +160,7 @@ These need no SDL display. Each C source starts with its exact compiler command:
 - `tools/local-shares-selftest.c`
 - `tools/apps-discovery-selftest.c`
 - `tools/svg-preview-selftest.c`
+- `tools/preview-info-selftest.c`
 - `tools/icon-contrast-selftest.c`
 - `tools/text-pointer-selftest.c`
 - `tools/text-caret-selftest.c`
